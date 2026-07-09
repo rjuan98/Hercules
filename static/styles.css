@@ -1038,3 +1038,107 @@ details.form-advanced summary {
 }
 details.form-advanced[open] { padding-bottom: 18px; }
 details.form-advanced .form-grid { margin-top: 14px; }
+
+/* ============================================================
+   Pergunta inteligente (ensinar o Hércules)
+   ============================================================ */
+.suggestion-card {
+    border: 1px solid rgba(245, 195, 44, 0.35);
+    background: linear-gradient(145deg, rgba(245,195,44,0.10), rgba(255,255,255,0.03));
+}
+.suggestion-head {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 14px;
+}
+.suggestion-icon { font-size: 1.6rem; line-height: 1; }
+.suggestion-text { margin: 0; line-height: 1.55; }
+.chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.chip-action {
+    cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.06);
+    color: inherit;
+    font: inherit;
+    font-size: 0.88rem;
+    padding: 7px 14px;
+    border-radius: 999px;
+    transition: all 0.15s ease;
+}
+.chip-action:hover {
+    border-color: rgba(245, 195, 44, 0.7);
+    background: rgba(245, 195, 44, 0.16);
+    color: #ffe08a;
+}
+.suggestion-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.suggestion-actions input[type="text"] {
+    flex: 1;
+    min-width: 160px;
+}
+
+/* ============================================================
+   Limites de categoria
+   ============================================================ */
+.badge-warn { background: rgba(250, 204, 21, 0.18); color: #fde68a; border-color: rgba(250, 204, 21, 0.4); }
+.badge-danger { background: rgba(244, 63, 94, 0.18); color: #fda4af; border-color: rgba(244, 63, 94, 0.4); }
+.progress-fill.fill-warn { background: linear-gradient(90deg, #facc15, #f59e0b); }
+.progress-fill.fill-danger { background: linear-gradient(90deg, #fb7185, #e11d48); }
+
+/* ============================================================
+   Modo simples (letras grandes, só o essencial)
+   ============================================================ */
+.simple-home {
+    max-width: 640px;
+    margin: 4vh auto 0;
+    text-align: center;
+    display: grid;
+    gap: 18px;
+    padding: 24px 8px;
+}
+.simple-status {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+}
+.simple-status a { color: #ffe08a; font-weight: 700; }
+.simple-line {
+    font-size: 2rem;
+    line-height: 1.35;
+    margin: 0;
+    font-weight: 500;
+}
+.simple-line strong { color: #ffe08a; }
+.simple-line-2 {
+    font-size: 1.3rem;
+    line-height: 1.5;
+    margin: 0;
+    color: var(--muted);
+}
+.simple-line-2 strong { color: #86efac; }
+.simple-actions {
+    display: grid;
+    gap: 12px;
+    margin-top: 10px;
+}
+.simple-big-btn {
+    width: 100%;
+    padding: 18px 20px !important;
+    font-size: 1.15rem !important;
+    justify-content: center;
+}
+.simple-footnote { font-size: 1rem; color: var(--muted); }
+.simple-footnote a { color: #ffe08a; font-weight: 700; }
+
+body.mode-simple .main-content { font-size: 1.06rem; }
+body.mode-simple .topbar-subtitle { font-size: 0.95rem; }
+body.mode-simple .toast { font-size: 1.05rem; }

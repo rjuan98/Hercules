@@ -19,7 +19,7 @@
     <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}" defer></script>
     {% block head_extra %}{% endblock %}
 </head>
-<body class="{% if not session.get('user_id') %}auth-page{% endif %}">
+<body class="{% if not session.get('user_id') %}auth-page{% endif %} {% if session.get('view_mode') == 'simples' %}mode-simple{% endif %}">
     <div class="app-shell" id="appShell">
         {% if session.get('user_id') %}
         {% set perfil = session.get('perfil', 'pf') %}
@@ -36,14 +36,20 @@
                 <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Fechar menu">✕</button>
             </div>
 
+            {% set modo_simples = session.get('view_mode', 'completo') == 'simples' %}
             <nav class="sidebar-nav">
                 <a href="{{ url_for('home') }}" class="menu-link {% if request.path == '/' %}active{% endif %}"><i data-lucide="house"></i><span>Início</span></a>
+                {% if not modo_simples %}
                 <a href="{{ url_for('dashboard') }}" class="menu-link {% if request.path.startswith('/dashboard') %}active{% endif %}"><i data-lucide="pie-chart"></i><span>Resumo</span></a>
+                {% endif %}
                 <a href="{{ url_for('listar_transacoes') }}" class="menu-link {% if request.path.startswith('/transacoes') %}active{% endif %}"><i data-lucide="activity"></i><span>Entradas e saídas</span></a>
+                {% if not modo_simples %}
                 <a href="{{ url_for('compromissos') }}" class="menu-link {% if request.path.startswith('/compromissos') %}active{% endif %}"><i data-lucide="calendar-days"></i><span>Contas</span></a>
+                <a href="{{ url_for('categorias') }}" class="menu-link {% if request.path.startswith('/categorias') %}active{% endif %}"><i data-lucide="tags"></i><span>Categorias</span></a>
                 <a href="{{ url_for('metas') }}" class="menu-link {% if request.path.startswith('/metas') %}active{% endif %}"><i data-lucide="target"></i><span>Metas</span></a>
+                {% endif %}
                 <a href="{{ url_for('listar_notas') }}" class="menu-link {% if request.path.startswith('/notas') %}active{% endif %}"><i data-lucide="files"></i><span>Notas</span></a>
-                {% if perfil in ['mei', 'lojista', 'hibrido'] %}
+                {% if perfil in ['mei', 'lojista', 'hibrido'] and not modo_simples %}
                 <a href="{{ url_for('business_dashboard') }}" class="menu-link {% if request.path.startswith('/business') %}active{% endif %}"><i data-lucide="store"></i><span>Negócio</span></a>
                 <a href="{{ url_for('clientes') }}" class="menu-link {% if request.path.startswith('/clientes') %}active{% endif %}"><i data-lucide="users"></i><span>Clientes</span></a>
                 <a href="{{ url_for('servicos') }}" class="menu-link {% if request.path.startswith('/servicos') %}active{% endif %}"><i data-lucide="package"></i><span>Serviços</span></a>

@@ -4,6 +4,52 @@
 {% block page_subtitle %}Tudo em dia, metas e próximos passos.{% endblock %}
 
 {% block content %}
+
+{# ---- Pergunta inteligente: o Hércules aprende com uma pergunta ---- #}
+{% for s in suggestions %}
+<section class="page-card suggestion-card" style="margin-bottom:18px;">
+    <div class="suggestion-head">
+        <span class="suggestion-icon">🤔</span>
+        <p class="suggestion-text">
+            Percebi <strong>{{ s['vezes'] }} gastos em “{{ s['display'] }}”</strong>
+            somando <strong>{{ s['total']|money }}</strong> nos últimos 2 meses.
+            O que é isso pra você?
+        </p>
+    </div>
+    <form method="POST" action="{{ url_for('criar_regra') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="padrao_texto" value="{{ s['display'] }}">
+        <input type="hidden" name="voltar" value="{{ url_for('home') }}">
+        <div class="chip-row">
+            {% for cat in suggestion_categories[:8] %}
+            <button type="submit" name="categoria_nome" value="{{ cat }}" class="chip chip-action">{{ cat }}</button>
+            {% endfor %}
+        </div>
+        <div class="suggestion-actions">
+            <input type="text" name="nova_categoria" placeholder="Ou crie uma nova: ex. Doces" maxlength="40">
+            <button type="submit" class="button button-primary">Ensinar</button>
+            <button type="submit" name="acao" value="ignorar" class="button button-outline">Deixar como está</button>
+        </div>
+    </form>
+</section>
+{% endfor %}
+
+{% if view_mode == 'simples' %}
+{# ---- Modo simples: três frases e um botão ---- #}
+<section class="simple-home">
+    <p class="simple-status">{{ status_emoji }}
+        {% if all_clear %}Você está com tudo em dia.{% else %}Temos algumas coisas para resolver — <a href="{{ url_for('compromissos') }}">veja aqui</a>.{% endif %}
+    </p>
+    <h1 class="simple-line">Você gastou <strong>{{ today_spent|money }}</strong> hoje.</h1>
+    <p class="simple-line-2">Continuando assim, você termina o mês com cerca de <strong>{{ projected_end|money }}</strong>.</p>
+    <div class="simple-actions">
+        <a href="{{ url_for('nova_transacao') }}" class="button button-primary simple-big-btn"><i data-lucide="plus-circle"></i> Registrar gasto ou entrada</a>
+        <a href="{{ url_for('nova_nota') }}" class="button button-outline simple-big-btn"><i data-lucide="camera"></i> Guardar uma nota</a>
+    </div>
+    <p class="simple-footnote">Quer ver mais detalhes? <a href="{{ url_for('dashboard') }}">Abrir o resumo completo</a></p>
+</section>
+
+{% else %}
 <section class="page-card hero-card">
     <div class="hero-grid">
         <div class="hero-copy">
@@ -174,7 +220,7 @@
 </section>
 
 {% if business %}
-<section class="metric-grid cols-4" style="margin-top:18px;">
+<section class="metric-grid cols-4" style="margin-top:18px;" id="businessMetrics">
     <article class="glass-card metric-card">
         <p class="metric-label">Receita do negócio</p>
         <p class="metric-value">{{ business['revenue_month']|money }}</p>
@@ -193,6 +239,7 @@
     </article>
 </section>
 {% endif %}
+{% endif %}{# fim do modo completo #}
 {% endblock %}
 
 {% block scripts %}

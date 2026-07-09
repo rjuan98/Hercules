@@ -34,6 +34,7 @@
         <div class="form-group">
             <label for="categoria">Categoria</label>
             <select id="categoria" name="categoria">
+                <option value="" data-tipo="saida">🤖 Deixar o Hércules decidir</option>
                 {% for cat in categories %}
                 <option value="{{ cat }}" data-tipo="saida">{{ cat }}</option>
                 {% endfor %}

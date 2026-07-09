@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Categorias · Hércules{% endblock %}
+{% block page_title %}Categorias{% endblock %}
+{% block page_subtitle %}Dê nome ao que o dinheiro significa — e limites para o que quer cortar.{% endblock %}
+
+{% block content %}
+<section class="page-card">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Criar categoria</h2>
+        <p class="topbar-subtitle">Ex.: Doces, Passagem, Cafézinho. Com limite mensal, o Hércules avisa quando estiver perto.</p>
+    </div>
+    <form method="POST" class="form-grid cols-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="nome">Nome</label>
+            <input id="nome" type="text" name="nome" placeholder="Doces" required maxlength="40">
+        </div>
+        <div class="form-group">
+            <label for="icone">Emoji <span class="helper-text">(opcional)</span></label>
+            <input id="icone" type="text" name="icone" placeholder="🍬" maxlength="4">
+        </div>
+        <div class="form-group">
+            <label for="limite_mensal">Limite por mês <span class="helper-text">(opcional)</span></label>
+            <input id="limite_mensal" type="number" step="0.01" min="0" name="limite_mensal" placeholder="0,00" inputmode="decimal">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button class="button button-primary" type="submit" style="width:100%;">Salvar categoria</button>
+        </div>
+    </form>
+</section>
+
+<section style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:10px;">
+        <h2 class="topbar-title" style="font-size:1.15rem;">Suas categorias — {{ month }}</h2>
+    </div>
+    <ul class="data-list">
+        {% for item in customs %}
+        {% set cat = item.row %}
+        <li class="data-item" style="padding:18px;">
+            <div class="note-header">
+                <div>
+                    <p class="note-title">{{ cat['icone'] or '🏷️' }} {{ cat['nome'] }}</p>
+                    <div class="note-meta">
+                        <span>Gasto no mês: <strong>{{ item.gasto|money }}</strong></span>
+                        {% if item.limite > 0 %}<span>Limite: {{ item.limite|money }}</span>{% endif %}
+                    </div>
+                </div>
+                {% if item.pct is not none %}
+                <span class="badge {% if item.pct >= 100 %}badge-danger{% elif item.pct >= 80 %}badge-warn{% endif %}">{{ item.pct|round(0)|int }}%</span>
+                {% endif %}
+            </div>
+            {% if item.pct is not none %}
+            <div class="progress-track" style="margin-top:10px;">
+                <div class="progress-fill {% if item.pct >= 100 %}fill-danger{% elif item.pct >= 80 %}fill-warn{% endif %}" style="width: {{ item.pct }}%;"></div>
+            </div>
+            {% if item.pct >= 100 %}
+            <p class="helper-text" style="margin-top:8px; color:#fda4af;">Limite estourado — {{ (item.gasto - item.limite)|money }} acima.</p>
+            {% elif item.pct >= 80 %}
+            <p class="helper-text" style="margin-top:8px; color:#fde68a;">Quase no limite — restam {{ (item.limite - item.gasto)|money }}.</p>
+            {% endif %}
+            {% endif %}
+            <div class="note-actions" style="margin-top:12px;">
+                <details class="form-advanced" style="flex:1;">
+                    <summary>Editar limite</summary>
+                    <form method="POST" class="form-grid" style="grid-template-columns:1fr auto; gap:10px;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="nome" value="{{ cat['nome'] }}">
+                        <input type="number" step="0.01" min="0" name="limite_mensal" value="{{ cat['limite_mensal'] or '' }}" placeholder="Limite por mês" inputmode="decimal">
+                        <button type="submit" class="button button-outline">Salvar</button>
+                    </form>
+                </details>
+                <form method="POST" action="{{ url_for('delete_categoria', cat_id=cat['id']) }}" data-confirm="Excluir a categoria '{{ cat['nome'] }}'? As movimentações continuam existindo.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="button button-outline">Excluir</button>
+                </form>
+            </div>
+        </li>
+        {% else %}
+        <li class="empty-state">
+            <strong>Nenhuma categoria sua ainda.</strong>
+            <span>Crie uma acima — ou responda as perguntas do Hércules na tela inicial, que ele cria por você.</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+
+{% if fixed %}
+<section style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:10px;">
+        <h2 class="topbar-title" style="font-size:1.15rem;">Categorias padrão com gasto no mês</h2>
+    </div>
+    <div class="chip-row">
+        {% for f in fixed %}
+        <span class="chip">{{ f.nome }} · {{ f.gasto|money }}</span>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">O que o Hércules aprendeu</h2>
+        <p class="topbar-subtitle">Sempre que esses nomes aparecerem, a categoria é aplicada sozinha — inclusive no passado.</p>
+    </div>
+    <ul class="data-list">
+        {% for rule in rules %}
+        <li class="data-item">
+            <div class="note-header">
+                <p class="note-title" style="font-weight:600;">“{{ rule['padrao_texto'] }}” <span style="opacity:.6;">→</span> {{ rule['categoria_nome'] }}</p>
+                <form method="POST" action="{{ url_for('delete_regra', rule_id=rule['id']) }}" data-confirm="O Hércules deve desaprender que '{{ rule['padrao_texto'] }}' é {{ rule['categoria_nome'] }}?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="button button-outline" style="padding:6px 12px;">Desaprender</button>
+                </form>
+            </div>
+        </li>
+        {% else %}
+        <li class="empty-state">
+            <strong>Nada aprendido ainda.</strong>
+            <span>Quando um gasto se repetir, o Hércules pergunta o que é na tela inicial.</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

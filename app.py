@@ -243,6 +243,100 @@ def normalize_digits(value: str | None) -> str:
     return re.sub(r"\D", "", value or "")
 
 
+# Sentinela para "não perguntar mais sobre esse padrão"
+IGNORE_RULE = "__manter__"
+
+
+def user_categories(user_id: int):
+    with get_db() as db:
+        return db.execute(
+            "SELECT * FROM categorias WHERE user_id = ? ORDER BY nome COLLATE NOCASE",
+            (user_id,),
+        ).fetchall()
+
+
+def expense_category_names(user_id: int) -> list[str]:
+    """Categorias fixas + as criadas pelo usuário (sem duplicar)."""
+    custom = [c["nome"] for c in user_categories(user_id)]
+    base = [c for c in TRANSACTION_CATEGORIES if c not in custom]
+    return custom + base
+
+
+def user_rules(user_id: int):
+    with get_db() as db:
+        return db.execute(
+            "SELECT * FROM regras_categorizacao WHERE user_id = ? ORDER BY datetime(created_at) DESC",
+            (user_id,),
+        ).fetchall()
+
+
+def apply_rules(user_id: int, *texts: str | None) -> str | None:
+    """Regra aprendida vence tudo: se o padrão aparece no texto, devolve a categoria."""
+    haystack = " ".join(t for t in texts if t).lower()
+    if not haystack:
+        return None
+    for rule in user_rules(user_id):
+        if rule["categoria_nome"] == IGNORE_RULE:
+            continue
+        if rule["padrao_texto"].lower() in haystack:
+            return rule["categoria_nome"]
+    return None
+
+
+def categorize(user_id: int, *texts: str | None) -> str:
+    """Ordem de decisão: regras que o usuário ensinou > palavras-chave genéricas."""
+    return apply_rules(user_id, *texts) or auto_category(" ".join(t for t in texts if t))
+
+
+def pending_suggestions(user_id: int, limit: int = 2):
+    """Gastos repetidos que caíram em 'Outros': o Hércules pergunta uma vez o que são."""
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT LOWER(TRIM(COALESCE(NULLIF(estabelecimento, ''), descricao))) AS padrao,
+                      MAX(COALESCE(NULLIF(estabelecimento, ''), descricao)) AS display,
+                      COUNT(*) AS vezes,
+                      SUM(valor) AS total
+               FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida'
+                 AND COALESCE(NULLIF(categoria, ''), 'Outros') = 'Outros'
+                 AND COALESCE(NULLIF(estabelecimento, ''), descricao) IS NOT NULL
+                 AND date(COALESCE(data_transacao, created_at)) >= date('now', '-60 day')
+               GROUP BY padrao
+               HAVING COUNT(*) >= 3
+               ORDER BY total DESC""",
+            (user_id,),
+        ).fetchall()
+    known = {r["padrao_texto"].lower() for r in user_rules(user_id)}
+    return [r for r in rows if r["padrao"] not in known][:limit]
+
+
+def reclassify_transactions(user_id: int, pattern: str, categoria: str) -> int:
+    """Aplica uma regra nova ao passado. Devolve quantas movimentações mudaram."""
+    like = f"%{pattern}%"
+    with get_db() as db:
+        cur = db.execute(
+            """UPDATE transacoes SET categoria = ?
+               WHERE user_id = ? AND (descricao LIKE ? OR estabelecimento LIKE ?)
+                 AND COALESCE(categoria, '') != ?""",
+            (categoria, user_id, like, like, categoria),
+        )
+        return cur.rowcount
+
+
+def category_month_spending(user_id: int) -> dict[str, float]:
+    month_start, month_end = month_bounds()
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS categoria, SUM(valor) AS total
+               FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida'
+                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)
+               GROUP BY categoria""",
+            (user_id, month_start.isoformat(), month_end.isoformat()),
+        ).fetchall()
+    return {r["categoria"]: float(r["total"] or 0) for r in rows}
+
+
 def auto_category(text: str) -> str:
     txt = (text or "").lower()
     rules = {
@@ -805,14 +899,17 @@ def register():
         email = sanitize_text(request.form.get("email")).lower()
         senha = request.form.get("senha", "")
         perfil = normalize_profile(request.form.get("perfil"))
+        view_mode = request.form.get("view_mode", "completo")
+        if view_mode not in {"simples", "completo"}:
+            view_mode = "completo"
         if not nome or not email or not senha:
             flash("Preencha todos os campos.")
             return redirect(url_for("register"))
         try:
             with get_db() as db:
                 db.execute(
-                    "INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)",
-                    (nome, email, generate_password_hash(senha), perfil),
+                    "INSERT INTO usuarios (nome, email, senha, perfil, view_mode) VALUES (?, ?, ?, ?, ?)",
+                    (nome, email, generate_password_hash(senha), perfil, view_mode),
                 )
             flash("Conta criada com sucesso. Faça login.")
             return redirect(url_for("login"))
@@ -838,6 +935,7 @@ def login():
             session["home_focus"] = user["home_focus"]
             session["notification_mode"] = user["notification_mode"]
             session["meta_mensal"] = user["meta_mensal"]
+            session["view_mode"] = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
             return redirect(url_for("home"))
         flash("E-mail ou senha inválidos.")
         return redirect(url_for("login"))
@@ -883,11 +981,31 @@ def home():
     categories = [row["categoria"] for row in stats["monthly_by_category"]]
     values = [row["total"] or 0 for row in stats["monthly_by_category"]]
 
+    # Pergunta inteligente: gastos repetidos que o Hércules ainda não entende
+    suggestions = pending_suggestions(user["id"])
+
+    # Modo simples: 3 frases (tudo em dia / gastou hoje / projeção do fim do mês)
+    today_iso = date.today().isoformat()
+    with get_db() as db:
+        today_spent = db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida' AND date(COALESCE(data_transacao, created_at)) = date(?)""",
+            (user["id"], today_iso),
+        ).fetchone()["total"]
+    avg_daily_spend = stats["month_expenses"] / max(1, date.today().day)
+    projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month() - 1))
+    view_mode = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
+
     session["last_balance"] = money(stats["balance"])
     session["meta_mensal"] = user["meta_mensal"]
     focus_labels = dict(HOME_FOCUS_CHOICES)
     return render_template(
         "home.html",
+        suggestions=suggestions,
+        suggestion_categories=expense_category_names(user["id"]),
+        today_spent=float(today_spent or 0),
+        projected_end=float(projected_end),
+        view_mode=view_mode,
         user=user,
         profile=profile,
         focus=focus,
@@ -992,16 +1110,20 @@ def settings():
         home_focus = normalize_focus(request.form.get("home_focus"))
         notification_mode = normalize_notification_mode(request.form.get("notification_mode"))
         meta_mensal = parse_money(request.form.get("meta_mensal"))
+        view_mode = request.form.get("view_mode", "completo")
+        if view_mode not in {"simples", "completo"}:
+            view_mode = "completo"
         with get_db() as db:
             db.execute(
-                """UPDATE usuarios SET perfil = ?, home_focus = ?, notification_mode = ?, meta_mensal = ?
+                """UPDATE usuarios SET perfil = ?, home_focus = ?, notification_mode = ?, meta_mensal = ?, view_mode = ?
                    WHERE id = ?""",
-                (perfil, home_focus, notification_mode, meta_mensal, user["id"]),
+                (perfil, home_focus, notification_mode, meta_mensal, view_mode, user["id"]),
             )
         session["perfil"] = perfil
         session["home_focus"] = home_focus
         session["notification_mode"] = notification_mode
         session["meta_mensal"] = meta_mensal
+        session["view_mode"] = view_mode
         flash("Preferências atualizadas.")
         return redirect(url_for("settings"))
 
@@ -1142,6 +1264,146 @@ def delete_goal(goal_id):
         db.execute("DELETE FROM metas WHERE id = ? AND user_id = ?", (goal_id, user["id"]))
     flash("Meta removida.")
     return redirect(url_for("metas"))
+
+
+# ------------------------
+# Categories & rules ("ensinar o Hércules")
+# ------------------------
+@app.route("/categorias", methods=["GET", "POST"])
+@login_required
+def categorias():
+    user = current_user()
+    if request.method == "POST":
+        nome = sanitize_text(request.form.get("nome"))
+        icone = sanitize_text(request.form.get("icone"))[:4] or None
+        limite = parse_money(request.form.get("limite_mensal"))
+        if not nome:
+            flash("Dê um nome para a categoria.")
+            return redirect(url_for("categorias"))
+        with get_db() as db:
+            existing = db.execute(
+                "SELECT id FROM categorias WHERE user_id = ? AND nome = ? COLLATE NOCASE",
+                (user["id"], nome),
+            ).fetchone()
+            if existing:
+                db.execute(
+                    "UPDATE categorias SET icone = COALESCE(?, icone), limite_mensal = ? WHERE id = ?",
+                    (icone, limite, existing["id"]),
+                )
+                flash(f"Categoria {nome} atualizada.")
+            else:
+                db.execute(
+                    "INSERT INTO categorias (user_id, nome, icone, limite_mensal) VALUES (?, ?, ?, ?)",
+                    (user["id"], nome, icone, limite),
+                )
+                flash(f"Categoria {nome} criada.")
+        return redirect(url_for("categorias"))
+
+    spending = category_month_spending(user["id"])
+    customs = []
+    for cat in user_categories(user["id"]):
+        gasto = spending.get(cat["nome"], 0.0)
+        limite = float(cat["limite_mensal"] or 0)
+        pct = min(100.0, (gasto / limite) * 100.0) if limite > 0 else None
+        customs.append({"row": cat, "gasto": gasto, "limite": limite, "pct": pct})
+
+    fixed = [
+        {"nome": nome, "gasto": spending.get(nome, 0.0)}
+        for nome in TRANSACTION_CATEGORIES
+        if spending.get(nome, 0.0) > 0
+    ]
+    rules = [r for r in user_rules(user["id"]) if r["categoria_nome"] != IGNORE_RULE]
+    return render_template(
+        "categorias.html",
+        user=user,
+        customs=customs,
+        fixed=fixed,
+        rules=rules,
+        month=month_label(date.today().strftime("%Y-%m")),
+    )
+
+
+@app.route("/categorias/<int:cat_id>/delete", methods=["POST"])
+@login_required
+def delete_categoria(cat_id):
+    user = current_user()
+    with get_db() as db:
+        cat = db.execute("SELECT * FROM categorias WHERE id = ? AND user_id = ?", (cat_id, user["id"])).fetchone()
+        if not cat:
+            flash("Categoria não encontrada.")
+            return redirect(url_for("categorias"))
+        db.execute("DELETE FROM categorias WHERE id = ? AND user_id = ?", (cat_id, user["id"]))
+        db.execute(
+            "DELETE FROM regras_categorizacao WHERE user_id = ? AND categoria_nome = ?",
+            (user["id"], cat["nome"]),
+        )
+    flash(f"Categoria {cat['nome']} removida (as movimentações continuam lá).")
+    return redirect(url_for("categorias"))
+
+
+@app.route("/regras", methods=["POST"])
+@login_required
+def criar_regra():
+    user = current_user()
+    padrao = sanitize_text(request.form.get("padrao_texto"))
+    acao = request.form.get("acao", "aplicar")
+    categoria = sanitize_text(request.form.get("nova_categoria")) or sanitize_text(request.form.get("categoria_nome"))
+    destino = request.form.get("voltar") or url_for("home")
+
+    if not padrao:
+        flash("Padrão vazio.")
+        return redirect(destino)
+
+    if acao == "ignorar":
+        with get_db() as db:
+            db.execute(
+                "INSERT INTO regras_categorizacao (user_id, padrao_texto, categoria_nome, created_at) VALUES (?, ?, ?, datetime('now'))",
+                (user["id"], padrao, IGNORE_RULE),
+            )
+        flash(f"Combinado, deixo '{padrao}' como está.")
+        return redirect(destino)
+
+    if not categoria:
+        flash("Escolha ou digite uma categoria.")
+        return redirect(destino)
+
+    with get_db() as db:
+        # Se a categoria é nova, nasce agora
+        exists_custom = db.execute(
+            "SELECT id FROM categorias WHERE user_id = ? AND nome = ? COLLATE NOCASE",
+            (user["id"], categoria),
+        ).fetchone()
+        if not exists_custom and categoria not in TRANSACTION_CATEGORIES and categoria not in INCOME_CATEGORIES:
+            db.execute(
+                "INSERT INTO categorias (user_id, nome, limite_mensal) VALUES (?, ?, 0)",
+                (user["id"], categoria),
+            )
+        db.execute(
+            "INSERT INTO regras_categorizacao (user_id, padrao_texto, categoria_nome, created_at) VALUES (?, ?, ?, datetime('now'))",
+            (user["id"], padrao, categoria),
+        )
+    changed = reclassify_transactions(user["id"], padrao, categoria)
+    if changed:
+        flash(f"Aprendi! '{padrao}' agora é {categoria} — {changed} movimentações reclassificadas.")
+    else:
+        flash(f"Aprendi! '{padrao}' agora é {categoria}.")
+    return redirect(destino)
+
+
+@app.route("/regras/<int:rule_id>/delete", methods=["POST"])
+@login_required
+def delete_regra(rule_id):
+    user = current_user()
+    with get_db() as db:
+        rule = db.execute(
+            "SELECT * FROM regras_categorizacao WHERE id = ? AND user_id = ?", (rule_id, user["id"])
+        ).fetchone()
+        if not rule:
+            flash("Regra não encontrada.")
+            return redirect(url_for("categorias"))
+        db.execute("DELETE FROM regras_categorizacao WHERE id = ? AND user_id = ?", (rule_id, user["id"]))
+    flash("Regra removida. O Hércules desaprendeu essa.")
+    return redirect(url_for("categorias"))
 
 
 # ------------------------
@@ -1449,7 +1711,7 @@ def listar_transacoes():
         categoria=categoria,
         data_inicio=data_inicio,
         data_fim=data_fim,
-        categories=TRANSACTION_CATEGORIES + [c for c in INCOME_CATEGORIES if c not in TRANSACTION_CATEGORIES],
+        categories=expense_category_names(user["id"]) + [c for c in INCOME_CATEGORIES if c not in TRANSACTION_CATEGORIES],
         types=TRANSACTION_TYPES,
         novo=request.args.get("novo", type=int),
     )
@@ -1464,7 +1726,7 @@ def nova_transacao():
         valor = parse_money(request.form.get("valor"))
         descricao = sanitize_text(request.form.get("descricao"))
         estabelecimento = sanitize_text(request.form.get("estabelecimento")) or descricao
-        categoria = sanitize_text(request.form.get("categoria")) or auto_category(estabelecimento or descricao)
+        categoria = sanitize_text(request.form.get("categoria")) or categorize(user["id"], estabelecimento, descricao)
         data_transacao = request.form.get("data_transacao") or date.today().isoformat()
         fonte = sanitize_text(request.form.get("fonte")) or "manual"
         confidence = int(parse_money(request.form.get("confidence")) or 100)
@@ -1506,7 +1768,7 @@ def nova_transacao():
     return render_template(
         "nova_transacao.html",
         user=user,
-        categories=TRANSACTION_CATEGORIES,
+        categories=expense_category_names(user["id"]),
         income_categories=INCOME_CATEGORIES,
         types=TRANSACTION_TYPES,
     )
