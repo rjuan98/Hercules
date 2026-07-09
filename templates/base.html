@@ -95,6 +95,7 @@
                     </div>
                     <div class="topbar-actions">
                         <span class="chip user-chip"><i data-lucide="badge-check"></i> {{ session.get('nome', 'Usuário') }}</span>
+                        <a href="{{ url_for('logout') }}" class="icon-button topbar-logout" aria-label="Sair" title="Sair"><i data-lucide="log-out"></i></a>
                     </div>
                 </div>
             </header>

@@ -838,7 +838,10 @@ def calculate_business_summary(user_id: int):
 
     lucro = float(revenue_month or 0) - float(expenses_month or 0)
     pending_notes = len([n for n in notes_in if (n["status"] or "").lower() != "autorizada"])
-    due_soon = [c for c in commitments if c["status"] == "pendente" and date.fromisoformat(c["vencimento"]) <= date.today() + timedelta(days=7)]
+    due_soon = [
+        c for c in commitments
+        if c["status"] == "pendente" and c["vencimento"] and date.fromisoformat(c["vencimento"]) <= date.today() + timedelta(days=7)
+    ]
     return {
         "notes_in": notes_in,
         "revenue_month": float(revenue_month or 0),
@@ -905,6 +908,9 @@ def register():
         if not nome or not email or not senha:
             flash("Preencha todos os campos.")
             return redirect(url_for("register"))
+        if len(senha) < 6:
+            flash("A senha precisa ter pelo menos 6 caracteres.")
+            return redirect(url_for("register"))
         try:
             with get_db() as db:
                 db.execute(
@@ -929,17 +935,60 @@ def login():
         with get_db() as db:
             user = db.execute("SELECT * FROM usuarios WHERE email = ?", (email,)).fetchone()
         if user and check_password_hash(user["senha"], senha):
-            session["user_id"] = user["id"]
-            session["nome"] = user["nome"]
-            session["perfil"] = user["perfil"]
-            session["home_focus"] = user["home_focus"]
-            session["notification_mode"] = user["notification_mode"]
-            session["meta_mensal"] = user["meta_mensal"]
-            session["view_mode"] = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
+            _start_session(user)
             return redirect(url_for("home"))
         flash("E-mail ou senha inválidos.")
         return redirect(url_for("login"))
-    return render_template("login.html", google_login_enabled=False)
+    return render_template("login.html", google_login_enabled=oauth is not None)
+
+
+def _start_session(user) -> None:
+    session["user_id"] = user["id"]
+    session["nome"] = user["nome"]
+    session["perfil"] = user["perfil"]
+    session["home_focus"] = user["home_focus"]
+    session["notification_mode"] = user["notification_mode"]
+    session["meta_mensal"] = user["meta_mensal"]
+    session["view_mode"] = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
+
+
+@app.route("/login/google")
+def google_login():
+    if oauth is None:
+        flash("Login com Google não está configurado neste servidor.")
+        return redirect(url_for("login"))
+    redirect_uri = url_for("google_callback", _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
+@app.route("/auth/google/callback")
+def google_callback():
+    if oauth is None:
+        return redirect(url_for("login"))
+    try:
+        token = oauth.google.authorize_access_token()
+        info = token.get("userinfo") or {}
+        email = (info.get("email") or "").lower().strip()
+        nome = sanitize_text(info.get("name")) or email.split("@")[0]
+    except Exception:
+        flash("Não deu certo entrar com o Google. Tente de novo ou use e-mail e senha.")
+        return redirect(url_for("login"))
+
+    if not email:
+        flash("O Google não informou seu e-mail. Use e-mail e senha.")
+        return redirect(url_for("login"))
+
+    with get_db() as db:
+        user = db.execute("SELECT * FROM usuarios WHERE email = ?", (email,)).fetchone()
+        if not user:
+            # Conta nova via Google: senha aleatória (dá para definir uma depois nas configurações)
+            db.execute(
+                "INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, 'pf')",
+                (nome, email, generate_password_hash(secrets.token_hex(16))),
+            )
+            user = db.execute("SELECT * FROM usuarios WHERE email = ?", (email,)).fetchone()
+    _start_session(user)
+    return redirect(url_for("home"))
 
 
 @app.route("/logout")
@@ -1274,9 +1323,9 @@ def delete_goal(goal_id):
 def categorias():
     user = current_user()
     if request.method == "POST":
-        nome = sanitize_text(request.form.get("nome"))
+        nome = sanitize_text(request.form.get("nome"))[:40]
         icone = sanitize_text(request.form.get("icone"))[:4] or None
-        limite = parse_money(request.form.get("limite_mensal"))
+        limite = max(0.0, parse_money(request.form.get("limite_mensal")))
         if not nome:
             flash("Dê um nome para a categoria.")
             return redirect(url_for("categorias"))
@@ -1345,10 +1394,13 @@ def delete_categoria(cat_id):
 @login_required
 def criar_regra():
     user = current_user()
-    padrao = sanitize_text(request.form.get("padrao_texto"))
+    padrao = sanitize_text(request.form.get("padrao_texto"))[:80]
     acao = request.form.get("acao", "aplicar")
-    categoria = sanitize_text(request.form.get("nova_categoria")) or sanitize_text(request.form.get("categoria_nome"))
+    categoria = (sanitize_text(request.form.get("nova_categoria")) or sanitize_text(request.form.get("categoria_nome")))[:40]
     destino = request.form.get("voltar") or url_for("home")
+    # Só aceita caminhos internos (evita redirect para fora do app)
+    if not destino.startswith("/") or destino.startswith("//"):
+        destino = url_for("home")
 
     if not padrao:
         flash("Padrão vazio.")

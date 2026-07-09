@@ -64,6 +64,9 @@ button { cursor: pointer; }
     display: flex;
     flex-direction: column;
     gap: 22px;
+    /* Menu maior que a tela? Rola, em vez de esconder o Sair */
+    overflow-y: auto;
+    scrollbar-width: thin;
 }
 
 .sidebar-brand {
