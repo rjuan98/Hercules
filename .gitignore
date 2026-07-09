@@ -1,0 +1,12 @@
+# Ambiente
+.venv/
+__pycache__/
+*.pyc
+
+# Dados locais (nunca versionar dados de usuário!)
+database.db
+uploads/
+.secret_key
+
+# Ferramentas
+.claude/

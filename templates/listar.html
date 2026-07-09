@@ -1,0 +1,104 @@
+{% extends 'base.html' %}
+{% block title %}Notas · Hércules{% endblock %}
+{% block page_title %}Notas e documentos{% endblock %}
+{% block page_subtitle %}Filtre, revise e encontre qualquer nota com rapidez.{% endblock %}
+
+{% block content %}
+<section class="page-card hero-card">
+    <div class="topbar-inner" style="padding:0;">
+        <div class="topbar-copy">
+            <h1 class="page-title" style="margin-bottom:8px;">Minhas notas</h1>
+            <p class="subtitle">Guarde, encontre e exporte seus documentos fiscais.</p>
+        </div>
+        <div class="page-actions">
+            <a href="{{ url_for('nova_nota') }}" class="button button-primary"><i data-lucide="plus-circle"></i> Adicionar</a>
+            <a href="{{ url_for('exportar_ir') }}" class="button button-outline"><i data-lucide="download"></i> Exportar IR</a>
+        </div>
+    </div>
+</section>
+
+<section class="filter-bar" style="margin-top:18px;">
+    <form method="GET" action="{{ url_for('listar_notas') }}" class="form-grid cols-3" style="width:100%;">
+        <div class="form-group">
+            <label for="q">Busca</label>
+            <input id="q" type="text" name="q" value="{{ q }}" placeholder="Descrição, cliente, CNPJ ou categoria">
+        </div>
+        <div class="form-group">
+            <label for="categoria">Categoria</label>
+            <select id="categoria" name="categoria">
+                <option value="">Todas</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}" {% if categoria == cat %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="tipo">Tipo</label>
+            <select id="tipo" name="tipo">
+                <option value="">Todos</option>
+                <option value="saida" {% if tipo == 'saida' %}selected{% endif %}>Saída</option>
+                <option value="entrada" {% if tipo == 'entrada' %}selected{% endif %}>Entrada</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="status">Status</label>
+            <select id="status" name="status">
+                {% for s in statuses %}
+                <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="data_inicio">Data inicial</label>
+            <input id="data_inicio" type="date" name="data_inicio" value="{{ data_inicio }}">
+        </div>
+        <div class="form-group">
+            <label for="data_fim">Data final</label>
+            <input id="data_fim" type="date" name="data_fim" value="{{ data_fim }}">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button type="submit" class="button button-primary">Aplicar filtros</button>
+        </div>
+    </form>
+</section>
+
+<section style="margin-top:18px;">
+    <ul class="data-list">
+        {% for note in notes %}
+        <li class="data-item">
+            <div class="note-header">
+                <div>
+                    <p class="note-title">{{ note['descricao'] }}</p>
+                    <div class="note-meta">
+                        <span>{{ note['categoria'] }}</span>
+                        <span>{{ note['cliente'] or 'Sem cliente' }}</span>
+                        <span>{{ note['data_emissao']|format_date if note['data_emissao'] else note['data_upload']|format_date }}</span>
+                    </div>
+                </div>
+                <span class="badge">{{ note['tipo']|capitalize }} · {{ note['valor']|money }}</span>
+            </div>
+            <div class="note-meta" style="margin-top:10px;">
+                <span>Status: {{ note['status'] }}</span>
+                <span>NF {{ note['numero_nota'] or '—' }}</span>
+                {% if note['cnpj_emitente'] %}<span>CNPJ {{ note['cnpj_emitente'] }}</span>{% endif %}
+            </div>
+            <div class="note-actions">
+                {% if note['arquivo'] %}
+                <a href="{{ url_for('download', filename=note['arquivo']) }}">Baixar</a>
+                {% endif %}
+                <a href="{{ url_for('editar_nota', note_id=note['id']) }}">Editar</a>
+                <form method="POST" action="{{ url_for('delete_nota', note_id=note['id']) }}" data-confirm="Excluir esta nota?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="button button-outline" type="submit">Excluir</button>
+                </form>
+            </div>
+        </li>
+        {% else %}
+        <li class="empty-state">
+            <strong>Nenhuma nota encontrada.</strong>
+            <span>Ajuste a busca ou adicione uma nova nota para começar.</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

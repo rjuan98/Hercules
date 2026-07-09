@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Hércules dominando o leão">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#07101d"/>
+      <stop offset="100%" stop-color="#0e1d3b"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7db7f"/>
+      <stop offset="100%" stop-color="#f5c32c"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#35d7c9"/>
+      <stop offset="100%" stop-color="#0ea5a4"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <circle cx="256" cy="246" r="168" fill="url(#gold)" opacity="0.98"/>
+  <circle cx="256" cy="246" r="132" fill="#0b1324" opacity="0.98"/>
+
+  <!-- hero silhouette -->
+  <path d="M222 118c18 0 32 14 32 32s-14 32-32 32-32-14-32-32 14-32 32-32z" fill="#f8fafc"/>
+  <path d="M210 184c16-7 35-7 51 0 13 6 22 17 28 31l22 53c4 10 2 22-5 31-9 11-23 18-38 18h-14l4 45c1 13-6 25-18 31l-29 15c-13 7-30 2-37-11-4-8-5-17-2-25l19-58-27-26c-8-8-10-20-6-31l17-44c6-15 17-27 35-29z" fill="#f8fafc"/>
+  <path d="M258 182c21 4 38 18 47 38l19 41c6 12 7 26 2 38-4 10-11 18-21 24l-27 15 14 30c5 11 2 25-8 32-10 8-24 9-35 4l-17-8-15 8c-11 5-25 4-35-4-10-7-13-21-8-32l14-30-27-15c-10-6-17-14-21-24-5-12-4-26 2-38l19-41c9-20 26-34 47-38l7 16z" fill="url(#gold)" opacity="0.96"/>
+
+  <!-- lion silhouette -->
+  <path d="M340 170c34 0 62 25 62 58 0 29-19 51-46 57l14 22c6 10 4 23-6 31-9 7-22 8-31 2l-30-19-23 12c-13 7-29 5-40-5-10-9-13-23-8-35l13-30 18-2c24-2 44-10 59-26 12-12 18-27 18-45 0-6-1-12-3-18z" fill="url(#teal)"/>
+  <path d="M360 192c0 16-13 29-29 29s-29-13-29-29 13-29 29-29 29 13 29 29z" fill="#0b1324"/>
+  <path d="M357 194c-8-13-22-20-39-20-13 0-26 5-35 13" fill="none" stroke="#0b1324" stroke-width="14" stroke-linecap="round"/>
+  <path d="M299 239l37 1" stroke="#0b1324" stroke-width="16" stroke-linecap="round"/>
+  <path d="M336 239l23 18" stroke="#0b1324" stroke-width="14" stroke-linecap="round"/>
+  <path d="M340 170c20-8 43-7 61 4" fill="none" stroke="#f8fafc" stroke-opacity="0.24" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- base line -->
+  <path d="M118 360c44-35 88-52 138-52 29 0 52 6 71 17 24-14 49-22 78-22 34 0 66 12 98 38" fill="none" stroke="url(#teal)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M150 388c34 0 58-13 84-13s50 13 84 13 58-13 84-13" fill="none" stroke="#f8fafc" stroke-opacity="0.18" stroke-width="10" stroke-linecap="round"/>
+  <text x="256" y="440" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="800" fill="#ffe08a">HÉRCULES</text>
+</svg>

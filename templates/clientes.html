@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% block title %}Clientes · Hércules{% endblock %}
+{% block page_title %}Clientes{% endblock %}
+{% block page_subtitle %}Cadastro simples para o lado profissional do Hércules.{% endblock %}
+
+{% block content %}
+<section class="page-card hero-card">
+    <div class="topbar-inner" style="padding:0;">
+        <div class="topbar-copy">
+            <h1 class="page-title" style="margin-bottom:8px;">Clientes</h1>
+            <p class="subtitle">Uma lista rápida para associar faturamento e notas.</p>
+        </div>
+        <a href="{{ url_for('business_dashboard') }}" class="button button-outline"><i data-lucide="arrow-left"></i> Negócio</a>
+    </div>
+</section>
+
+<section class="page-card" style="margin-top:18px;">
+    <form method="POST" class="form-grid cols-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="nome">Nome</label>
+            <input id="nome" type="text" name="nome" required>
+        </div>
+        <div class="form-group">
+            <label for="documento">CPF/CNPJ</label>
+            <input id="documento" type="text" name="documento">
+        </div>
+        <div class="form-group">
+            <label for="email">E-mail</label>
+            <input id="email" type="email" name="email">
+        </div>
+        <div class="form-group">
+            <label for="telefone">Telefone</label>
+            <input id="telefone" type="text" name="telefone">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button type="submit" class="button button-primary">Salvar cliente</button>
+        </div>
+    </form>
+</section>
+
+<section style="margin-top:18px;">
+    <ul class="data-list">
+        {% for client in clients %}
+        <li class="data-item">
+            <div class="note-header">
+                <div>
+                    <p class="note-title">{{ client['nome'] }}</p>
+                    <div class="note-meta">
+                        <span>{{ client['documento'] or 'Sem documento' }}</span>
+                        <span>{{ client['email'] or 'Sem e-mail' }}</span>
+                        <span>{{ client['telefone'] or 'Sem telefone' }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="note-actions">
+                <form method="POST" action="{{ url_for('delete_client', client_id=client['id']) }}" data-confirm="Excluir este cliente?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="button button-outline" type="submit">Excluir</button>
+                </form>
+            </div>
+        </li>
+        {% else %}
+        <li class="empty-state">
+            <strong>Nenhum cliente cadastrado.</strong>
+            <span>Adicionar clientes ajuda o Hércules a entender o negócio.</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#07101d">
+    <title>{% block title %}Hércules{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='hercules-logo.svg') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Hércules">
+    <script src="{{ url_for('static', filename='vendor/lucide.min.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}" defer></script>
+    {% block head_extra %}{% endblock %}
+</head>
+<body class="{% if not session.get('user_id') %}auth-page{% endif %}">
+    <div class="app-shell" id="appShell">
+        {% if session.get('user_id') %}
+        {% set perfil = session.get('perfil', 'pf') %}
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-top">
+                <a href="{{ url_for('home') }}" class="sidebar-brand brand-home-link">
+                    <img src="{{ url_for('static', filename='hercules-logo.svg') }}" alt="Hércules" class="brand-logo">
+                    <div class="brand-copy">
+                        <h1 class="brand-title">Hércules</h1>
+                        <p class="brand-subtitle">Seu copiloto financeiro</p>
+                    </div>
+                </a>
+                <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Fechar menu">✕</button>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="{{ url_for('home') }}" class="menu-link {% if request.path == '/' %}active{% endif %}"><i data-lucide="house"></i><span>Início</span></a>
+                <a href="{{ url_for('dashboard') }}" class="menu-link {% if request.path.startswith('/dashboard') %}active{% endif %}"><i data-lucide="pie-chart"></i><span>Resumo</span></a>
+                <a href="{{ url_for('listar_transacoes') }}" class="menu-link {% if request.path.startswith('/transacoes') %}active{% endif %}"><i data-lucide="activity"></i><span>Entradas e saídas</span></a>
+                <a href="{{ url_for('compromissos') }}" class="menu-link {% if request.path.startswith('/compromissos') %}active{% endif %}"><i data-lucide="calendar-days"></i><span>Contas</span></a>
+                <a href="{{ url_for('metas') }}" class="menu-link {% if request.path.startswith('/metas') %}active{% endif %}"><i data-lucide="target"></i><span>Metas</span></a>
+                <a href="{{ url_for('listar_notas') }}" class="menu-link {% if request.path.startswith('/notas') %}active{% endif %}"><i data-lucide="files"></i><span>Notas</span></a>
+                {% if perfil in ['mei', 'lojista', 'hibrido'] %}
+                <a href="{{ url_for('business_dashboard') }}" class="menu-link {% if request.path.startswith('/business') %}active{% endif %}"><i data-lucide="store"></i><span>Negócio</span></a>
+                <a href="{{ url_for('clientes') }}" class="menu-link {% if request.path.startswith('/clientes') %}active{% endif %}"><i data-lucide="users"></i><span>Clientes</span></a>
+                <a href="{{ url_for('servicos') }}" class="menu-link {% if request.path.startswith('/servicos') %}active{% endif %}"><i data-lucide="package"></i><span>Serviços</span></a>
+                {% endif %}
+                <a href="{{ url_for('settings') }}" class="menu-link {% if request.path.startswith('/settings') %}active{% endif %}"><i data-lucide="settings-2"></i><span>Configurações</span></a>
+            </nav>
+
+            <div class="sidebar-section sidebar-profile">
+                <div class="sidebar-note">
+                    <strong>Perfil ativo</strong>
+                    <div class="sidebar-note-row">
+                        <span class="badge">{{ perfil|upper }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section" style="margin-top:auto;">
+                <button class="menu-link sidebar-collapse-btn" id="sidebarCollapse" type="button" title="Recolher menu">
+                    <i data-lucide="panel-left-close"></i><span>Recolher</span>
+                </button>
+                <a href="{{ url_for('logout') }}" class="sidebar-cta"><i data-lucide="log-out"></i><span>Sair</span></a>
+            </div>
+        </aside>
+        {% endif %}
+
+        <div class="app-main">
+            {% if session.get('user_id') %}
+            <header class="topbar">
+                <div class="topbar-inner">
+                    <div class="topbar-left">
+                        <button class="icon-button mobile-menu-btn" id="menuToggle" type="button" aria-label="Abrir menu">
+                            <i data-lucide="menu"></i>
+                        </button>
+                        {% if request.path != '/' %}
+                        <a href="{{ url_for('home') }}" class="icon-button back-button" aria-label="Voltar para o início" onclick="if (history.length > 1) { history.back(); return false; }">
+                            <i data-lucide="arrow-left"></i>
+                        </a>
+                        {% endif %}
+                        <div class="topbar-copy">
+                            <h2 class="topbar-title">{% block page_title %}Hércules{% endblock %}</h2>
+                            <p class="topbar-subtitle">{% block page_subtitle %}Tranquilidade com o seu dinheiro.{% endblock %}</p>
+                        </div>
+                    </div>
+                    <div class="topbar-actions">
+                        <span class="chip user-chip"><i data-lucide="badge-check"></i> {{ session.get('nome', 'Usuário') }}</span>
+                    </div>
+                </div>
+            </header>
+            {% endif %}
+
+            <main class="main-content">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    {% if session.get('user_id') %}
+    <nav class="mobile-nav">
+        <a href="{{ url_for('home') }}" aria-label="Início"><i data-lucide="house"></i></a>
+        <a href="{{ url_for('listar_transacoes') }}" aria-label="Entradas e saídas"><i data-lucide="activity"></i></a>
+        <a href="{{ url_for('nova_transacao') }}" class="fab-button" aria-label="Registrar"><i data-lucide="plus"></i></a>
+        <a href="{{ url_for('compromissos') }}" aria-label="Contas"><i data-lucide="calendar-days"></i></a>
+        <a href="{{ url_for('settings') }}" aria-label="Configurações"><i data-lucide="settings-2"></i></a>
+    </nav>
+    {% endif %}
+
+    {# Toasts (mensagens temporárias, sem alerts) #}
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="toast-stack" id="toastStack">
+            {% for message in messages %}
+            <div class="toast">
+                <span class="toast-dot"></span>
+                <span>{{ message }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    {# Modal de confirmação (substitui o confirm() do navegador) #}
+    <div class="confirm-backdrop" id="confirmBackdrop" hidden>
+        <div class="confirm-modal" role="dialog" aria-modal="true">
+            <p class="confirm-text" id="confirmText">Tem certeza?</p>
+            <div class="confirm-actions">
+                <button type="button" class="button button-outline" id="confirmCancel">Cancelar</button>
+                <button type="button" class="button button-danger" id="confirmOk">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // PWA: registra o service worker (só funciona em HTTPS ou localhost)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(() => {});
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            if (window.lucide) {
+                if (typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
+                else if (typeof window.lucide.replace === 'function') window.lucide.replace();
+            }
+
+            // ---- Sidebar: gaveta no mobile + recolher no desktop ----
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            const menuToggle = document.getElementById('menuToggle');
+            const sidebarClose = document.getElementById('sidebarClose');
+            const collapseBtn = document.getElementById('sidebarCollapse');
+            const shell = document.getElementById('appShell');
+
+            const closeDrawer = () => { sidebar && sidebar.classList.remove('open'); overlay && overlay.classList.remove('show'); };
+            if (menuToggle && sidebar) {
+                menuToggle.addEventListener('click', () => {
+                    sidebar.classList.add('open');
+                    overlay && overlay.classList.add('show');
+                });
+            }
+            overlay && overlay.addEventListener('click', closeDrawer);
+            sidebarClose && sidebarClose.addEventListener('click', closeDrawer);
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+
+            if (collapseBtn && shell) {
+                if (localStorage.getItem('hercules_sidebar') === 'collapsed') shell.classList.add('sidebar-collapsed');
+                collapseBtn.addEventListener('click', () => {
+                    shell.classList.toggle('sidebar-collapsed');
+                    localStorage.setItem('hercules_sidebar', shell.classList.contains('sidebar-collapsed') ? 'collapsed' : 'open');
+                });
+            }
+
+            // ---- Toasts: somem sozinhos ----
+            document.querySelectorAll('.toast').forEach((toast, i) => {
+                setTimeout(() => toast.classList.add('show'), 80 + i * 120);
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    setTimeout(() => toast.remove(), 400);
+                }, 4200 + i * 120);
+                toast.addEventListener('click', () => toast.remove());
+            });
+
+            // ---- Confirmação amigável em vez de confirm() ----
+            const backdrop = document.getElementById('confirmBackdrop');
+            const confirmText = document.getElementById('confirmText');
+            const confirmOk = document.getElementById('confirmOk');
+            const confirmCancel = document.getElementById('confirmCancel');
+            let pendingForm = null;
+
+            document.querySelectorAll('form[data-confirm]').forEach((form) => {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    pendingForm = form;
+                    confirmText.textContent = form.getAttribute('data-confirm') || 'Tem certeza?';
+                    backdrop.hidden = false;
+                });
+            });
+            confirmCancel && confirmCancel.addEventListener('click', () => { backdrop.hidden = true; pendingForm = null; });
+            backdrop && backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { backdrop.hidden = true; pendingForm = null; } });
+            confirmOk && confirmOk.addEventListener('click', () => {
+                backdrop.hidden = true;
+                if (pendingForm) pendingForm.submit();
+                pendingForm = null;
+            });
+
+            // ---- Destaque do item recém-criado ----
+            const highlighted = document.querySelector('.just-created');
+            if (highlighted) highlighted.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

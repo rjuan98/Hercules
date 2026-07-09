@@ -1,0 +1,237 @@
+{% extends 'base.html' %}
+{% block title %}Início · Hércules{% endblock %}
+{% block page_title %}Início{% endblock %}
+{% block page_subtitle %}Tudo em dia, metas e próximos passos.{% endblock %}
+
+{% block content %}
+<section class="page-card hero-card">
+    <div class="hero-grid">
+        <div class="hero-copy">
+            <span class="hero-kicker">{{ status_emoji }} {{ status_phrase }}</span>
+            <div>
+                <h1 class="page-title" style="margin-bottom:10px;">Olá, {{ user['nome'] }}.</h1>
+                <p class="subtitle">O Hércules está aqui para te mostrar se está tudo em dia, quanto você pode gastar e para onde o dinheiro está indo.</p>
+            </div>
+            <div class="hero-actions">
+                <a href="{{ url_for('nova_transacao') }}" class="button button-primary"><i data-lucide="plus-circle"></i> Gasto rápido</a>
+                <a href="{{ url_for('nova_nota') }}" class="button button-outline"><i data-lucide="file-plus-2"></i> Nova nota</a>
+                <a href="{{ url_for('metas') }}" class="button button-outline"><i data-lucide="target"></i> Metas</a>
+            </div>
+            {% if recommended_focus != focus %}
+            {% set recommended_label = focus_label[recommended_focus] if recommended_focus in focus_label else recommended_focus.replace('_', ' ') %}
+            <div class="auth-note" style="margin-top:12px;">
+                Percebemos que talvez você queira ver <strong>{{ recommended_label }}</strong>.
+                <a href="{{ url_for('settings') }}" style="color:#ffe08a; font-weight:700;">Ajustar na configuração</a>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="hero-panel">
+            <article class="panel-card" style="text-align:center;">
+                <p class="metric-label">Seu foco principal</p>
+                <p class="metric-value" style="font-size:1.7rem;">{{ focus_label[focus] }}</p>
+                <p class="metric-footnote">Você pode mudar isso depois nas configurações.</p>
+            </article>
+            <article class="panel-card">
+                <p class="metric-label">Resumo do mês</p>
+                <p class="metric-value" style="font-size:1.55rem;">Saldo: {{ stats['balance']|money }}</p>
+                <p class="metric-footnote">Entradas {{ stats['month_income']|money }} · Saídas {{ stats['month_expenses']|money }}</p>
+            </article>
+        </div>
+    </div>
+</section>
+
+<section class="metric-grid cols-4" style="margin-top:18px;">
+    <article class="glass-card metric-card">
+        <p class="metric-label">Saldo atual</p>
+        <p class="metric-value">{{ stats['balance']|money }}</p>
+        <p class="metric-footnote">O total das movimentações registradas.</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Pode gastar hoje</p>
+        <p class="metric-value">{{ can_spend_today|money }}</p>
+        <p class="metric-footnote">
+            {% if stats['reserve_remaining_month'] > 0 %}
+                Já contando os {{ stats['reserve_remaining_month']|money }} que você quer guardar este mês.
+            {% else %}
+                Para continuar sobrando no fim do mês.
+            {% endif %}
+        </p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Tudo em dia?</p>
+        <p class="metric-value">{{ 'Sim' if all_clear else 'Ainda não' }}</p>
+        <p class="metric-footnote">{{ note_pending }} notas pendentes · {{ stats['due_soon_commitments']|length }} vencimentos próximos</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Meta principal</p>
+        <p class="metric-value">{{ goal['nome'] if goal else 'Reserva' }}</p>
+        <p class="metric-footnote">
+            {% if goal %}
+                {{ goal['valor_atual']|money }} / {{ goal['meta_valor']|money }}
+                {% if stats['goal_forecast_months'] %} · pronta em ~{{ stats['goal_forecast_months'] }} {{ 'mês' if stats['goal_forecast_months'] == 1 else 'meses' }}{% endif %}
+            {% else %}
+                Nenhuma meta ativa
+            {% endif %}
+        </p>
+    </article>
+</section>
+
+<section class="metric-grid cols-2" style="margin-top:18px;">
+    <article class="chart-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Onde o dinheiro está indo</h2>
+            <p class="topbar-subtitle">Resumo por categoria no mês atual.</p>
+        </div>
+        <canvas id="categoryChart" height="300"></canvas>
+    </article>
+
+    <article class="page-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Próximos compromissos</h2>
+            <p class="topbar-subtitle">O que merece atenção nos próximos dias.</p>
+        </div>
+        <ul class="data-list">
+            {% for item in stats['due_soon_commitments'][:5] %}
+            <li class="data-item">
+                <div class="note-header">
+                    <div>
+                        <p class="note-title">{{ item['descricao'] }}</p>
+                        <div class="note-meta">
+                            <span>{{ item['vencimento']|format_date }}</span>
+                            <span>{{ item['tipo']|capitalize }}</span>
+                        </div>
+                    </div>
+                    <span class="badge">{{ item['valor']|money }}</span>
+                </div>
+            </li>
+            {% else %}
+            <li class="empty-state">
+                <strong>Nenhum compromisso urgente.</strong>
+                <span>Isso já é um bom sinal.</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+</section>
+
+<section class="metric-grid cols-2" style="margin-top:18px;">
+    <article class="page-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Últimas movimentações</h2>
+            <p class="topbar-subtitle">O que entrou e saiu recentemente.</p>
+        </div>
+        <ul class="data-list">
+            {% for tx in stats['recent_transactions'] %}
+            <li class="data-item">
+                <div class="note-header">
+                    <div>
+                        <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}</p>
+                        <div class="note-meta">
+                            <span>{{ tx['categoria'] or 'Outros' }}</span>
+                            <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
+                        </div>
+                    </div>
+                    <span class="badge">{{ tx['tipo']|capitalize }} · {{ tx['valor']|money }}</span>
+                </div>
+            </li>
+            {% else %}
+            <li class="empty-state">
+                <strong>Nenhuma movimentação ainda.</strong>
+                <span>Adicione a primeira para o Hércules começar a aprender.</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+
+    <article class="page-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Notas e documentos</h2>
+            <p class="topbar-subtitle">Organização fiscal e buscas rápidas.</p>
+        </div>
+        <ul class="data-list">
+            {% for note in stats['notes'][:5] %}
+            <li class="data-item">
+                <div class="note-header">
+                    <div>
+                        <p class="note-title">{{ note['descricao'] }}</p>
+                        <div class="note-meta">
+                            <span>{{ note['categoria'] }}</span>
+                            <span>{{ note['cliente'] or 'Sem cliente' }}</span>
+                        </div>
+                    </div>
+                    <span class="badge">{{ note['status'] }}</span>
+                </div>
+            </li>
+            {% else %}
+            <li class="empty-state">
+                <strong>Nenhuma nota ainda.</strong>
+                <span>Quando ela entrar, o Hércules guarda e liga isso à movimentação.</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+</section>
+
+{% if business %}
+<section class="metric-grid cols-4" style="margin-top:18px;">
+    <article class="glass-card metric-card">
+        <p class="metric-label">Receita do negócio</p>
+        <p class="metric-value">{{ business['revenue_month']|money }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Despesas do negócio</p>
+        <p class="metric-value">{{ business['expenses_month']|money }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Lucro estimado</p>
+        <p class="metric-value">{{ business['lucro']|money }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Notas pendentes</p>
+        <p class="metric-value">{{ business['pending_notes'] }}</p>
+    </article>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    const canvas = document.getElementById('categoryChart');
+    if (!canvas || !window.Chart) return;
+
+    const labels = {{ categories|tojson }};
+    const values = {{ category_values|tojson }};
+
+    if (!labels.length) return;
+
+    new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                borderColor: 'rgba(255,255,255,0.88)',
+                borderWidth: 2,
+                hoverOffset: 10,
+                backgroundColor: ['#f5c32c', '#21c7b7', '#ff6b88', '#60a5fa', '#a78bfa', '#34d399', '#f97316']
+            }]
+        },
+        options: {
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: getComputedStyle(document.body).getPropertyValue('--text').trim(),
+                        boxWidth: 14,
+                        padding: 16
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

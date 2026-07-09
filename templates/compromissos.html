@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block title %}Contas · Hércules{% endblock %}
+{% block page_title %}Contas{% endblock %}
+{% block page_subtitle %}Contas, parcelas e vencimentos que merecem atenção.{% endblock %}
+
+{% block content %}
+<section class="page-card">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Adicionar conta</h2>
+        <p class="topbar-subtitle">Aluguel, internet, parcelas — o Hércules avisa quando estiver perto de vencer.</p>
+    </div>
+    <form method="POST" class="form-grid cols-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="descricao">Descrição</label>
+            <input id="descricao" type="text" name="descricao" placeholder="Aluguel, internet, parcela..." required>
+        </div>
+        <div class="form-group">
+            <label for="valor">Valor</label>
+            <input id="valor" type="number" step="0.01" min="0.01" name="valor" required inputmode="decimal">
+        </div>
+        <div class="form-group">
+            <label for="vencimento">Vencimento</label>
+            <input id="vencimento" type="date" name="vencimento" required>
+        </div>
+        <div class="form-group">
+            <label for="tipo">Tipo</label>
+            <select id="tipo" name="tipo">
+                <option value="saida">A pagar</option>
+                <option value="entrada">A receber</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="frequencia">Frequência</label>
+            <select id="frequencia" name="frequencia">
+                <option value="mensal">Mensal</option>
+                <option value="semanal">Semanal</option>
+                <option value="anual">Anual</option>
+                <option value="pontual">Pontual</option>
+            </select>
+        </div>
+        <div class="form-group" style="display:flex; align-items:end;">
+            <label style="display:flex; align-items:center; gap:10px; margin:0;">
+                <input type="checkbox" name="recorrente" style="width:auto;">
+                <span>Recorrente</span>
+            </label>
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button class="button button-primary" type="submit" style="width:100%;">Salvar conta</button>
+        </div>
+    </form>
+</section>
+
+<section style="margin-top:18px;">
+    <ul class="data-list">
+        {% for c in commitments %}
+        <li class="data-item {% if novo == c['id'] %}just-created{% endif %}">
+            <div class="note-header">
+                <div>
+                    <p class="note-title">{{ c['descricao'] }}
+                        {% if novo == c['id'] %}<span class="just-created-tag">✓ salva agora</span>{% endif %}
+                    </p>
+                    <div class="note-meta">
+                        <span>vence {{ c['vencimento']|format_date }}</span>
+                        <span>{{ c['frequencia'] }}</span>
+                        <span>{{ 'paga' if c['status'] == 'pago' else 'pendente' }}</span>
+                    </div>
+                </div>
+                <span class="badge {{ 'tx-badge-entrada' if c['tipo'] == 'entrada' else '' }}">{{ c['valor']|money }}</span>
+            </div>
+            <div class="note-actions">
+                <form method="POST" action="{{ url_for('toggle_commitment', commitment_id=c['id']) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="button button-outline" type="submit">{% if c['status'] == 'pendente' %}Marcar como paga{% else %}Voltar para pendente{% endif %}</button>
+                </form>
+                <form method="POST" action="{{ url_for('delete_commitment', commitment_id=c['id']) }}" data-confirm="Excluir a conta '{{ c['descricao'] }}'?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="button button-outline" type="submit">Excluir</button>
+                </form>
+            </div>
+        </li>
+        {% else %}
+        <li class="empty-state">
+            <strong>Nenhuma conta cadastrada.</strong>
+            <span>Adicione aluguel, contas, parcelas ou vencimentos recorrentes.</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

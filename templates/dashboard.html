@@ -1,0 +1,212 @@
+{% extends 'base.html' %}
+{% block title %}Resumo · Hércules{% endblock %}
+{% block page_title %}Resumo{% endblock %}
+{% block page_subtitle %}O mês inteiro em uma tela: entradas, saídas, contas, metas e notas.{% endblock %}
+
+{% block content %}
+<section class="metric-grid cols-4">
+    <article class="glass-card metric-card">
+        <p class="metric-label">Saldo atual</p>
+        <p class="metric-value">{{ stats['balance']|money }}</p>
+        <p class="metric-footnote">{{ '🟢 No azul' if stats['balance'] >= 0 else '🟡 Atenção: negativo' }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Entradas do mês</p>
+        <p class="metric-value" style="color:#86efac;">{{ stats['month_income']|money }}</p>
+        <p class="metric-footnote">{{ month }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Saídas do mês</p>
+        <p class="metric-value" style="color:#fda4af;">{{ stats['month_expenses']|money }}</p>
+        <p class="metric-footnote">{{ month }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Pode gastar hoje</p>
+        <p class="metric-value">{{ stats['available_today']|money }}</p>
+        <p class="metric-footnote">
+            {% if stats['reserve_remaining_month'] > 0 %}
+                Já separando {{ stats['reserve_remaining_month']|money }} para a reserva este mês.
+            {% else %}
+                Mantendo o mês previsível até o fim.
+            {% endif %}
+        </p>
+    </article>
+</section>
+
+<section class="metric-grid cols-4" style="margin-top:18px;">
+    <article class="glass-card metric-card">
+        <p class="metric-label">Sobra prevista no mês</p>
+        <p class="metric-value" style="font-size:1.6rem;">{{ stats['remaining_month']|money }}</p>
+        <p class="metric-footnote">Saldo menos contas próximas.</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Contas próximas (7 dias)</p>
+        <p class="metric-value" style="font-size:1.6rem;">{{ stats['due_soon_commitments']|length }}</p>
+        <p class="metric-footnote">Total: {{ stats['commitments_total']|money }} · Vencidas: {{ stats['overdue_commitments']|length }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Meta principal</p>
+        <p class="metric-value" style="font-size:1.6rem;">{{ stats['goal_progress']|round(0)|int }}%</p>
+        <p class="metric-footnote">
+            {% if stats['current_goal'] %}
+                {{ stats['current_goal']['nome'] }}: {{ stats['current_goal']['valor_atual']|money }} / {{ stats['current_goal']['meta_valor']|money }}
+            {% else %}
+                Nenhuma meta ativa ainda.
+            {% endif %}
+        </p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Notas guardadas</p>
+        <p class="metric-value" style="font-size:1.6rem;">{{ stats['notes']|length }}</p>
+        <p class="metric-footnote"><a href="{{ url_for('listar_notas') }}" style="color:#ffe08a; font-weight:700;">Ver notas</a></p>
+    </article>
+</section>
+
+{% if stats['reserve_monthly_needed'] > 0 %}
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:10px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Sua reserva neste mês</h2>
+    </div>
+    <p class="subtitle">
+        Para cumprir a meta{% if stats['goal_deadline'] %} até {{ stats['goal_deadline']|format_date }}{% endif %},
+        o ideal é guardar <strong style="color:#ffe08a;">{{ stats['reserve_monthly_needed']|money }}</strong> por mês.
+        Este mês você já guardou <strong style="color:#86efac;">{{ stats['reserve_saved_month']|money }}</strong>
+        {% if stats['reserve_remaining_month'] > 0 %} — faltam <strong style="color:#ffe08a;">{{ stats['reserve_remaining_month']|money }}</strong>{% else %} — mês completo! 🎉{% endif %}.
+        {% if stats['goal_forecast_months'] %}
+            Nesse ritmo, a meta fica pronta em cerca de {{ stats['goal_forecast_months'] }} {{ 'mês' if stats['goal_forecast_months'] == 1 else 'meses' }}.
+        {% endif %}
+    </p>
+    <div class="page-actions" style="margin-top:12px; justify-content:flex-start;">
+        <a href="{{ url_for('metas') }}" class="button button-outline"><i data-lucide="piggy-bank"></i> Guardar agora</a>
+    </div>
+</section>
+{% endif %}
+
+<section class="metric-grid cols-2" style="margin-top:18px;">
+    <article class="chart-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Saídas por categoria</h2>
+            <p class="topbar-subtitle">Onde o dinheiro foi parar no mês.</p>
+        </div>
+        <canvas id="dashChart" height="300"></canvas>
+    </article>
+
+    <article class="page-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Próximas contas</h2>
+            <p class="topbar-subtitle">O que vence primeiro.</p>
+        </div>
+        <ul class="data-list">
+            {% for c in stats['upcoming_commitments'][:6] %}
+            <li class="data-item" style="padding:14px 16px;">
+                <div class="note-header">
+                    <div>
+                        <p class="note-title">{{ c['descricao'] }}</p>
+                        <div class="note-meta"><span>vence {{ c['vencimento']|format_date }}</span></div>
+                    </div>
+                    <span class="badge">{{ c['valor']|money }}</span>
+                </div>
+            </li>
+            {% else %}
+            <li class="empty-state">
+                <strong>Nenhuma conta pendente.</strong>
+                <span>Isso já é um bom sinal.</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+</section>
+
+<section class="metric-grid cols-2" style="margin-top:18px;">
+    <article class="page-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Últimas movimentações</h2>
+        </div>
+        <ul class="data-list">
+            {% for tx in stats['recent_transactions'] %}
+            <li class="data-item" style="padding:14px 16px;">
+                <div class="note-header">
+                    <div>
+                        <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}</p>
+                        <div class="note-meta">
+                            <span>{{ tx['categoria'] or 'Outros' }}</span>
+                            <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
+                        </div>
+                    </div>
+                    <span class="badge {{ 'tx-badge-entrada' if tx['tipo'] == 'entrada' else 'tx-badge-saida' }}">
+                        {{ '+' if tx['tipo'] == 'entrada' else '−' }} {{ tx['valor']|money }}
+                    </span>
+                </div>
+            </li>
+            {% else %}
+            <li class="empty-state">
+                <strong>Nada registrado ainda.</strong>
+                <span><a href="{{ url_for('nova_transacao') }}" style="color:#ffe08a; font-weight:700;">Registre a primeira movimentação</a>.</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+
+    <article class="page-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Suas metas</h2>
+        </div>
+        <ul class="data-list">
+            {% for goal in stats['goals'][:5] %}
+            {% set pct = ((goal['valor_atual'] / goal['meta_valor']) * 100) if goal['meta_valor'] else 0 %}
+            <li class="data-item" style="padding:14px 16px;">
+                <div class="note-header">
+                    <div>
+                        <p class="note-title">{{ goal['nome'] }}</p>
+                        <div class="note-meta">
+                            <span>{{ goal['valor_atual']|money }} / {{ goal['meta_valor']|money }}</span>
+                            {% if goal['prazo'] %}<span>até {{ goal['prazo']|format_date }}</span>{% endif %}
+                        </div>
+                    </div>
+                    <span class="badge">{{ pct|round(0)|int }}%</span>
+                </div>
+                <div class="progress-track" style="margin-top:10px;">
+                    <div class="progress-fill" style="width: {{ [pct, 100] | min }}%;"></div>
+                </div>
+            </li>
+            {% else %}
+            <li class="empty-state">
+                <strong>Nenhuma meta ainda.</strong>
+                <span><a href="{{ url_for('metas') }}" style="color:#ffe08a; font-weight:700;">Crie a primeira meta</a>.</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    const canvas = document.getElementById('dashChart');
+    if (!canvas || !window.Chart) return;
+    const labels = {{ labels|tojson }};
+    const values = {{ values|tojson }};
+    if (!labels.length) return;
+    new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                borderWidth: 2,
+                borderColor: 'rgba(255,255,255,0.88)',
+                hoverOffset: 10,
+                backgroundColor: ['#f5c32c', '#21c7b7', '#ff6b88', '#60a5fa', '#a78bfa', '#34d399', '#f97316']
+            }]
+        },
+        options: {
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom', labels: { color: getComputedStyle(document.body).getPropertyValue('--text').trim(), boxWidth: 14, padding: 16 } }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

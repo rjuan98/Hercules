@@ -1,0 +1,180 @@
+{% extends 'base.html' %}
+{% block title %}Negócio · Hércules{% endblock %}
+{% block page_title %}Painel do negócio{% endblock %}
+{% block page_subtitle %}Faturamento, notas, clientes e pendências em um só lugar.{% endblock %}
+
+{% block content %}
+<section class="page-card hero-card">
+    <div class="hero-grid">
+        <div class="hero-copy">
+            <span class="hero-kicker"><i data-lucide="store"></i> {{ 'MEI / lojista' if profile in ['mei', 'lojista', 'hibrido'] else 'Negócio' }}</span>
+            <div>
+                <h1 class="page-title" style="margin-bottom:10px;">Veja o negócio em linguagem simples.</h1>
+                <p class="subtitle">O objetivo aqui é responder: quanto entrou, quanto saiu, quanto sobrou e o que precisa ser resolvido.</p>
+            </div>
+            <div class="hero-actions">
+                <a href="{{ url_for('clientes') }}" class="button button-primary"><i data-lucide="users"></i> Clientes</a>
+                <a href="{{ url_for('servicos') }}" class="button button-outline"><i data-lucide="package"></i> Serviços</a>
+                <a href="{{ url_for('listar_notas') }}" class="button button-outline"><i data-lucide="files"></i> Notas</a>
+            </div>
+        </div>
+        <div class="hero-panel">
+            <article class="panel-card">
+                <p class="metric-label">Receita do mês</p>
+                <p class="metric-value">{{ business['revenue_month']|money }}</p>
+            </article>
+            <article class="panel-card">
+                <p class="metric-label">Despesa do mês</p>
+                <p class="metric-value">{{ business['expenses_month']|money }}</p>
+            </article>
+            <article class="panel-card">
+                <p class="metric-label">Lucro estimado</p>
+                <p class="metric-value">{{ business['lucro']|money }}</p>
+            </article>
+        </div>
+    </div>
+</section>
+
+<section class="metric-grid cols-4" style="margin-top:18px;">
+    <article class="glass-card metric-card">
+        <p class="metric-label">Notas de entrada</p>
+        <p class="metric-value">{{ business['notes_in']|length }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Notas pendentes</p>
+        <p class="metric-value">{{ business['pending_notes'] }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Clientes</p>
+        <p class="metric-value">{{ business['clients']|length }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Serviços</p>
+        <p class="metric-value">{{ business['services']|length }}</p>
+    </article>
+</section>
+
+<section class="metric-grid cols-2" style="margin-top:18px;">
+    <article class="chart-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Status das notas</h2>
+            <p class="topbar-subtitle">Distribuição operacional.</p>
+        </div>
+        <canvas id="businessChart" height="300"></canvas>
+    </article>
+
+    <article class="page-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Top clientes</h2>
+            <p class="topbar-subtitle">Quem mais aparece no seu faturamento.</p>
+        </div>
+        <ul class="data-list">
+            {% for item in business['top_clients'] %}
+            <li class="data-item">
+                <div class="note-header">
+                    <div>
+                        <p class="note-title">{{ item['cliente'] }}</p>
+                        <div class="note-meta">
+                            <span>{{ item['count'] }} notas</span>
+                            <span>{{ item['total']|money }}</span>
+                        </div>
+                    </div>
+                    <span class="badge">{{ item['cliente'] != 'Não informado' and 'Exportável' or '—' }}</span>
+                </div>
+            </li>
+            {% else %}
+            <li class="empty-state">
+                <strong>Nenhum cliente ainda.</strong>
+                <span>Os nomes vão aparecer conforme as notas forem entrando.</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+</section>
+
+<section class="metric-grid cols-2" style="margin-top:18px;">
+    <article class="page-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Clientes cadastrados</h2>
+            <p class="topbar-subtitle">Base do relacionamento comercial.</p>
+        </div>
+        <ul class="data-list">
+            {% for client in business['clients'][:6] %}
+            <li class="data-item">
+                <div class="note-header">
+                    <div>
+                        <p class="note-title">{{ client['nome'] }}</p>
+                        <div class="note-meta">
+                            <span>{{ client['documento'] or 'Sem documento' }}</span>
+                            <span>{{ client['email'] or 'Sem e-mail' }}</span>
+                        </div>
+                    </div>
+                </div>
+            </li>
+            {% else %}
+            <li class="empty-state">
+                <strong>Nenhum cliente cadastrado.</strong>
+                <span>Adicione clientes em poucos cliques.</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+
+    <article class="page-card">
+        <div class="topbar-copy" style="margin-bottom:14px;">
+            <h2 class="topbar-title" style="font-size:1.25rem;">Compromissos do negócio</h2>
+            <p class="topbar-subtitle">Vencimentos e pendências mais próximas.</p>
+        </div>
+        <ul class="data-list">
+            {% for c in business['commitments'][:6] %}
+            <li class="data-item">
+                <div class="note-header">
+                    <div>
+                        <p class="note-title">{{ c['descricao'] }}</p>
+                        <div class="note-meta">
+                            <span>{{ c['vencimento']|format_date }}</span>
+                            <span>{{ c['status'] }}</span>
+                        </div>
+                    </div>
+                    <span class="badge">{{ c['valor']|money }}</span>
+                </div>
+            </li>
+            {% else %}
+            <li class="empty-state">
+                <strong>Nenhum compromisso.</strong>
+                <span>Quando houver contas ou parcelas, elas entram aqui.</span>
+            </li>
+            {% endfor %}
+        </ul>
+    </article>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    const canvas = document.getElementById('businessChart');
+    if (!canvas || !window.Chart) return;
+    const labels = {{ business['status_counts']|map(attribute='status')|list|tojson }};
+    const values = {{ business['status_counts']|map(attribute='count')|list|tojson }};
+    if (!labels.length) return;
+    new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                borderColor: 'rgba(255,255,255,0.88)',
+                borderWidth: 2,
+                hoverOffset: 10,
+                backgroundColor: ['#f5c32c', '#21c7b7', '#ff6b88', '#60a5fa']
+            }]
+        },
+        options: {
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom' } }
+        }
+    });
+});
+</script>
+{% endblock %}

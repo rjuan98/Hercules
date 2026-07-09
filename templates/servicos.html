@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}Serviços · Hércules{% endblock %}
+{% block page_title %}Serviços{% endblock %}
+{% block page_subtitle %}Itens que você vende ou entrega.{% endblock %}
+
+{% block content %}
+<section class="page-card hero-card">
+    <div class="topbar-inner" style="padding:0;">
+        <div class="topbar-copy">
+            <h1 class="page-title" style="margin-bottom:8px;">Serviços</h1>
+            <p class="subtitle">Organize seus serviços principais e valores padrão.</p>
+        </div>
+        <a href="{{ url_for('business_dashboard') }}" class="button button-outline"><i data-lucide="arrow-left"></i> Negócio</a>
+    </div>
+</section>
+
+<section class="page-card" style="margin-top:18px;">
+    <form method="POST" class="form-grid cols-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="nome">Nome do serviço</label>
+            <input id="nome" type="text" name="nome" required>
+        </div>
+        <div class="form-group">
+            <label for="valor_padrao">Valor padrão</label>
+            <input id="valor_padrao" type="number" step="0.01" name="valor_padrao" value="0">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button type="submit" class="button button-primary">Salvar serviço</button>
+        </div>
+    </form>
+</section>
+
+<section style="margin-top:18px;">
+    <ul class="data-list">
+        {% for service in services %}
+        <li class="data-item">
+            <div class="note-header">
+                <div>
+                    <p class="note-title">{{ service['nome'] }}</p>
+                    <div class="note-meta">
+                        <span>{{ service['valor_padrao']|money }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="note-actions">
+                <form method="POST" action="{{ url_for('delete_service', service_id=service['id']) }}" data-confirm="Excluir este serviço?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="button button-outline" type="submit">Excluir</button>
+                </form>
+            </div>
+        </li>
+        {% else %}
+        <li class="empty-state">
+            <strong>Nenhum serviço cadastrado.</strong>
+            <span>Cadastre os serviços mais frequentes para o Hércules entender melhor sua operação.</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

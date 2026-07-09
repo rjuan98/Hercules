@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block title %}Entradas e saídas · Hércules{% endblock %}
+{% block page_title %}Entradas e saídas{% endblock %}
+{% block page_subtitle %}Tudo que entrou e saiu, em linguagem simples.{% endblock %}
+
+{% block content %}
+<section class="page-card hero-card">
+    <div class="topbar-inner" style="padding:0;">
+        <div class="topbar-copy">
+            <h1 class="page-title" style="margin-bottom:8px;">Entradas e saídas</h1>
+            <p class="subtitle">É aqui que o Hércules entende quanto entrou, quanto saiu e para onde foi o dinheiro.</p>
+        </div>
+        <div class="page-actions">
+            <a href="{{ url_for('nova_transacao') }}" class="button button-primary"><i data-lucide="plus-circle"></i> Registrar</a>
+            <a href="{{ url_for('dashboard') }}" class="button button-outline"><i data-lucide="pie-chart"></i> Resumo</a>
+        </div>
+    </div>
+</section>
+
+<section class="filter-bar" style="margin-top:18px;">
+    <form method="GET" action="{{ url_for('listar_transacoes') }}" class="form-grid cols-3" style="width:100%;">
+        <div class="form-group">
+            <label for="q">Busca</label>
+            <input id="q" type="text" name="q" value="{{ q }}" placeholder="Descrição, local, categoria">
+        </div>
+        <div class="form-group">
+            <label for="tipo">Tipo</label>
+            <select id="tipo" name="tipo">
+                <option value="">Todos</option>
+                <option value="saida" {% if tipo == 'saida' %}selected{% endif %}>Saída</option>
+                <option value="entrada" {% if tipo == 'entrada' %}selected{% endif %}>Entrada</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="categoria">Categoria</label>
+            <select id="categoria" name="categoria">
+                <option value="">Todas</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}" {% if categoria == cat %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="data_inicio">Data inicial</label>
+            <input id="data_inicio" type="date" name="data_inicio" value="{{ data_inicio }}">
+        </div>
+        <div class="form-group">
+            <label for="data_fim">Data final</label>
+            <input id="data_fim" type="date" name="data_fim" value="{{ data_fim }}">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button type="submit" class="button button-primary">Filtrar</button>
+        </div>
+    </form>
+</section>
+
+<section style="margin-top:18px;">
+    <ul class="data-list">
+        {% for tx in txs %}
+        <li class="data-item {% if novo == tx['id'] %}just-created{% endif %}">
+            <div class="note-header">
+                <div>
+                    <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}
+                        {% if novo == tx['id'] %}<span class="just-created-tag">✓ registrado agora</span>{% endif %}
+                    </p>
+                    <div class="note-meta">
+                        <span>{{ tx['categoria'] or 'Outros' }}</span>
+                        <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
+                        {% if tx['confidence'] < 100 %}<span>Confiança {{ tx['confidence'] }}%</span>{% endif %}
+                    </div>
+                </div>
+                <span class="badge {{ 'tx-badge-entrada' if tx['tipo'] == 'entrada' else 'tx-badge-saida' }}">
+                    {{ '+' if tx['tipo'] == 'entrada' else '−' }} {{ tx['valor']|money }}
+                </span>
+            </div>
+        </li>
+        {% else %}
+        <li class="empty-state">
+            <strong>Nenhuma movimentação ainda.</strong>
+            <span>Registre manualmente ou deixe as notas criarem a movimentação vinculada.</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

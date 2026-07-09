@@ -1,0 +1,7 @@
+V4 UX
+- Início simplificado
+- Login com identidade mais forte
+- Base para menu lateral recolhível
+- Ajustes mobile iniciais
+- Preparação para metas com prazo
+- Estrutura pronta para próximas integrações (OCR/Google)

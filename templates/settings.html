@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% block title %}Configurações · Hércules{% endblock %}
+{% block page_title %}Configurações{% endblock %}
+{% block page_subtitle %}Perfil, foco principal e nível de notificações.{% endblock %}
+
+{% block content %}
+<section class="page-card hero-card">
+    <div class="hero-grid">
+        <div class="hero-copy">
+            <span class="hero-kicker"><i data-lucide="settings-2"></i> Preferências</span>
+            <div>
+                <h1 class="page-title" style="margin-bottom:10px;">Deixe o Hércules do seu jeito.</h1>
+                <p class="subtitle">Você pode mudar o perfil, o que vê primeiro e o quanto o app deve falar com você.</p>
+            </div>
+        </div>
+        <div class="hero-panel">
+            <article class="panel-card">
+                <p class="metric-label">Plano atual</p>
+                <p class="metric-value" style="font-size:1.7rem;">{{ plan_label }}</p>
+                <p class="metric-footnote">Freemium inicial com expansão futura.</p>
+            </article>
+            <article class="panel-card">
+                <p class="metric-label">Metas</p>
+                <p class="metric-value" style="font-size:1.7rem;">{{ goals_count }}</p>
+                <p class="metric-footnote">Compromissos: {{ commitments_count }}</p>
+            </article>
+        </div>
+    </div>
+</section>
+
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Sua conta</h2>
+        <p class="topbar-subtitle">Nome, e-mail e senha de acesso.</p>
+    </div>
+    <form method="POST" class="form-grid cols-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form_kind" value="account">
+        <div class="form-group">
+            <label for="nome">Nome</label>
+            <input id="nome" type="text" name="nome" value="{{ user['nome'] }}" required autocomplete="name">
+        </div>
+        <div class="form-group">
+            <label for="email">E-mail</label>
+            <input id="email" type="email" name="email" value="{{ user['email'] }}" required autocomplete="email">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button class="button button-primary" type="submit">Salvar dados pessoais</button>
+        </div>
+    </form>
+
+    <details class="form-advanced" style="margin-top:16px;">
+        <summary>Alterar senha</summary>
+        <form method="POST" class="form-grid cols-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="form_kind" value="password">
+            <div class="form-group">
+                <label for="senha_atual">Senha atual</label>
+                <input id="senha_atual" type="password" name="senha_atual" required autocomplete="current-password">
+            </div>
+            <div class="form-group">
+                <label for="nova_senha">Nova senha</label>
+                <input id="nova_senha" type="password" name="nova_senha" required minlength="6" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+                <label for="confirmar_senha">Confirmar nova senha</label>
+                <input id="confirmar_senha" type="password" name="confirmar_senha" required minlength="6" autocomplete="new-password">
+            </div>
+            <div class="form-group" style="grid-column:1 / -1;">
+                <button class="button button-outline" type="submit">Alterar senha</button>
+            </div>
+        </form>
+    </details>
+</section>
+
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Como você usa o Hércules</h2>
+        <p class="topbar-subtitle">Perfil, foco da tela inicial e notificações.</p>
+    </div>
+    <form method="POST" class="form-grid cols-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="form_kind" value="preferences">
+        <div class="form-group">
+            <label for="perfil">Perfil principal</label>
+            <select id="perfil" name="perfil">
+                {% for key, label in profile_choices %}
+                <option value="{{ key }}" {% if session.get('perfil', 'pf') == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="home_focus">Home principal</label>
+            <select id="home_focus" name="home_focus">
+                {% for key, label in focus_choices %}
+                <option value="{{ key }}" {% if session.get('home_focus', 'saldo') == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="notification_mode">Modo de notificação</label>
+            <select id="notification_mode" name="notification_mode">
+                {% for key, label in notification_choices %}
+                <option value="{{ key }}" {% if session.get('notification_mode', 'equilibrado') == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="meta_mensal">Quanto quer guardar por mês</label>
+            <input id="meta_mensal" type="number" step="0.01" name="meta_mensal" value="{{ session.get('meta_mensal', 0) }}" placeholder="Ex.: 300" inputmode="decimal">
+            <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">Usado no cálculo do "pode gastar hoje" quando a meta não tem prazo.</p>
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button class="button button-primary" type="submit">Salvar preferências</button>
+        </div>
+    </form>
+</section>
+
+<section class="metric-grid cols-3" style="margin-top:18px;">
+    <article class="glass-card metric-card">
+        <p class="metric-label">Saldo atual</p>
+        <p class="metric-value">{{ session.get('last_balance', '—') }}</p>
+        <p class="metric-footnote">Atualiza conforme as movimentações.</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Nível de atenção</p>
+        <p class="metric-value" style="font-size:1.7rem;">{{ session.get('notification_mode', 'equilibrado')|capitalize }}</p>
+        <p class="metric-footnote">Silencioso, equilibrado ou detalhista.</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Próximo passo</p>
+        <p class="metric-value" style="font-size:1.35rem;">Personalizar metas</p>
+        <p class="metric-footnote"><a href="{{ url_for('metas') }}" style="color:#ffe08a; font-weight:700;">Abrir metas</a></p>
+    </article>
+</section>
+{% endblock %}

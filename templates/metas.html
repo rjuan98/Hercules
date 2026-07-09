@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Metas · Hércules{% endblock %}
+{% block page_title %}Metas{% endblock %}
+{% block page_subtitle %}Reserva, viagem, casa e qualquer objetivo seu.{% endblock %}
+
+{% block content %}
+<section class="page-card">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Criar nova meta</h2>
+        <p class="topbar-subtitle">Com um prazo, o Hércules calcula quanto guardar por mês e ajusta o seu "pode gastar hoje".</p>
+    </div>
+    <form method="POST" class="form-grid cols-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="nome">Nome da meta</label>
+            <input id="nome" type="text" name="nome" placeholder="Reserva de emergência" required>
+        </div>
+        <div class="form-group">
+            <label for="meta_valor">Valor total</label>
+            <input id="meta_valor" type="number" step="0.01" name="meta_valor" placeholder="0,00" required inputmode="decimal">
+        </div>
+        <div class="form-group">
+            <label for="valor_atual">Já guardado</label>
+            <input id="valor_atual" type="number" step="0.01" name="valor_atual" placeholder="0,00" value="0" inputmode="decimal">
+        </div>
+        <div class="form-group">
+            <label for="prazo">Quero completar até <span class="helper-text">(opcional)</span></label>
+            <input id="prazo" type="date" name="prazo">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button class="button button-primary" type="submit" style="width:100%;">Criar meta</button>
+        </div>
+    </form>
+</section>
+
+<section style="margin-top:18px;">
+    <ul class="data-list">
+        {% for item in goals %}
+        {% set goal = item.row %}
+        {% set pct = ((goal['valor_atual'] / goal['meta_valor']) * 100) if goal['meta_valor'] else 0 %}
+        <li class="data-item {% if novo == goal['id'] %}just-created{% endif %}" style="padding:20px;">
+            <div class="note-header">
+                <div>
+                    <p class="note-title">{{ goal['nome'] }}
+                        {% if novo == goal['id'] %}<span class="just-created-tag">✓ atualizado agora</span>{% endif %}
+                    </p>
+                    <div class="note-meta">
+                        <span>{{ goal['valor_atual']|money }} de {{ goal['meta_valor']|money }}</span>
+                        <span>{{ 'Ativa' if goal['ativo'] else 'Pausada' }}</span>
+                        {% if goal['prazo'] %}<span>até {{ goal['prazo']|format_date }}</span>{% endif %}
+                    </div>
+                </div>
+                <span class="badge">{{ pct | round(0) | int }}%</span>
+            </div>
+            <div class="progress-track" style="margin-top:12px;">
+                <div class="progress-fill" style="width: {{ [pct, 100] | min }}%;"></div>
+            </div>
+
+            {% if item.missing > 0 %}
+            <p class="helper-text" style="margin-top:10px;">
+                Faltam <strong style="color:#ffe08a;">{{ item.missing|money }}</strong>{% if item.monthly %} ·
+                guardando <strong style="color:#ffe08a;">{{ item.monthly|money }}/mês</strong> você completa no prazo
+                ({{ item.months_left }} {{ 'mês' if item.months_left == 1 else 'meses' }} restantes){% elif goal['ativo'] %} ·
+                defina um prazo para o Hércules calcular quanto guardar por mês{% endif %}.
+            </p>
+            {% else %}
+            <p class="helper-text" style="margin-top:10px; color:#86efac;">Meta completa! 🎉</p>
+            {% endif %}
+
+            {# Guardar dinheiro nesta meta #}
+            {% if goal['ativo'] and item.missing > 0 %}
+            <form method="POST" action="{{ url_for('aporte_meta', goal_id=goal['id']) }}" class="form-grid" style="grid-template-columns: 1fr auto; margin-top:14px; gap:10px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="number" step="0.01" min="0.01" name="valor" placeholder="Quanto guardar agora?" required inputmode="decimal">
+                <button type="submit" class="button button-primary"><i data-lucide="piggy-bank"></i> Guardar</button>
+            </form>
+            {% endif %}
+
+            <details class="form-advanced" style="margin-top:14px;">
+                <summary>Editar meta</summary>
+                <form method="POST" action="{{ url_for('editar_meta', goal_id=goal['id']) }}" class="form-grid cols-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" name="nome" value="{{ goal['nome'] }}">
+                    </div>
+                    <div class="form-group">
+                        <label>Valor total</label>
+                        <input type="number" step="0.01" name="meta_valor" value="{{ goal['meta_valor'] }}" inputmode="decimal">
+                    </div>
+                    <div class="form-group">
+                        <label>Já guardado</label>
+                        <input type="number" step="0.01" name="valor_atual" value="{{ goal['valor_atual'] }}" inputmode="decimal">
+                    </div>
+                    <div class="form-group">
+                        <label>Prazo</label>
+                        <input type="date" name="prazo" value="{{ goal['prazo'] or '' }}">
+                    </div>
+                    <div class="form-group" style="grid-column:1 / -1;">
+                        <button type="submit" class="button button-primary">Salvar alterações</button>
+                    </div>
+                </form>
+            </details>
+
+            <div class="note-actions" style="margin-top:12px;">
+                <form method="POST" action="{{ url_for('toggle_goal', goal_id=goal['id']) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="button button-outline">{% if goal['ativo'] %}Pausar{% else %}Ativar{% endif %}</button>
+                </form>
+                <form method="POST" action="{{ url_for('delete_goal', goal_id=goal['id']) }}" data-confirm="Excluir a meta '{{ goal['nome'] }}'?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="button button-outline">Excluir</button>
+                </form>
+            </div>
+        </li>
+        {% else %}
+        <li class="empty-state">
+            <strong>Nenhuma meta criada.</strong>
+            <span>Comece com uma reserva de emergência com prazo — o Hércules cuida da matemática.</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

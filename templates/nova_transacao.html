@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+{% block title %}Registrar · Hércules{% endblock %}
+{% block page_title %}Registrar{% endblock %}
+{% block page_subtitle %}Entrou ou saiu dinheiro? Anota aqui em segundos.{% endblock %}
+
+{% block content %}
+<section class="page-card form-card" style="max-width:760px; margin:0 auto;">
+    <form method="POST" class="form-grid cols-2" id="txForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="tipo" id="tipoInput" value="saida">
+
+        <div class="form-group" style="grid-column:1 / -1;">
+            <label>O que aconteceu?</label>
+            <div class="type-toggle">
+                <button type="button" id="btnSaida" class="selected-saida"><i data-lucide="arrow-down-circle"></i> Saiu dinheiro</button>
+                <button type="button" id="btnEntrada"><i data-lucide="arrow-up-circle"></i> Entrou dinheiro</button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="valor">Valor</label>
+            <input id="valor" type="number" step="0.01" min="0.01" name="valor" required placeholder="0,00" inputmode="decimal">
+        </div>
+        <div class="form-group">
+            <label for="data_transacao">Data</label>
+            <input id="data_transacao" type="date" name="data_transacao" value="{{ date.today().isoformat() }}">
+        </div>
+
+        <div class="form-group" style="grid-column:1 / -1;">
+            <label for="descricao">Descrição</label>
+            <input id="descricao" type="text" name="descricao" required placeholder="Ex.: mercado, uber, quentinha">
+        </div>
+
+        <div class="form-group">
+            <label for="categoria">Categoria</label>
+            <select id="categoria" name="categoria">
+                {% for cat in categories %}
+                <option value="{{ cat }}" data-tipo="saida">{{ cat }}</option>
+                {% endfor %}
+                {% for cat in income_categories %}
+                <option value="{{ cat }}" data-tipo="entrada" hidden>{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="estabelecimento">Local / origem <span class="helper-text">(opcional)</span></label>
+            <input id="estabelecimento" type="text" name="estabelecimento" placeholder="Onde foi ou de onde veio">
+        </div>
+
+        <details class="form-advanced">
+            <summary>Opções avançadas</summary>
+            <div class="form-grid cols-2">
+                <div class="form-group">
+                    <label for="fonte">Fonte</label>
+                    <select id="fonte" name="fonte">
+                        <option value="manual">Manual</option>
+                        <option value="notificacao">Notificação</option>
+                        <option value="email">E-mail</option>
+                        <option value="whatsapp">WhatsApp</option>
+                        <option value="ofx">OFX</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="confidence">Confiança (%)</label>
+                    <input id="confidence" type="number" min="0" max="100" name="confidence" value="100">
+                </div>
+                <div class="form-group" style="grid-column:1 / -1;">
+                    <label for="extra_json">Dados extras (JSON)</label>
+                    <textarea id="extra_json" name="extra_json" placeholder='{"merchant":"Uber"}'></textarea>
+                </div>
+            </div>
+        </details>
+
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button type="submit" class="button button-primary" id="submitBtn" style="width:100%;">Salvar saída</button>
+        </div>
+    </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    const tipoInput = document.getElementById('tipoInput');
+    const btnSaida = document.getElementById('btnSaida');
+    const btnEntrada = document.getElementById('btnEntrada');
+    const categoria = document.getElementById('categoria');
+    const submitBtn = document.getElementById('submitBtn');
+    const descricao = document.getElementById('descricao');
+
+    function setTipo(tipo) {
+        tipoInput.value = tipo;
+        btnSaida.classList.toggle('selected-saida', tipo === 'saida');
+        btnEntrada.classList.toggle('selected-entrada', tipo === 'entrada');
+        submitBtn.textContent = tipo === 'entrada' ? 'Salvar entrada' : 'Salvar saída';
+        descricao.placeholder = tipo === 'entrada' ? 'Ex.: salário, freela, venda' : 'Ex.: mercado, uber, quentinha';
+        let firstVisible = null;
+        Array.from(categoria.options).forEach((opt) => {
+            const match = opt.dataset.tipo === tipo;
+            opt.hidden = !match;
+            opt.disabled = !match;
+            if (match && !firstVisible) firstVisible = opt;
+        });
+        if (firstVisible) categoria.value = firstVisible.value;
+        // Salário como padrão para entradas
+        if (tipo === 'entrada') {
+            const salario = Array.from(categoria.options).find(o => o.value === 'Salário');
+            if (salario) categoria.value = 'Salário';
+        }
+    }
+
+    btnSaida.addEventListener('click', () => setTipo('saida'));
+    btnEntrada.addEventListener('click', () => setTipo('entrada'));
+    setTipo('saida');
+});
+</script>
+{% endblock %}

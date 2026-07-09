@@ -1,0 +1,41 @@
+HÉRCULES — V5 (feedback do teste)
+
+1. Hércules presente no login e cadastro
+   - Avatar + balão de fala do Hércules nas telas de entrar e criar conta.
+
+2. Mobile arrumado
+   - Botão de menu (hambúrguer) agora fica na barra superior e funciona (antes o botão ficava dentro do menu escondido).
+   - Menu lateral vira gaveta com overlay escuro; fecha no X, no overlay ou com Esc.
+   - Botão "voltar" na barra superior em todas as telas (menos na inicial).
+   - Chips/barras não esticam mais a largura toda; botões e cards ajustados.
+
+3. Entradas com opções de verdade
+   - Ao registrar, alterne entre "Saiu dinheiro" e "Entrou dinheiro".
+   - Entradas têm categorias próprias: Salário, Freelance/bico, Vendas, Reembolso, Rendimentos, etc.
+   - Formulário simplificado; Fonte/Confiança/JSON viraram "Opções avançadas".
+
+4. Reserva com prazo
+   - Metas agora aceitam prazo ("quero completar até...").
+   - O Hércules calcula quanto guardar por mês e DESCONTA isso do "pode gastar hoje".
+   - Mostra em quantos meses a meta fica pronta e quanto falta guardar no mês.
+   - Botão "Guardar" na meta registra o aporte e cria a transação na categoria Reserva.
+   - Metas agora são editáveis (nome, valores e prazo).
+
+5. Confirmação visual após registrar
+   - Salvar entrada/saída/conta/meta leva para a lista com o item destacado
+     ("✓ registrado agora") e rolagem automática até ele.
+
+6. Menos alerts
+   - Mensagens agora são toasts que somem sozinhos.
+   - Excluir usa um modal bonito em vez do confirm() do navegador.
+
+7. Menu lateral expansível
+   - Botão "Recolher" no desktop (vira só ícones, preferência salva no navegador).
+
+8. Nomes mais simples
+   - Dashboard -> "Resumo" (e agora concentra o máximo de informação:
+     saldo, entradas, saídas, contas, metas, notas, reserva do mês, últimas movimentações).
+   - Movimentações -> "Entradas e saídas". Compromissos -> "Contas".
+
+9. Configurações pessoais
+   - Seção "Sua conta": mudar nome, e-mail e senha (com verificação da senha atual).

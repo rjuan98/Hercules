@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block title %}Criar conta · Hércules{% endblock %}
+{% block content %}
+<div class="auth-shell">
+    <section class="auth-brand-panel">
+        <div class="auth-brand-art">
+            <img src="{{ url_for('static', filename='hercules-logo.svg') }}" alt="Hércules" class="auth-mark">
+            <div class="hero-kicker">Comece com o seu contexto</div>
+            <h1 class="page-title" style="margin-bottom:0;">Um app que se adapta a você desde o primeiro dia.</h1>
+            <p class="auth-brand-copy">
+                Escolha se quer usar o Hércules para vida pessoal, MEI, lojista ou os dois juntos.
+                O painel inicial e as sugestões vão se moldar a esse perfil.
+            </p>
+        </div>
+        <ul class="benefit-list">
+            <li>Uma conta, vários contextos</li>
+            <li>Home personalizada de acordo com o foco</li>
+            <li>Menos culpa, mais clareza e menos retrabalho</li>
+        </ul>
+    </section>
+
+    <section class="auth-panel">
+        <div class="hercules-greeting">
+            <img src="{{ url_for('static', filename='hercules-logo.svg') }}" alt="Hércules" class="hercules-avatar">
+            <div class="hercules-bubble">
+                <strong>Prazer, sou o Hércules!</strong><br>
+                Me conta como você quer usar o app e eu monto tudo do seu jeito.
+            </div>
+        </div>
+        <div class="auth-panel-header">
+            <span class="chip"><i data-lucide="user-plus"></i> Criar conta</span>
+            <h2 class="page-title" style="margin-bottom:0;">Cadastrar</h2>
+            <p class="subtitle">Leva menos de um minuto.</p>
+        </div>
+
+        <form method="POST" class="form-grid">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label for="nome">Nome completo</label>
+                <input id="nome" type="text" name="nome" placeholder="Seu nome" required autocomplete="name">
+            </div>
+            <div class="form-group">
+                <label for="email">E-mail</label>
+                <input id="email" type="email" name="email" placeholder="voce@exemplo.com" required autocomplete="email">
+            </div>
+            <div class="form-group">
+                <label for="senha">Senha</label>
+                <input id="senha" type="password" name="senha" placeholder="Crie uma senha" required autocomplete="new-password">
+            </div>
+            <div class="form-group">
+                <label for="perfil">Como você quer usar o Hércules?</label>
+                <select id="perfil" name="perfil" required>
+                    {% for key, label in profile_choices %}
+                    <option value="{{ key }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="button button-primary">Criar conta</button>
+        </form>
+
+        <p class="footer-note">Já tem conta? <a href="{{ url_for('login') }}" style="color:#ffe08a; font-weight:700;">Entrar</a></p>
+    </section>
+</div>
+{% endblock %}
