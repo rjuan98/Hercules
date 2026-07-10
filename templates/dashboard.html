@@ -12,12 +12,12 @@
     </article>
     <article class="glass-card metric-card">
         <p class="metric-label">Entradas do mês</p>
-        <p class="metric-value" style="color:#86efac;">{{ stats['month_income']|money }}</p>
+        <p class="metric-value" style="color:var(--success);">{{ stats['month_income']|money }}</p>
         <p class="metric-footnote">{{ month }}</p>
     </article>
     <article class="glass-card metric-card">
         <p class="metric-label">Saídas do mês</p>
-        <p class="metric-value" style="color:#fda4af;">{{ stats['month_expenses']|money }}</p>
+        <p class="metric-value" style="color:var(--danger);">{{ stats['month_expenses']|money }}</p>
         <p class="metric-footnote">{{ month }}</p>
     </article>
     <article class="glass-card metric-card">
@@ -58,7 +58,7 @@
     <article class="glass-card metric-card">
         <p class="metric-label">Notas guardadas</p>
         <p class="metric-value" style="font-size:1.6rem;">{{ stats['notes']|length }}</p>
-        <p class="metric-footnote"><a href="{{ url_for('listar_notas') }}" style="color:#ffe08a; font-weight:700;">Ver notas</a></p>
+        <p class="metric-footnote"><a href="{{ url_for('listar_notas') }}" style="color:var(--primary-deep); font-weight:800;">Ver notas</a></p>
     </article>
 </section>
 
@@ -69,9 +69,9 @@
     </div>
     <p class="subtitle">
         Para cumprir a meta{% if stats['goal_deadline'] %} até {{ stats['goal_deadline']|format_date }}{% endif %},
-        o ideal é guardar <strong style="color:#ffe08a;">{{ stats['reserve_monthly_needed']|money }}</strong> por mês.
-        Este mês você já guardou <strong style="color:#86efac;">{{ stats['reserve_saved_month']|money }}</strong>
-        {% if stats['reserve_remaining_month'] > 0 %} — faltam <strong style="color:#ffe08a;">{{ stats['reserve_remaining_month']|money }}</strong>{% else %} — mês completo! 🎉{% endif %}.
+        o ideal é guardar <strong style="color:var(--primary-deep);">{{ stats['reserve_monthly_needed']|money }}</strong> por mês.
+        Este mês você já guardou <strong style="color:var(--success);">{{ stats['reserve_saved_month']|money }}</strong>
+        {% if stats['reserve_remaining_month'] > 0 %} — faltam <strong style="color:var(--primary-deep);">{{ stats['reserve_remaining_month']|money }}</strong>{% else %} — mês completo! 🎉{% endif %}.
         {% if stats['goal_forecast_months'] %}
             Nesse ritmo, a meta fica pronta em cerca de {{ stats['goal_forecast_months'] }} {{ 'mês' if stats['goal_forecast_months'] == 1 else 'meses' }}.
         {% endif %}
@@ -141,7 +141,7 @@
             {% else %}
             <li class="empty-state">
                 <strong>Nada registrado ainda.</strong>
-                <span><a href="{{ url_for('nova_transacao') }}" style="color:#ffe08a; font-weight:700;">Registre a primeira movimentação</a>.</span>
+                <span><a href="{{ url_for('nova_transacao') }}" style="color:var(--primary-deep); font-weight:800;">Registre a primeira movimentação</a>.</span>
             </li>
             {% endfor %}
         </ul>
@@ -172,7 +172,7 @@
             {% else %}
             <li class="empty-state">
                 <strong>Nenhuma meta ainda.</strong>
-                <span><a href="{{ url_for('metas') }}" style="color:#ffe08a; font-weight:700;">Crie a primeira meta</a>.</span>
+                <span><a href="{{ url_for('metas') }}" style="color:var(--primary-deep); font-weight:800;">Crie a primeira meta</a>.</span>
             </li>
             {% endfor %}
         </ul>
@@ -195,9 +195,9 @@ window.addEventListener('DOMContentLoaded', () => {
             datasets: [{
                 data: values,
                 borderWidth: 2,
-                borderColor: 'rgba(255,255,255,0.88)',
+                borderColor: '#FDF6E7',
                 hoverOffset: 10,
-                backgroundColor: ['#f5c32c', '#21c7b7', '#ff6b88', '#60a5fa', '#a78bfa', '#34d399', '#f97316']
+                backgroundColor: ['#C96F3B', '#2E6D8C', '#3D5A2E', '#9C6A10', '#7E4E7A', '#5C8A73', '#B23A2A']
             }]
         },
         options: {

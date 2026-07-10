@@ -67,7 +67,7 @@
             {% set recommended_label = focus_label[recommended_focus] if recommended_focus in focus_label else recommended_focus.replace('_', ' ') %}
             <div class="auth-note" style="margin-top:12px;">
                 Percebemos que talvez você queira ver <strong>{{ recommended_label }}</strong>.
-                <a href="{{ url_for('settings') }}" style="color:#ffe08a; font-weight:700;">Ajustar na configuração</a>
+                <a href="{{ url_for('settings') }}" style="color:var(--primary-deep); font-weight:800;">Ajustar na configuração</a>
             </div>
             {% endif %}
         </div>
@@ -259,10 +259,10 @@ window.addEventListener('DOMContentLoaded', () => {
             labels: labels,
             datasets: [{
                 data: values,
-                borderColor: 'rgba(255,255,255,0.88)',
+                borderColor: '#FDF6E7',
                 borderWidth: 2,
                 hoverOffset: 10,
-                backgroundColor: ['#f5c32c', '#21c7b7', '#ff6b88', '#60a5fa', '#a78bfa', '#34d399', '#f97316']
+                backgroundColor: ['#C96F3B', '#2E6D8C', '#3D5A2E', '#9C6A10', '#7E4E7A', '#5C8A73', '#B23A2A']
             }]
         },
         options: {

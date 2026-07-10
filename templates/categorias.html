@@ -54,9 +54,9 @@
                 <div class="progress-fill {% if item.pct >= 100 %}fill-danger{% elif item.pct >= 80 %}fill-warn{% endif %}" style="width: {{ item.pct }}%;"></div>
             </div>
             {% if item.pct >= 100 %}
-            <p class="helper-text" style="margin-top:8px; color:#fda4af;">Limite estourado — {{ (item.gasto - item.limite)|money }} acima.</p>
+            <p class="helper-text" style="margin-top:8px; color:var(--danger);">Limite estourado — {{ (item.gasto - item.limite)|money }} acima.</p>
             {% elif item.pct >= 80 %}
-            <p class="helper-text" style="margin-top:8px; color:#fde68a;">Quase no limite — restam {{ (item.limite - item.gasto)|money }}.</p>
+            <p class="helper-text" style="margin-top:8px; color:var(--warning);">Quase no limite — restam {{ (item.limite - item.gasto)|money }}.</p>
             {% endif %}
             {% endif %}
             <div class="note-actions" style="margin-top:12px;">

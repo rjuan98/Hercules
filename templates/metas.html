@@ -58,13 +58,13 @@
 
             {% if item.missing > 0 %}
             <p class="helper-text" style="margin-top:10px;">
-                Faltam <strong style="color:#ffe08a;">{{ item.missing|money }}</strong>{% if item.monthly %} ·
-                guardando <strong style="color:#ffe08a;">{{ item.monthly|money }}/mês</strong> você completa no prazo
+                Faltam <strong style="color:var(--primary-deep);">{{ item.missing|money }}</strong>{% if item.monthly %} ·
+                guardando <strong style="color:var(--primary-deep);">{{ item.monthly|money }}/mês</strong> você completa no prazo
                 ({{ item.months_left }} {{ 'mês' if item.months_left == 1 else 'meses' }} restantes){% elif goal['ativo'] %} ·
                 defina um prazo para o Hércules calcular quanto guardar por mês{% endif %}.
             </p>
             {% else %}
-            <p class="helper-text" style="margin-top:10px; color:#86efac;">Meta completa! 🎉</p>
+            <p class="helper-text" style="margin-top:10px; color:var(--success);">Meta completa! 🎉</p>
             {% endif %}
 
             {# Guardar dinheiro nesta meta #}
