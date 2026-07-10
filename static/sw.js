@@ -1,15 +1,14 @@
 /* Service worker do Hércules
    Estratégia: estáticos em cache-first; páginas em network-first
    (dados financeiros precisam estar atualizados; o cache só segura offline). */
-const CACHE = "hercules-v4";
+const CACHE = "hercules-v5";
 const STATIC_ASSETS = [
-  "/static/styles.css",
+  "/static/styles.css?v=6",
   "/static/vendor/lucide.min.js",
   "/static/vendor/chart.umd.min.js",
-  "/static/hercules-logo.svg",
-  "/static/hercules-logo.png",
-  "/static/icon-192.png",
-  "/static/icon-512.png",
+  "/static/herc.svg?v=2",
+  "/static/herc-192.png",
+  "/static/herc-512.png",
   "/static/manifest.webmanifest",
 ];
 

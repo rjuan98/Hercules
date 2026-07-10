@@ -8,10 +8,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='hercules-logo.svg') }}">
-    <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='6') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='herc.svg', v='2') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest', v='2') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='herc-192.png') }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Hércules">
@@ -27,7 +27,7 @@
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-top">
                 <a href="{{ url_for('home') }}" class="sidebar-brand brand-home-link">
-                    <img src="{{ url_for('static', filename='hercules-logo.svg') }}" alt="Hércules" class="brand-logo">
+                    <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Hércules" class="brand-logo">
                     <div class="brand-copy">
                         <h1 class="brand-title">Hércules</h1>
                         <p class="brand-subtitle">Seu copiloto financeiro</p>
