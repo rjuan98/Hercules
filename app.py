@@ -61,6 +61,8 @@ app.config["UPLOAD_FOLDER"] = str(UPLOAD_DIR)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# Fica logado por 90 dias — logar toda vez é exaustivo
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=90)
 
 # Atrás de um proxy HTTPS (Render/Railway/PythonAnywhere), respeita os headers X-Forwarded-*
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
@@ -245,6 +247,141 @@ def normalize_digits(value: str | None) -> str:
 
 # Sentinela para "não perguntar mais sobre esse padrão"
 IGNORE_RULE = "__manter__"
+
+# ------------------------
+# Interpretador de capturas (notificações de banco e frases livres)
+# ------------------------
+# Valor com R$ explícito tem prioridade (evita confundir com número do cartão)
+_MONEY_RS = re.compile(r"R\$\s*([\d\.]+,\d{2}|[\d\.]+(?:,\d{1,2})?)")
+_MONEY_BARE = re.compile(r"(?<![\d,\.])(\d+(?:[.,]\d{1,2})?)(?![\d])")
+
+_ENTRADA_HINTS = (
+    "recebeu", "recebido", "recebida", "recebi", "pix recebido", "caiu na conta",
+    "depósito", "deposito", "salário", "salario", "te pagou", "crédito de", "credito de",
+    "transferência recebida", "transferencia recebida", "ganhei", "entrou",
+)
+_SAIDA_HINTS = (
+    "compra", "comprei", "pagamento", "pagou", "paguei", "gastei", "débito", "debito",
+    "pix enviado", "enviou um pix", "você enviou", "voce enviou", "saque", "boleto",
+    "transferência enviada", "transferencia enviada", "fatura", "aprovada em", "aprovada no",
+)
+_MERCHANT_CUTOFFS = (
+    # "cart" pega cartão/cartao mesmo com problema de acento
+    " para o cart", " com o cart", " no cart", " no seu cart", " cart%",
+    " cartão", " cartao", " final ", " às ", " as ", " hoje", " agora",
+    " em ", ",", ".", ";", " - ", " no valor", " valor de",
+)
+
+
+def parse_capture_text(user_id: int, text: str) -> dict[str, Any]:
+    """Extrai valor, tipo e estabelecimento de um texto de notificação ou frase livre.
+    Devolve {'ok': bool, 'valor', 'tipo', 'estabelecimento', 'descricao'}."""
+    raw = sanitize_text(text)
+    low = raw.lower()
+    result: dict[str, Any] = {"ok": False, "valor": 0.0, "tipo": None, "estabelecimento": None, "descricao": raw[:120]}
+    if not raw:
+        return result
+
+    m = _MONEY_RS.search(raw) or _MONEY_BARE.search(raw)
+    if not m:
+        return result
+    result["valor"] = parse_money(m.group(1))
+    if result["valor"] <= 0:
+        return result
+
+    if any(h in low for h in _ENTRADA_HINTS):
+        result["tipo"] = "entrada"
+    elif any(h in low for h in _SAIDA_HINTS):
+        result["tipo"] = "saida"
+
+    # Estabelecimento: o que vem depois de "em/no/na/para/pra/de" após o valor
+    after_value = raw[m.end():]
+    merchant_match = re.search(r"\b(?:em|no|na|pra|para|com|de|do|da)\s+(.{2,60})", after_value, re.IGNORECASE)
+    if merchant_match:
+        merchant = merchant_match.group(1)
+        low_merchant = merchant.lower()
+        cut = len(merchant)
+        for stop in _MERCHANT_CUTOFFS:
+            idx = low_merchant.find(stop)
+            if idx > 1:
+                cut = min(cut, idx)
+        merchant = sanitize_text(merchant[:cut])
+        if merchant:
+            result["estabelecimento"] = merchant[:60]
+
+    # Frase livre sem dica de direção ("12 quentinha") assume saída
+    if result["tipo"] is None and result["estabelecimento"]:
+        result["tipo"] = "saida"
+
+    result["ok"] = bool(result["valor"] > 0 and result["tipo"])
+    return result
+
+
+def register_capture(user_id: int, text: str, origem: str = "notificacao") -> dict[str, Any]:
+    """Interpreta e lança a captura. Alta confiança vira transação; dúvida vira pendente."""
+    parsed = parse_capture_text(user_id, text)
+    today_iso = date.today().isoformat()
+
+    if parsed["ok"] and parsed["estabelecimento"]:
+        alvo = parsed["estabelecimento"]
+        with get_db() as db:
+            # Dedup: mesma pessoa, mesmo valor e lugar nos últimos 3 minutos
+            dup = db.execute(
+                """SELECT id FROM transacoes
+                   WHERE user_id = ? AND valor = ? AND LOWER(COALESCE(estabelecimento,'')) = LOWER(?)
+                     AND datetime(created_at) >= datetime('now', '-3 minutes')""",
+                (user_id, parsed["valor"], alvo),
+            ).fetchone()
+            if dup:
+                return {"status": "duplicada", "id": dup["id"]}
+            # Categoriza só pelo estabelecimento — a frase inteira engana
+            # (ex.: "GAStei" casa com a palavra-chave "gás" de Moradia)
+            categoria = categorize(user_id, alvo)
+            if parsed["tipo"] == "entrada" and categoria in TRANSACTION_CATEGORIES:
+                categoria = "Outros"
+            cur = db.execute(
+                """INSERT INTO transacoes
+                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, needs_review)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 90, 0)""",
+                (user_id, parsed["tipo"], parsed["valor"], alvo, alvo, categoria, today_iso, origem),
+            )
+        return {"status": "lancada", "id": cur.lastrowid, "categoria": categoria,
+                "valor": parsed["valor"], "tipo": parsed["tipo"], "estabelecimento": alvo}
+
+    # Não entendeu o bastante: fila de pendentes para o check-in
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO capturas (user_id, origem, conteudo, status, dados_extraidos) VALUES (?, ?, ?, 'pendente', ?)",
+            (user_id, origem, sanitize_text(text)[:500], json.dumps(parsed, ensure_ascii=False)),
+        )
+    return {"status": "pendente"}
+
+
+def pending_captures(user_id: int):
+    with get_db() as db:
+        return db.execute(
+            "SELECT * FROM capturas WHERE user_id = ? AND status = 'pendente' ORDER BY datetime(created_at) DESC LIMIT 10",
+            (user_id,),
+        ).fetchall()
+
+
+def checkin_streak(user_id: int) -> int:
+    """Dias consecutivos de check-in, contando a partir de hoje (ou ontem, se hoje ainda não fechou)."""
+    with get_db() as db:
+        dias = [r["dia"] for r in db.execute(
+            "SELECT dia FROM checkins WHERE user_id = ? ORDER BY dia DESC LIMIT 366", (user_id,)
+        ).fetchall()]
+    if not dias:
+        return 0
+    known = set(dias)
+    cursor = date.today()
+    if cursor.isoformat() not in known:
+        cursor -= timedelta(days=1)
+    streak = 0
+    while cursor.isoformat() in known:
+        streak += 1
+        cursor -= timedelta(days=1)
+    return streak
 
 
 def user_categories(user_id: int):
@@ -879,7 +1016,7 @@ app.jinja_env.globals["date"] = date
 @app.before_request
 def csrf_protect():
     if request.method == "POST":
-        exempt = request.endpoint in {"logout"}
+        exempt = request.endpoint in {"logout", "api_captura"}
         token = request.form.get("csrf_token", "")
         if not exempt and token != session.get("csrf_token"):
             flash("Token de segurança inválido. Atualize a página e tente novamente.")
@@ -943,6 +1080,7 @@ def login():
 
 
 def _start_session(user) -> None:
+    session.permanent = True
     session["user_id"] = user["id"]
     session["nome"] = user["nome"]
     session["perfil"] = user["perfil"]
@@ -1041,6 +1179,37 @@ def home():
                WHERE user_id = ? AND tipo = 'saida' AND date(COALESCE(data_transacao, created_at)) = date(?)""",
             (user["id"], today_iso),
         ).fetchone()["total"]
+        today_txs = db.execute(
+            """SELECT * FROM transacoes
+               WHERE user_id = ? AND date(COALESCE(data_transacao, created_at)) = date(?)
+                 AND fonte != 'ajuste'
+               ORDER BY id DESC LIMIT 8""",
+            (user["id"], today_iso),
+        ).fetchall()
+        checkin_done = db.execute(
+            "SELECT 1 FROM checkins WHERE user_id = ? AND dia = ?",
+            (user["id"], today_iso),
+        ).fetchone() is not None
+        tx_count = db.execute(
+            "SELECT COUNT(*) AS n FROM transacoes WHERE user_id = ?", (user["id"],)
+        ).fetchone()["n"]
+
+    pendentes = []
+    for cap in pending_captures(user["id"]):
+        try:
+            dados = json.loads(cap["dados_extraidos"] or "{}")
+        except (TypeError, ValueError):
+            dados = {}
+        pendentes.append({
+            "id": cap["id"],
+            "conteudo": cap["conteudo"],
+            "valor": dados.get("valor") or "",
+            "tipo": dados.get("tipo") or "saida",
+        })
+    streak = checkin_streak(user["id"])
+    onboarding = tx_count == 0
+    # Texto compartilhado do WhatsApp (share_target do PWA) pré-preenche o registro rápido
+    shared_text = sanitize_text(request.args.get("texto") or request.args.get("title"))[:200]
     avg_daily_spend = stats["month_expenses"] / max(1, date.today().day)
     projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month() - 1))
     view_mode = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
@@ -1055,6 +1224,12 @@ def home():
         today_spent=float(today_spent or 0),
         projected_end=float(projected_end),
         view_mode=view_mode,
+        today_txs=today_txs,
+        pendentes=pendentes,
+        checkin_done=checkin_done,
+        streak=streak,
+        onboarding=onboarding,
+        shared_text=shared_text,
         user=user,
         profile=profile,
         focus=focus,
@@ -1181,6 +1356,11 @@ def settings():
     with get_db() as db:
         goals_count = db.execute("SELECT COUNT(*) AS count FROM metas WHERE user_id = ?", (user["id"],)).fetchone()["count"]
         commitments_count = db.execute("SELECT COUNT(*) AS count FROM compromissos WHERE user_id = ?", (user["id"],)).fetchone()["count"]
+        # Token de captura: nasce no primeiro acesso às configurações
+        capture_token = user["capture_token"] if "capture_token" in user.keys() else None
+        if not capture_token:
+            capture_token = secrets.token_urlsafe(24)
+            db.execute("UPDATE usuarios SET capture_token = ? WHERE id = ?", (capture_token, user["id"]))
 
     return render_template(
         "settings.html",
@@ -1188,7 +1368,20 @@ def settings():
         goals_count=goals_count,
         commitments_count=commitments_count,
         plan_label=PLAN_LABELS["free"],
+        capture_token=capture_token,
+        capture_url=url_for("api_captura", _external=True),
     )
+
+
+@app.route("/settings/regenerar-token", methods=["POST"])
+@login_required
+def regenerar_token():
+    user = current_user()
+    novo = secrets.token_urlsafe(24)
+    with get_db() as db:
+        db.execute("UPDATE usuarios SET capture_token = ? WHERE id = ?", (novo, user["id"]))
+    flash("Token novo gerado. Atualize o MacroDroid com ele.")
+    return redirect(url_for("settings"))
 
 
 # ------------------------
@@ -1313,6 +1506,94 @@ def delete_goal(goal_id):
         db.execute("DELETE FROM metas WHERE id = ? AND user_id = ?", (goal_id, user["id"]))
     flash("Meta removida.")
     return redirect(url_for("metas"))
+
+
+# ------------------------
+# Captura automática (notificações do banco via MacroDroid/Atalhos/WhatsApp futuro)
+# ------------------------
+@app.route("/api/captura", methods=["POST"])
+def api_captura():
+    payload = request.get_json(silent=True) or request.form
+    token = sanitize_text(payload.get("token"))
+    texto = payload.get("texto") or payload.get("text") or ""
+    if not token:
+        return {"erro": "token ausente"}, 401
+    with get_db() as db:
+        user = db.execute("SELECT id FROM usuarios WHERE capture_token = ?", (token,)).fetchone()
+    if not user:
+        return {"erro": "token inválido"}, 401
+    if not sanitize_text(texto):
+        return {"erro": "texto vazio"}, 400
+    result = register_capture(user["id"], texto, origem="notificacao")
+    return result, 200
+
+
+@app.route("/registro-rapido", methods=["POST"])
+@login_required
+def registro_rapido():
+    user = current_user()
+    texto = request.form.get("texto", "")
+    if not sanitize_text(texto):
+        flash("Me conta o que aconteceu — ex.: gastei 12 na quentinha.")
+        return redirect(url_for("home"))
+    result = register_capture(user["id"], texto, origem="manual")
+    if result["status"] == "lancada":
+        rotulo = "Entrada" if result["tipo"] == "entrada" else "Saída"
+        flash(f"Anotei! {rotulo} de {money(result['valor'])} em {result['estabelecimento']} ({result['categoria']}).")
+    elif result["status"] == "duplicada":
+        flash("Esse eu já tinha anotado agorinha. 😉")
+    else:
+        flash("Não entendi direito — deixei nas pendências para você confirmar.")
+    return redirect(url_for("home"))
+
+
+@app.route("/checkin", methods=["POST"])
+@login_required
+def fechar_dia():
+    user = current_user()
+    today_iso = date.today().isoformat()
+    with get_db() as db:
+        db.execute(
+            "INSERT OR IGNORE INTO checkins (user_id, dia) VALUES (?, ?)",
+            (user["id"], today_iso),
+        )
+    streak = checkin_streak(user["id"])
+    if streak >= 2:
+        flash(f"Dia fechado! 🔥 {streak} dias seguidos em dia com o Herc.")
+    else:
+        flash("Dia fechado! Até amanhã. 🦁")
+    return redirect(url_for("home"))
+
+
+@app.route("/capturas/<int:captura_id>/descartar", methods=["POST"])
+@login_required
+def descartar_captura(captura_id):
+    user = current_user()
+    with get_db() as db:
+        db.execute(
+            "UPDATE capturas SET status = 'descartada' WHERE id = ? AND user_id = ?",
+            (captura_id, user["id"]),
+        )
+    flash("Captura descartada.")
+    return redirect(url_for("home"))
+
+
+@app.route("/saldo-inicial", methods=["POST"])
+@login_required
+def saldo_inicial():
+    user = current_user()
+    valor = parse_money(request.form.get("valor"))
+    if valor <= 0:
+        flash("Me diz quanto você tem na conta hoje (pode ser aproximado).")
+        return redirect(url_for("home"))
+    with get_db() as db:
+        db.execute(
+            """INSERT INTO transacoes (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte)
+               VALUES (?, 'entrada', ?, 'Saldo inicial', 'Saldo inicial', 'Outros', ?, 'ajuste')""",
+            (user["id"], valor, date.today().isoformat()),
+        )
+    flash(f"Perfeito! Seu saldo de {money(valor)} está registrado. Agora é comigo. 🦁")
+    return redirect(url_for("home"))
 
 
 # ------------------------
@@ -1509,6 +1790,38 @@ def toggle_commitment(commitment_id):
     new_status = "pago" if commitment["status"] == "pendente" else "pendente"
     with get_db() as db:
         db.execute("UPDATE compromissos SET status = ? WHERE id = ? AND user_id = ?", (new_status, commitment_id, user["id"]))
+
+        # Conta recorrente paga: a próxima nasce sozinha
+        if new_status == "pago" and commitment["recorrente"]:
+            try:
+                venc = date.fromisoformat(commitment["vencimento"])
+            except (TypeError, ValueError):
+                venc = date.today()
+            freq = commitment["frequencia"] or "mensal"
+            proximo = None
+            if freq == "semanal":
+                proximo = venc + timedelta(days=7)
+            elif freq == "anual":
+                proximo = venc.replace(year=venc.year + 1)
+            elif freq == "mensal":
+                ano = venc.year + (1 if venc.month == 12 else 0)
+                mes = 1 if venc.month == 12 else venc.month + 1
+                dia = min(venc.day, calendar.monthrange(ano, mes)[1])
+                proximo = date(ano, mes, dia)
+            if proximo:
+                ja_existe = db.execute(
+                    """SELECT 1 FROM compromissos
+                       WHERE user_id = ? AND descricao = ? AND vencimento = ? AND status = 'pendente'""",
+                    (user["id"], commitment["descricao"], proximo.isoformat()),
+                ).fetchone()
+                if not ja_existe:
+                    db.execute(
+                        """INSERT INTO compromissos (user_id, descricao, valor, vencimento, tipo, status, recorrente, frequencia)
+                           VALUES (?, ?, ?, ?, ?, 'pendente', 1, ?)""",
+                        (user["id"], commitment["descricao"], commitment["valor"], proximo.isoformat(), commitment["tipo"], freq),
+                    )
+                    flash(f"Conta paga! Já criei a próxima: {commitment['descricao']} em {format_date(proximo.isoformat())}.")
+                    return redirect(url_for("compromissos"))
     flash("Compromisso atualizado.")
     return redirect(url_for("compromissos"))
 
@@ -1784,6 +2097,7 @@ def nova_transacao():
         confidence = int(parse_money(request.form.get("confidence")) or 100)
         needs_review = 1 if request.form.get("needs_review") else 0
         extra_json = request.form.get("extra_json") or ""
+        captura_id = request.form.get("captura_id", type=int)
         if tipo not in {"entrada", "saida"}:
             flash("Escolha um tipo válido.")
             return redirect(url_for("nova_transacao"))
@@ -1815,6 +2129,11 @@ def nova_transacao():
                 ),
             )
             new_id = cursor.lastrowid
+            if captura_id:
+                db.execute(
+                    "UPDATE capturas SET status = 'processada' WHERE id = ? AND user_id = ?",
+                    (captura_id, user["id"]),
+                )
         flash(("Entrada registrada." if tipo == "entrada" else "Saída registrada.") + " Está aqui na sua lista.")
         return redirect(url_for("listar_transacoes", novo=new_id))
     return render_template(

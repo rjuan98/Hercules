@@ -1150,3 +1150,78 @@ body.mode-simple .toast { font-size: 1.05rem; }
     color: var(--text);
     font-size: 0.92rem;
 }
+
+/* ============================================================
+   Registro relâmpago e check-in do dia
+   ============================================================ */
+.quick-log { padding: 16px 18px; }
+.quick-log-form {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.quick-log-form input[type="text"] {
+    flex: 1;
+    min-width: 120px;
+    font-size: 1rem;
+}
+.quick-log-mic {
+    display: inline-flex !important;
+    width: 48px;
+    height: 48px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+.quick-log-mic.gravando {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+    color: var(--danger);
+    animation: micPulse 1.2s ease-in-out infinite;
+}
+@keyframes micPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(178, 58, 42, 0.3); }
+    50% { box-shadow: 0 0 0 8px rgba(178, 58, 42, 0); }
+}
+
+.checkin-list {
+    list-style: none;
+    margin: 0 0 6px;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}
+.checkin-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    font-size: 0.95rem;
+}
+.checkin-desc em { font-style: normal; color: var(--muted); font-size: 0.86rem; }
+.checkin-in { color: var(--success); font-weight: 800; white-space: nowrap; }
+.checkin-out { color: var(--danger); font-weight: 800; white-space: nowrap; }
+.checkin-done {
+    margin: 14px 0 0;
+    text-align: center;
+    font-weight: 800;
+    color: var(--success);
+}
+
+.pendente-item {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: var(--warning-soft);
+    border: 1.5px solid rgba(156, 106, 16, 0.35);
+}
+.pendente-texto { margin: 0 0 10px; font-size: 0.92rem; }
+.pendente-acoes { display: flex; gap: 10px; flex-wrap: wrap; }
+.pendente-acoes form { margin: 0; }
+
+@media (max-width: 520px) {
+    .quick-log-form { flex-wrap: wrap; }
+    .quick-log-form .button-primary { width: 100%; }
+}

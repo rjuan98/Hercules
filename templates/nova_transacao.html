@@ -8,6 +8,9 @@
     <form method="POST" class="form-grid cols-2" id="txForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="tipo" id="tipoInput" value="saida">
+        {% if request.args.get('captura_id') %}
+        <input type="hidden" name="captura_id" value="{{ request.args.get('captura_id') }}">
+        {% endif %}
 
         <div class="form-group" style="grid-column:1 / -1;">
             <label>O que aconteceu?</label>
@@ -19,7 +22,7 @@
 
         <div class="form-group">
             <label for="valor">Valor</label>
-            <input id="valor" type="number" step="0.01" min="0.01" name="valor" required placeholder="0,00" inputmode="decimal">
+            <input id="valor" type="number" step="0.01" min="0.01" name="valor" required placeholder="0,00" inputmode="decimal" value="{{ request.args.get('valor', '') }}">
         </div>
         <div class="form-group">
             <label for="data_transacao">Data</label>
@@ -28,7 +31,7 @@
 
         <div class="form-group" style="grid-column:1 / -1;">
             <label for="descricao">Descrição</label>
-            <input id="descricao" type="text" name="descricao" required placeholder="Ex.: mercado, uber, quentinha">
+            <input id="descricao" type="text" name="descricao" required placeholder="Ex.: mercado, uber, quentinha" value="{{ request.args.get('descricao', '') }}">
         </div>
 
         <div class="form-group">
@@ -112,7 +115,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     btnSaida.addEventListener('click', () => setTipo('saida'));
     btnEntrada.addEventListener('click', () => setTipo('entrada'));
-    setTipo('saida');
+    setTipo({{ ("'entrada'" if request.args.get('tipo') == 'entrada' else "'saida'") }});
 });
 </script>
 {% endblock %}

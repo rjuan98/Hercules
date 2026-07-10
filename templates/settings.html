@@ -123,6 +123,43 @@
     </form>
 </section>
 
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Captura automática 🦁⚡</h2>
+        <p class="topbar-subtitle">O Herc lê as notificações do seu banco e lança os gastos sozinho — configure uma vez e esqueça.</p>
+    </div>
+
+    <div class="form-group">
+        <label>Seu endereço de captura</label>
+        <input type="text" readonly value="{{ capture_url }}" onclick="this.select()">
+    </div>
+    <div class="form-group" style="margin-top:12px;">
+        <label>Seu token secreto <span class="helper-text">(não compartilhe)</span></label>
+        <input type="text" readonly value="{{ capture_token }}" onclick="this.select()">
+    </div>
+
+    <details class="form-advanced" style="margin-top:14px;">
+        <summary>Como configurar no Android (MacroDroid) — 5 minutos</summary>
+        <ol style="margin:12px 0 0; padding-left:20px; line-height:1.9;">
+            <li>Instale o <strong>MacroDroid</strong> (grátis na Play Store).</li>
+            <li>Crie um macro → <strong>Gatilho</strong>: "Notificação recebida" → escolha o app do seu banco (ex.: Nubank).</li>
+            <li><strong>Ação</strong>: "Requisição HTTP" → método <strong>POST</strong> → cole o endereço acima.</li>
+            <li>Em "Parâmetros do formulário", adicione dois campos:<br>
+                <code>token</code> = seu token secreto acima<br>
+                <code>texto</code> = <code>[not_title] [not_text]</code> <span class="helper-text">(variáveis do MacroDroid com o conteúdo da notificação)</span></li>
+            <li>Salve e ative. Pronto: comprou, o Herc anota e categoriza sozinho.</li>
+        </ol>
+        <p class="helper-text" style="margin-top:10px;">
+            O que ele não entender cai nas pendências da tela inicial para você confirmar — nada se perde, nada vira bagunça.
+        </p>
+    </details>
+
+    <form method="POST" action="{{ url_for('regenerar_token') }}" style="margin-top:14px;" data-confirm="Gerar um token novo? O MacroDroid precisará ser atualizado com ele.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="button button-outline">Gerar token novo</button>
+    </form>
+</section>
+
 <section class="metric-grid cols-3" style="margin-top:18px;">
     <article class="glass-card metric-card">
         <p class="metric-label">Saldo atual</p>

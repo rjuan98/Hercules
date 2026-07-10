@@ -5,6 +5,93 @@
 
 {% block content %}
 
+{# ---- Boas-vindas do Herc: conta nova precisa do saldo de partida ---- #}
+{% if onboarding %}
+<section class="page-card suggestion-card" style="margin-bottom:18px;">
+    <div class="hercules-greeting" style="margin-bottom:14px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Vamos começar do jeito certo!</strong><br>
+            Me conta <strong>quanto você tem na conta hoje</strong> (pode ser aproximado).
+            A partir daí eu cuido do resto — e você não precisa registrar o passado.
+        </div>
+    </div>
+    <form method="POST" action="{{ url_for('saldo_inicial') }}" class="suggestion-actions">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="number" step="0.01" min="0.01" name="valor" placeholder="Ex.: 1500,00" required inputmode="decimal" style="flex:1;">
+        <button type="submit" class="button button-primary">Esse é meu saldo</button>
+    </form>
+    <p class="helper-text" style="margin-top:10px;">
+        Depois, se quiser, cadastre suas contas do mês (aluguel, luz...) em
+        <a href="{{ url_for('compromissos') }}" style="color:var(--primary-deep); font-weight:800;">Contas</a>.
+    </p>
+</section>
+{% endif %}
+
+{# ---- Registro relâmpago: fala ou escreve, o Herc entende ---- #}
+<section class="page-card quick-log" style="margin-bottom:18px;">
+    <form method="POST" action="{{ url_for('registro_rapido') }}" class="quick-log-form" id="quickLogForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" name="texto" id="quickLogInput" maxlength="200"
+               placeholder="🦁 O que aconteceu? Ex.: gastei 12 na quentinha"
+               value="{{ shared_text or '' }}" autocomplete="off">
+        <button type="button" class="icon-button quick-log-mic" id="quickLogMic" aria-label="Falar com o Herc" title="Falar com o Herc" hidden>
+            <i data-lucide="mic"></i>
+        </button>
+        <button type="submit" class="button button-primary">Anotar</button>
+    </form>
+</section>
+
+{# ---- Check-in: o Herc mostra o dia e você só confirma ---- #}
+{% if not onboarding %}
+<section class="page-card checkin-card" style="margin-bottom:18px;">
+    <div class="note-header" style="margin-bottom:10px;">
+        <h2 class="topbar-title" style="font-size:1.15rem; margin:0;">Seu dia, segundo o Herc</h2>
+        {% if streak > 0 %}<span class="badge">🔥 {{ streak }} {{ 'dia' if streak == 1 else 'dias' }} em dia</span>{% endif %}
+    </div>
+
+    {% if today_txs %}
+    <ul class="checkin-list">
+        {% for tx in today_txs %}
+        <li>
+            <span class="checkin-desc">{{ tx['descricao'] or tx['estabelecimento'] }} <em>({{ tx['categoria'] or 'Outros' }})</em></span>
+            <span class="{% if tx['tipo'] == 'entrada' %}checkin-in{% else %}checkin-out{% endif %}">
+                {{ '+' if tx['tipo'] == 'entrada' else '−' }} {{ tx['valor']|money }}
+            </span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="helper-text" style="margin-bottom:12px;">Nenhuma movimentação hoje até agora.</p>
+    {% endif %}
+
+    {% for p in pendentes %}
+    <div class="pendente-item">
+        <p class="pendente-texto">🤔 Capturei mas não entendi: “{{ p.conteudo[:90] }}{% if p.conteudo|length > 90 %}…{% endif %}”</p>
+        <div class="pendente-acoes">
+            <a class="button button-outline" style="padding:7px 14px;"
+               href="{{ url_for('nova_transacao', valor=p.valor, descricao=p.conteudo[:60], tipo=p.tipo, captura_id=p.id) }}">Registrar</a>
+            <form method="POST" action="{{ url_for('descartar_captura', captura_id=p.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="button button-outline" style="padding:7px 14px;">Ignorar</button>
+            </form>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if not checkin_done %}
+    <form method="POST" action="{{ url_for('fechar_dia') }}" style="margin-top:14px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="button button-primary" style="width:100%;">
+            {% if today_spent > 0 or today_txs %}Fechar o dia ✓{% else %}Não gastei nada hoje ✓{% endif %}
+        </button>
+    </form>
+    {% else %}
+    <p class="checkin-done">✓ Dia fechado. Até amanhã! 🦁</p>
+    {% endif %}
+</section>
+{% endif %}
+
 {# ---- Pergunta inteligente: o Hércules aprende com uma pergunta ---- #}
 {% for s in suggestions %}
 <section class="page-card suggestion-card" style="margin-bottom:18px;">
@@ -245,6 +332,36 @@
 {% block scripts %}
 <script>
 window.addEventListener('DOMContentLoaded', () => {
+    // ---- Falar com o Herc (Web Speech API, Android/Chrome) ----
+    const micBtn = document.getElementById('quickLogMic');
+    const quickInput = document.getElementById('quickLogInput');
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (micBtn && quickInput && SpeechRec) {
+        micBtn.hidden = false;
+        let ouvindo = false;
+        const rec = new SpeechRec();
+        rec.lang = 'pt-BR';
+        rec.interimResults = false;
+        rec.maxAlternatives = 1;
+        micBtn.addEventListener('click', () => {
+            if (ouvindo) { rec.stop(); return; }
+            ouvindo = true;
+            micBtn.classList.add('gravando');
+            quickInput.placeholder = 'Estou ouvindo…';
+            rec.start();
+        });
+        rec.addEventListener('result', (e) => {
+            quickInput.value = e.results[0][0].transcript;
+        });
+        rec.addEventListener('end', () => {
+            ouvindo = false;
+            micBtn.classList.remove('gravando');
+            quickInput.placeholder = '🦁 O que aconteceu? Ex.: gastei 12 na quentinha';
+            if (quickInput.value.trim()) quickInput.focus();
+        });
+        rec.addEventListener('error', () => { ouvindo = false; micBtn.classList.remove('gravando'); });
+    }
+
     const canvas = document.getElementById('categoryChart');
     if (!canvas || !window.Chart) return;
 
