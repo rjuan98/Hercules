@@ -252,6 +252,7 @@ def init_db():
     _add_column_if_missing(conn, "transacoes", "confidence", "INTEGER NOT NULL DEFAULT 100")
     _add_column_if_missing(conn, "transacoes", "needs_review", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "transacoes", "extra_json", "TEXT")
+    _add_column_if_missing(conn, "transacoes", "fitid", "TEXT")
 
     _add_column_if_missing(conn, "usuarios", "view_mode", "TEXT NOT NULL DEFAULT 'completo'")
     _add_column_if_missing(conn, "usuarios", "capture_token", "TEXT")

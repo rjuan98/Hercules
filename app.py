@@ -365,6 +365,99 @@ def pending_captures(user_id: int):
         ).fetchall()
 
 
+# ------------------------
+# OFX: importação de extrato com reconciliação
+# ------------------------
+_OFX_TRN_RE = re.compile(r"<STMTTRN>(.*?)(?:</STMTTRN>|(?=<STMTTRN>)|$)", re.DOTALL | re.IGNORECASE)
+
+
+def _ofx_field(block: str, tag: str) -> str:
+    """Campo OFX em SGML (sem fechamento) ou XML (com fechamento)."""
+    m = re.search(rf"<{tag}>([^<\r\n]*)", block, re.IGNORECASE)
+    return sanitize_text(m.group(1)) if m else ""
+
+
+def parse_ofx(content: str) -> list[dict[str, Any]]:
+    """Extrai as transações de um arquivo OFX. Bancos brasileiros usam OFX 1.x (SGML) ou 2.x (XML)."""
+    transactions = []
+    for m in _OFX_TRN_RE.finditer(content):
+        block = m.group(1)
+        amount_raw = _ofx_field(block, "TRNAMT").replace(",", ".")
+        try:
+            amount = float(amount_raw)
+        except ValueError:
+            continue
+        if amount == 0:
+            continue
+        dt_raw = _ofx_field(block, "DTPOSTED")[:8]
+        try:
+            dt = datetime.strptime(dt_raw, "%Y%m%d").date().isoformat()
+        except ValueError:
+            continue
+        memo = _ofx_field(block, "MEMO") or _ofx_field(block, "NAME") or "Movimentação importada"
+        transactions.append({
+            "valor": abs(amount),
+            "tipo": "entrada" if amount > 0 else "saida",
+            "data": dt,
+            "descricao": memo[:120],
+            "fitid": _ofx_field(block, "FITID")[:80] or None,
+        })
+    return transactions
+
+
+def import_ofx_transactions(user_id: int, items: list[dict[str, Any]]) -> dict[str, int]:
+    """Importa com reconciliação: FITID já visto = pula; valor+data já registrado
+    (captura/manual) = casa e marca; anterior ao saldo inicial = pula (protege o saldo)."""
+    stats = {"importadas": 0, "ja_importadas": 0, "reconciliadas": 0, "antigas": 0}
+    with get_db() as db:
+        saldo_row = db.execute(
+            """SELECT date(COALESCE(data_transacao, created_at)) AS dia FROM transacoes
+               WHERE user_id = ? AND fonte = 'ajuste' AND descricao = 'Saldo inicial'
+               ORDER BY dia ASC LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+        saldo_date = saldo_row["dia"] if saldo_row else None
+
+        for item in items:
+            # O saldo inicial já resume o passado: importar dias anteriores duplicaria dinheiro
+            if saldo_date and item["data"] < saldo_date:
+                stats["antigas"] += 1
+                continue
+            if item["fitid"]:
+                seen = db.execute(
+                    "SELECT 1 FROM transacoes WHERE user_id = ? AND fitid = ?",
+                    (user_id, item["fitid"]),
+                ).fetchone()
+                if seen:
+                    stats["ja_importadas"] += 1
+                    continue
+            # Reconciliação: o Herc (ou o usuário) já registrou esse valor nesse dia?
+            match = db.execute(
+                """SELECT id FROM transacoes
+                   WHERE user_id = ? AND tipo = ? AND ABS(valor - ?) < 0.005
+                     AND date(COALESCE(data_transacao, created_at)) = date(?)
+                     AND fitid IS NULL AND fonte != 'ofx'
+                   LIMIT 1""",
+                (user_id, item["tipo"], item["valor"], item["data"]),
+            ).fetchone()
+            if match:
+                db.execute("UPDATE transacoes SET fitid = ? WHERE id = ?", (item["fitid"], match["id"]))
+                stats["reconciliadas"] += 1
+                continue
+            categoria = categorize(user_id, item["descricao"]) if item["tipo"] == "saida" else "Outros"
+            if apply_rules(user_id, item["descricao"]):
+                categoria = apply_rules(user_id, item["descricao"])
+            db.execute(
+                """INSERT INTO transacoes
+                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, fitid)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'ofx', 95, ?)""",
+                (user_id, item["tipo"], item["valor"], item["descricao"], item["descricao"],
+                 categoria, item["data"], item["fitid"]),
+            )
+            stats["importadas"] += 1
+    return stats
+
+
 # Dicas do Herc: ensino contextual, uma frase por vez, some depois de vista
 HERC_TIPS = {
     "registro_rapido": "Dica: escreve ali em cima algo como “gastei 10 no mercado” que eu entendo e anoto sozinho. Pode até falar, no botão do microfone. 🎤",
@@ -2203,6 +2296,43 @@ def delete_transacao(tx_id):
         db.execute("DELETE FROM transacoes WHERE id = ? AND user_id = ?", (tx_id, user["id"]))
     flash("Movimentação removida.")
     return redirect(url_for("listar_transacoes"))
+
+
+# ------------------------
+# OFX import
+# ------------------------
+@app.route("/importar", methods=["GET", "POST"])
+@login_required
+def importar_ofx():
+    user = current_user()
+    if request.method == "POST":
+        arquivo = request.files.get("arquivo")
+        if not arquivo or not arquivo.filename:
+            flash("Escolha o arquivo OFX exportado do seu banco.")
+            return redirect(url_for("importar_ofx"))
+        if not arquivo.filename.lower().endswith((".ofx", ".qfx")):
+            flash("O arquivo precisa ser .ofx (exportado do app do banco).")
+            return redirect(url_for("importar_ofx"))
+        raw = arquivo.read()
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            content = raw.decode("latin-1", errors="replace")
+        items = parse_ofx(content)
+        if not items:
+            flash("Não encontrei movimentações nesse arquivo. Confirme que é um extrato OFX.")
+            return redirect(url_for("importar_ofx"))
+        stats = import_ofx_transactions(user["id"], items)
+        partes = [f"{stats['importadas']} novas importadas"]
+        if stats["reconciliadas"]:
+            partes.append(f"{stats['reconciliadas']} já estavam anotadas (conferidas ✓)")
+        if stats["ja_importadas"]:
+            partes.append(f"{stats['ja_importadas']} repetidas puladas")
+        if stats["antigas"]:
+            partes.append(f"{stats['antigas']} anteriores ao seu saldo inicial, puladas")
+        flash("Extrato processado: " + " · ".join(partes) + ".")
+        return redirect(url_for("listar_transacoes"))
+    return render_template("importar.html", user=user)
 
 
 # ------------------------

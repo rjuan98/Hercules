@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}Importar extrato · Hércules{% endblock %}
+{% block page_title %}Importar extrato{% endblock %}
+{% block page_subtitle %}O extrato do banco confere e completa o que o Herc anotou.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:720px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:18px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Me dá o extrato que eu organizo tudo.</strong><br>
+            Importo as movimentações do mês de uma vez, aplico as categorias que você me ensinou
+            e <strong>não duplico nada</strong> que eu já tinha anotado sozinho.
+        </div>
+    </div>
+
+    <form method="POST" enctype="multipart/form-data" class="form-grid">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="arquivo">Arquivo OFX do banco</label>
+            <input id="arquivo" type="file" name="arquivo" accept=".ofx,.qfx" required>
+        </div>
+        <button type="submit" class="button button-primary" style="width:100%;">Importar extrato</button>
+    </form>
+
+    <details class="form-advanced" style="margin-top:18px;">
+        <summary>Como baixar o OFX no seu banco</summary>
+        <ul style="margin:12px 0 0; padding-left:20px; line-height:1.9;">
+            <li><strong>Nubank:</strong> app → aba da conta → Extrato → ícone de compartilhar → Exportar → OFX.</li>
+            <li><strong>Itaú / Bradesco / Caixa / BB:</strong> internet banking → Extrato → Salvar/Exportar → formato OFX (ou "Money").</li>
+            <li><strong>Inter / C6:</strong> app → Extrato → Exportar → OFX.</li>
+        </ul>
+        <p class="helper-text" style="margin-top:10px;">
+            Dica: uma vez por semana ou por mês já basta — o dia a dia a captura automática cobre.
+        </p>
+    </details>
+</section>
+{% endblock %}
