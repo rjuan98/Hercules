@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}Os 12 Trabalhos · Hércules{% endblock %}
+{% block page_title %}Os 12 Trabalhos{% endblock %}
+{% block page_subtitle %}Cada conquista financeira sua é um trabalho de herói.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="margin-bottom:18px;">
+    <div class="hercules-greeting">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>{{ total }} de 12 trabalhos concluídos.</strong><br>
+            {% if total == 0 %}Todo herói começa do zero — o primeiro trabalho está mais perto do que parece.
+            {% elif total < 6 %}Você está no caminho. Os deuses estão de olho. 👀
+            {% elif total < 12 %}Mais da metade da jornada! Poucos chegam tão longe.
+            {% else %}Você completou os 12 Trabalhos. Herói de verdade — do dinheiro e do mito. 🏛️{% endif %}
+        </div>
+    </div>
+</section>
+
+<div class="trabalho-grid">
+    {% for t in trabalhos %}
+    {% set feito = conquistados.get(t.key) %}
+    <article class="trabalho-card {% if feito %}conquistado{% endif %}">
+        <span class="trabalho-num">{{ loop.index }}º trabalho</span>
+        <span class="trabalho-emoji">{{ t.emoji }}</span>
+        <h3 class="trabalho-nome">{{ t.nome }}</h3>
+        {% if feito %}
+        <p class="trabalho-desc">{{ t.feito }}</p>
+        <span class="trabalho-data">Conquistado em {{ feito|format_date }}</span>
+        {% else %}
+        <p class="trabalho-desc">{{ t.como }}</p>
+        <span class="trabalho-data trabalho-pendente">Ainda não conquistado</span>
+        {% endif %}
+    </article>
+    {% endfor %}
+</div>
+{% endblock %}

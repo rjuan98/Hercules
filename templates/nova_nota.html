@@ -60,10 +60,61 @@
             {% if note and note['arquivo'] %}
                 <p class="helper-text" style="margin-top:8px;">Arquivo atual: {{ note['arquivo'] }}</p>
             {% endif %}
+            {% if ai_enabled %}
+            <div class="ai-read-row" style="margin-top:10px;">
+                <button type="button" class="button button-secondary" id="aiReadBtn">✨ Ler a nota com IA</button>
+                <span class="ai-status" id="aiStatus">Tire a foto e eu preencho os campos para você conferir.</span>
+            </div>
+            {% endif %}
         </div>
         <div class="form-group" style="grid-column:1 / -1;">
             <button type="submit" class="button button-primary">{% if mode == 'edit' %}Salvar alterações{% else %}Salvar nota{% endif %}</button>
         </div>
     </form>
 </section>
+{% endblock %}
+
+{% block scripts %}
+{% if ai_enabled %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('aiReadBtn');
+    const status = document.getElementById('aiStatus');
+    const arquivo = document.getElementById('arquivo');
+    if (!btn) return;
+
+    btn.addEventListener('click', async () => {
+        const file = arquivo.files && arquivo.files[0];
+        if (!file) { status.textContent = 'Escolha ou tire a foto da nota primeiro.'; arquivo.click(); return; }
+        btn.disabled = true;
+        status.textContent = '🦁 Lendo a nota…';
+        try {
+            const fd = new FormData();
+            fd.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+            fd.append('arquivo', file);
+            const resp = await fetch('{{ url_for("analisar_nota") }}', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                status.textContent = data.erro || 'Não deu certo — preencha manualmente.';
+                return;
+            }
+            const c = data.campos || {};
+            const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+            set('descricao', c.descricao);
+            set('valor', c.valor);
+            set('data_emissao', c.data_emissao);
+            set('cliente', c.cliente);
+            set('cnpj_emitente', c.cnpj_emitente);
+            set('numero_nota', c.numero_nota);
+            if (c.categoria) document.getElementById('categoria').value = c.categoria;
+            status.textContent = '✓ Preenchi! Confere se está tudo certo e salva.';
+        } catch (e) {
+            status.textContent = 'Falha na leitura — tente de novo ou preencha manualmente.';
+        } finally {
+            btn.disabled = false;
+        }
+    });
+});
+</script>
+{% endif %}
 {% endblock %}

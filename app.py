@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import calendar
 import csv
 import io
@@ -36,6 +37,14 @@ try:
     from authlib.integrations.flask_client import OAuth
 except ImportError:  # optional
     OAuth = None
+
+try:
+    import requests as http_requests
+except ImportError:  # optional (necessário para a leitura de notas com IA)
+    http_requests = None
+
+# Leitura de notas com IA: liga sozinha quando a chave existir no ambiente
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 BASE_DIR = Path(__file__).resolve().parent
 # Em produção (Render, PythonAnywhere etc.) aponte UPLOAD_DIR para o disco persistente
@@ -456,6 +465,157 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]]) -> dict[s
             )
             stats["importadas"] += 1
     return stats
+
+
+# ------------------------
+# Os 12 Trabalhos de Hércules (conquistas reais, não medalhas vazias)
+# ------------------------
+TRABALHOS = [
+    {"key": "leao", "emoji": "🦁", "nome": "O Leão de Nemeia",
+     "feito": "Domou uma categoria: um mês inteiro dentro do limite.",
+     "como": "Crie um limite mensal numa categoria e feche o mês sem estourar."},
+    {"key": "hidra", "emoji": "🐍", "nome": "A Hidra de Lerna",
+     "feito": "Cortou 3 cabeças: ensinou 3 regras ao Herc.",
+     "como": "Ensine o Herc 3 vezes (ex.: 'Dennys é Doces') na tela inicial ou em Categorias."},
+    {"key": "corca", "emoji": "🦌", "nome": "A Corça de Cerineia",
+     "feito": "Mais rápido que a flecha: um gasto anotado sem tocar no app.",
+     "como": "Configure a captura automática nas Configurações e faça uma compra."},
+    {"key": "javali", "emoji": "🐗", "nome": "O Javali de Erimanto",
+     "feito": "Capturou o javali: fechou um mês no azul.",
+     "como": "Termine um mês com as entradas maiores que as saídas."},
+    {"key": "estabulos", "emoji": "🧹", "nome": "Os Estábulos de Augias",
+     "feito": "Tudo limpo: nenhuma pendência, nenhuma conta vencida.",
+     "como": "Resolva as capturas pendentes e não deixe contas vencerem."},
+    {"key": "aves", "emoji": "🦅", "nome": "As Aves do Estínfale",
+     "feito": "Espantou as aves: 10 gastos capturados automaticamente.",
+     "como": "Deixe a captura automática trabalhar por você."},
+    {"key": "touro", "emoji": "🐂", "nome": "O Touro de Creta",
+     "feito": "Domou o touro: 7 dias seguidos fechando o dia.",
+     "como": "Feche o dia na tela inicial por 7 dias seguidos."},
+    {"key": "eguas", "emoji": "🐎", "nome": "As Éguas de Diomedes",
+     "feito": "Domou as éguas selvagens: 30 dias seguidos com o Herc.",
+     "como": "Mantenha a sequência de check-ins por 30 dias."},
+    {"key": "cinto", "emoji": "🎗️", "nome": "O Cinto de Hipólita",
+     "feito": "Conquistou o cinto: completou a primeira meta.",
+     "como": "Crie uma meta e guarde até completar."},
+    {"key": "gado", "emoji": "🐄", "nome": "O Gado de Gerião",
+     "feito": "Trouxe o rebanho de longe: importou um extrato do banco.",
+     "como": "Importe um arquivo OFX em Entradas e saídas."},
+    {"key": "pomos", "emoji": "🍎", "nome": "Os Pomos das Hespérides",
+     "feito": "Colheu os frutos de ouro: guardou dinheiro em 3 meses diferentes.",
+     "como": "Faça aportes na sua reserva em 3 meses distintos."},
+    {"key": "cerbero", "emoji": "🐕", "nome": "Cérbero",
+     "feito": "Domou o guardião: 10 notas fiscais organizadas.",
+     "como": "Guarde 10 notas — no fim do ano, o contador agradece."},
+]
+
+
+def _prev_month_bounds():
+    first_this = date.today().replace(day=1)
+    last_prev = first_this - timedelta(days=1)
+    first_prev = last_prev.replace(day=1)
+    return first_prev.isoformat(), last_prev.isoformat()
+
+
+def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
+    ini, fim = _prev_month_bounds()
+    if key == "leao":
+        cats = db.execute(
+            "SELECT nome, limite_mensal FROM categorias WHERE user_id = ? AND limite_mensal > 0", (user_id,)
+        ).fetchall()
+        for cat in cats:
+            gasto = db.execute(
+                """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+                   WHERE user_id = ? AND tipo = 'saida' AND categoria = ?
+                     AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                (user_id, cat["nome"], ini, fim),
+            ).fetchone()["t"]
+            if float(gasto) <= float(cat["limite_mensal"]):
+                return True
+        return False
+    if key == "hidra":
+        n = db.execute(
+            "SELECT COUNT(*) AS n FROM regras_categorizacao WHERE user_id = ? AND categoria_nome != ?",
+            (user_id, IGNORE_RULE),
+        ).fetchone()["n"]
+        return n >= 3
+    if key == "corca":
+        return db.execute(
+            "SELECT 1 FROM transacoes WHERE user_id = ? AND fonte = 'notificacao' LIMIT 1", (user_id,)
+        ).fetchone() is not None
+    if key == "javali":
+        row = db.execute(
+            """SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN valor ELSE 0 END), 0) AS e,
+                      COALESCE(SUM(CASE WHEN tipo='saida' THEN valor ELSE 0 END), 0) AS s,
+                      COUNT(*) AS n
+               FROM transacoes
+               WHERE user_id = ? AND fonte != 'ajuste'
+                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+            (user_id, ini, fim),
+        ).fetchone()
+        return row["n"] > 0 and float(row["e"]) >= float(row["s"])
+    if key == "estabulos":
+        total = db.execute("SELECT COUNT(*) AS n FROM transacoes WHERE user_id = ?", (user_id,)).fetchone()["n"]
+        if total < 10:
+            return False
+        pend = db.execute(
+            "SELECT 1 FROM capturas WHERE user_id = ? AND status = 'pendente' LIMIT 1", (user_id,)
+        ).fetchone()
+        vencida = db.execute(
+            """SELECT 1 FROM compromissos WHERE user_id = ? AND status = 'pendente'
+               AND date(vencimento) < date('now') LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+        return pend is None and vencida is None
+    if key == "aves":
+        n = db.execute(
+            "SELECT COUNT(*) AS n FROM transacoes WHERE user_id = ? AND fonte = 'notificacao'", (user_id,)
+        ).fetchone()["n"]
+        return n >= 10
+    if key == "touro":
+        return checkin_streak(user_id) >= 7
+    if key == "eguas":
+        return checkin_streak(user_id) >= 30
+    if key == "cinto":
+        return db.execute(
+            "SELECT 1 FROM metas WHERE user_id = ? AND meta_valor > 0 AND valor_atual >= meta_valor LIMIT 1",
+            (user_id,),
+        ).fetchone() is not None
+    if key == "gado":
+        return db.execute(
+            "SELECT 1 FROM transacoes WHERE user_id = ? AND fonte = 'ofx' LIMIT 1", (user_id,)
+        ).fetchone() is not None
+    if key == "pomos":
+        n = db.execute(
+            """SELECT COUNT(DISTINCT strftime('%Y-%m', COALESCE(data_transacao, created_at))) AS n
+               FROM transacoes WHERE user_id = ? AND categoria = 'Reserva' AND tipo = 'saida'""",
+            (user_id,),
+        ).fetchone()["n"]
+        return n >= 3
+    if key == "cerbero":
+        n = db.execute("SELECT COUNT(*) AS n FROM notas WHERE user_id = ?", (user_id,)).fetchone()["n"]
+        return n >= 10
+    return False
+
+
+def evaluate_trabalhos(user_id: int) -> list[str]:
+    """Verifica os trabalhos ainda não conquistados; concede os que foram cumpridos.
+    Devolve as chaves recém-conquistadas."""
+    novos = []
+    with get_db() as db:
+        feitos = {r["trabalho"] for r in db.execute(
+            "SELECT trabalho FROM trabalhos WHERE user_id = ?", (user_id,)
+        ).fetchall()}
+        for t in TRABALHOS:
+            if t["key"] in feitos:
+                continue
+            if _trabalho_conquistado(user_id, t["key"], db):
+                db.execute(
+                    "INSERT OR IGNORE INTO trabalhos (user_id, trabalho, conquistado_em) VALUES (?, ?, ?)",
+                    (user_id, t["key"], date.today().isoformat()),
+                )
+                novos.append(t["key"])
+    return novos
 
 
 # Dicas do Herc: ensino contextual, uma frase por vez, some depois de vista
@@ -1701,6 +1861,28 @@ def descartar_captura(captura_id):
     return redirect(url_for("home"))
 
 
+@app.route("/trabalhos")
+@login_required
+def trabalhos():
+    user = current_user()
+    novos = evaluate_trabalhos(user["id"])
+    for key in novos:
+        t = next(x for x in TRABALHOS if x["key"] == key)
+        flash(f"🏆 Trabalho concluído: {t['emoji']} {t['nome']}!")
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT trabalho, conquistado_em FROM trabalhos WHERE user_id = ?", (user["id"],)
+        ).fetchall()
+    conquistados = {r["trabalho"]: r["conquistado_em"] for r in rows}
+    return render_template(
+        "trabalhos.html",
+        user=user,
+        trabalhos=TRABALHOS,
+        conquistados=conquistados,
+        total=len(conquistados),
+    )
+
+
 @app.route("/dicas/<key>/vista", methods=["POST"])
 @login_required
 def marcar_dica(key):
@@ -2108,6 +2290,83 @@ def listar_notas():
     )
 
 
+_AI_NOTE_PROMPT = """Você lê fotos de notas fiscais, cupons e recibos brasileiros.
+Extraia os dados desta imagem e responda APENAS com um JSON válido, sem comentários, no formato:
+{"descricao": "resumo curto do que é (ex.: 'Consulta médica - Dra. Ana')",
+ "valor": 123.45,
+ "data_emissao": "AAAA-MM-DD",
+ "cliente": "nome do emitente/estabelecimento",
+ "cnpj_emitente": "apenas os 14 dígitos, ou null",
+ "numero_nota": "número da NF/cupom, ou null",
+ "categoria": "uma destas: Saúde, Educação, Moradia, Transporte, Alimentação, Lazer, Serviços, Outros"}
+Se algum campo não estiver visível, use null. Não invente valores."""
+
+
+@app.route("/notas/analisar", methods=["POST"])
+@login_required
+def analisar_nota():
+    if not ANTHROPIC_API_KEY or http_requests is None:
+        return {"erro": "A leitura com IA ainda não está ativada neste servidor."}, 503
+    arquivo = request.files.get("arquivo")
+    if not arquivo or not arquivo.filename:
+        return {"erro": "Tire ou escolha a foto da nota primeiro."}, 400
+    ext = arquivo.filename.rsplit(".", 1)[-1].lower() if "." in arquivo.filename else ""
+    media_types = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+    if ext not in media_types:
+        return {"erro": "Envie uma foto (JPG, PNG ou WebP) — PDF ainda não."}, 400
+    dados = arquivo.read()
+    if len(dados) > 8 * 1024 * 1024:
+        return {"erro": "Foto muito grande (máx. 8 MB)."}, 400
+
+    payload = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 500,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {
+                    "type": "base64",
+                    "media_type": media_types[ext],
+                    "data": base64.b64encode(dados).decode(),
+                }},
+                {"type": "text", "text": _AI_NOTE_PROMPT},
+            ],
+        }],
+    }
+    try:
+        resp = http_requests.post(
+            "https://api.anthropic.com/v1/messages",
+            json=payload,
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            timeout=60,
+        )
+    except Exception:
+        return {"erro": "Não consegui falar com a IA agora. Tente de novo em instantes."}, 502
+    if resp.status_code != 200:
+        return {"erro": f"A IA recusou a leitura (código {resp.status_code}). Confira a chave e o saldo da API."}, 502
+
+    try:
+        texto = resp.json()["content"][0]["text"].strip()
+        if texto.startswith("```"):
+            texto = re.sub(r"^```(?:json)?\s*|\s*```$", "", texto)
+        extraido = json.loads(texto)
+    except (KeyError, IndexError, ValueError):
+        return {"erro": "A IA não conseguiu entender essa foto. Preencha manualmente."}, 422
+
+    campos = {}
+    for k in ("descricao", "valor", "data_emissao", "cliente", "cnpj_emitente", "numero_nota", "categoria"):
+        v = extraido.get(k)
+        if v is not None and v != "":
+            campos[k] = v
+    if campos.get("categoria") not in NOTE_CATEGORIES:
+        campos.pop("categoria", None)
+    return {"ok": True, "campos": campos}
+
+
 @app.route("/notas/nova", methods=["GET", "POST"])
 @login_required
 def nova_nota():
@@ -2122,6 +2381,7 @@ def nova_nota():
     return render_template(
         "nova_nota.html",
         user=user,
+        ai_enabled=bool(ANTHROPIC_API_KEY and http_requests),
         note=None,
         categories=NOTE_CATEGORIES,
         statuses=["Autorizada", "Processando", "Rejeitada"],
@@ -2148,6 +2408,7 @@ def editar_nota(note_id):
     return render_template(
         "nova_nota.html",
         user=user,
+        ai_enabled=bool(ANTHROPIC_API_KEY and http_requests),
         note=note,
         categories=NOTE_CATEGORIES,
         statuses=["Autorizada", "Processando", "Rejeitada"],
