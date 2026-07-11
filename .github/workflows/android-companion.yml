@@ -29,6 +29,24 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      # Sem isto, cada build geraria uma assinatura de debug diferente e o
+      # Android recusaria atualizar o app sem desinstalar antes (perdendo o
+      # login salvo). Guardamos o keystore em cache para reusar sempre a mesma.
+      - name: Restore cached debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
+      - name: Generate debug keystore if missing
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android \
+              -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Herc,OU=Hercules,O=Hercules,L=BR,S=BR,C=BR"
+          fi
+
       - name: Build debug APK
         working-directory: android
         run: gradle assembleDebug --stacktrace
