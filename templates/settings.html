@@ -114,7 +114,7 @@
         </div>
         <div class="form-group">
             <label for="meta_mensal">Quanto quer guardar por mês</label>
-            <input id="meta_mensal" type="number" step="0.01" name="meta_mensal" value="{{ session.get('meta_mensal', 0) }}" placeholder="Ex.: 300" inputmode="decimal">
+            <input id="meta_mensal" type="text" name="meta_mensal" value="{{ session.get('meta_mensal', 0) }}" placeholder="Ex.: 300" inputmode="decimal">
             <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">Usado no cálculo do "pode gastar hoje" quando a meta não tem prazo.</p>
         </div>
         <div class="form-group" style="grid-column:1 / -1;">

@@ -18,7 +18,7 @@
     </div>
     <form method="POST" action="{{ url_for('saldo_inicial') }}" class="suggestion-actions">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="number" step="0.01" min="0.01" name="valor" placeholder="Ex.: 1500,00" required inputmode="decimal" style="flex:1;">
+        <input type="text" name="valor" placeholder="Ex.: 1500,00" required inputmode="decimal" style="flex:1;">
         <button type="submit" class="button button-primary">Esse é meu saldo</button>
     </form>
     <p class="helper-text" style="margin-top:10px;">

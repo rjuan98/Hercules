@@ -17,11 +17,11 @@
         </div>
         <div class="form-group">
             <label for="meta_valor">Valor total</label>
-            <input id="meta_valor" type="number" step="0.01" name="meta_valor" placeholder="0,00" required inputmode="decimal">
+            <input id="meta_valor" type="text" name="meta_valor" placeholder="0,00" required inputmode="decimal">
         </div>
         <div class="form-group">
             <label for="valor_atual">Já guardado</label>
-            <input id="valor_atual" type="number" step="0.01" name="valor_atual" placeholder="0,00" value="0" inputmode="decimal">
+            <input id="valor_atual" type="text" name="valor_atual" placeholder="0,00" value="0" inputmode="decimal">
         </div>
         <div class="form-group">
             <label for="prazo">Quero completar até <span class="helper-text">(opcional)</span></label>
@@ -71,7 +71,7 @@
             {% if goal['ativo'] and item.missing > 0 %}
             <form method="POST" action="{{ url_for('aporte_meta', goal_id=goal['id']) }}" class="form-grid" style="grid-template-columns: 1fr auto; margin-top:14px; gap:10px;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="number" step="0.01" min="0.01" name="valor" placeholder="Quanto guardar agora?" required inputmode="decimal">
+                <input type="text" name="valor" placeholder="Quanto guardar agora?" required inputmode="decimal">
                 <button type="submit" class="button button-primary"><i data-lucide="piggy-bank"></i> Guardar</button>
             </form>
             {% endif %}
@@ -86,11 +86,11 @@
                     </div>
                     <div class="form-group">
                         <label>Valor total</label>
-                        <input type="number" step="0.01" name="meta_valor" value="{{ goal['meta_valor'] }}" inputmode="decimal">
+                        <input type="text" name="meta_valor" value="{{ goal['meta_valor'] }}" inputmode="decimal">
                     </div>
                     <div class="form-group">
                         <label>Já guardado</label>
-                        <input type="number" step="0.01" name="valor_atual" value="{{ goal['valor_atual'] }}" inputmode="decimal">
+                        <input type="text" name="valor_atual" value="{{ goal['valor_atual'] }}" inputmode="decimal">
                     </div>
                     <div class="form-group">
                         <label>Prazo</label>
