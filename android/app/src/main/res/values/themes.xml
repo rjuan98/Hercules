@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.HercCompanion" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/herc_barro</item>
+        <item name="colorPrimaryDark">@color/herc_barro_escuro</item>
+        <item name="colorAccent">@color/herc_egeu</item>
+        <item name="android:windowBackground">@color/herc_linho</item>
+    </style>
+</resources>

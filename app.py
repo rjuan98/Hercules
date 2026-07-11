@@ -1284,7 +1284,7 @@ app.jinja_env.globals["date"] = date
 @app.before_request
 def csrf_protect():
     if request.method == "POST":
-        exempt = request.endpoint in {"logout", "api_captura"}
+        exempt = request.endpoint in {"logout", "api_captura", "api_token"}
         token = request.form.get("csrf_token", "")
         if not exempt and token != session.get("csrf_token"):
             flash("Token de segurança inválido. Atualize a página e tente novamente.")
@@ -1792,8 +1792,28 @@ def delete_goal(goal_id):
 
 
 # ------------------------
-# Captura automática (notificações do banco via MacroDroid/Atalhos/WhatsApp futuro)
+# Captura automática (notificações do banco via app companion Android/MacroDroid)
 # ------------------------
+@app.route("/api/token", methods=["POST"])
+def api_token():
+    """Login do app companion: e-mail+senha → capture_token do usuário.
+    Gera o token na hora se ainda não existir (mesma lógica da tela de Configurações)."""
+    payload = request.get_json(silent=True) or request.form
+    email = sanitize_text(payload.get("email")).lower()
+    senha = payload.get("senha") or payload.get("password") or ""
+    if not email or not senha:
+        return {"erro": "e-mail e senha são obrigatórios"}, 400
+    with get_db() as db:
+        user = db.execute("SELECT * FROM usuarios WHERE email = ?", (email,)).fetchone()
+        if not user or not check_password_hash(user["senha"], senha):
+            return {"erro": "e-mail ou senha inválidos"}, 401
+        capture_token = user["capture_token"] if "capture_token" in user.keys() else None
+        if not capture_token:
+            capture_token = secrets.token_urlsafe(24)
+            db.execute("UPDATE usuarios SET capture_token = ? WHERE id = ?", (capture_token, user["id"]))
+    return {"ok": True, "token": capture_token, "nome": user["nome"]}, 200
+
+
 @app.route("/api/captura", methods=["POST"])
 def api_captura():
     payload = request.get_json(silent=True) or request.form

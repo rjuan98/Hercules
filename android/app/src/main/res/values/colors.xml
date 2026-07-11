@@ -1,0 +1,10 @@
+<resources>
+    <color name="herc_barro">#C96F3B</color>
+    <color name="herc_barro_escuro">#A4491C</color>
+    <color name="herc_breu">#241C14</color>
+    <color name="herc_linho">#F6E8CE</color>
+    <color name="herc_creme">#FDF6E7</color>
+    <color name="herc_egeu">#2E6D8C</color>
+    <color name="herc_erro">#B23A2A</color>
+    <color name="herc_borda">#E6CFA8</color>
+</resources>
