@@ -209,6 +209,19 @@ def init_db():
 
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS dicas_vistas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            dica TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (user_id, dica),
+            FOREIGN KEY (user_id) REFERENCES usuarios (id) ON DELETE CASCADE
+        )
+        """
+    )
+
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS checkins (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,

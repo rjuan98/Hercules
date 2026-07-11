@@ -1,0 +1,12 @@
+{% if herc_tip %}
+<section class="herc-tip">
+    <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar herc-tip-avatar">
+    <div class="hercules-bubble herc-tip-bubble">
+        <span>{{ herc_tip_text }}</span>
+        <form method="POST" action="{{ url_for('marcar_dica', key=herc_tip) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="button button-outline herc-tip-ok">Entendi!</button>
+        </form>
+    </div>
+</section>
+{% endif %}

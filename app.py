@@ -365,6 +365,21 @@ def pending_captures(user_id: int):
         ).fetchall()
 
 
+# Dicas do Herc: ensino contextual, uma frase por vez, some depois de vista
+HERC_TIPS = {
+    "registro_rapido": "Dica: escreve ali em cima algo como “gastei 10 no mercado” que eu entendo e anoto sozinho. Pode até falar, no botão do microfone. 🎤",
+    "primeira_captura": "Viu essa movimentação aí? Eu anotei sozinho pela notificação do banco — você não precisou fazer nada. 😉",
+    "primeira_nota": "Guardei sua nota! Sempre que precisar achar alguma, elas ficam todas aqui, organizadas. No fim do ano, é só exportar para o contador.",
+}
+
+
+def tip_seen(user_id: int, key: str) -> bool:
+    with get_db() as db:
+        return db.execute(
+            "SELECT 1 FROM dicas_vistas WHERE user_id = ? AND dica = ?", (user_id, key)
+        ).fetchone() is not None
+
+
 def checkin_streak(user_id: int) -> int:
     """Dias consecutivos de check-in, contando a partir de hoje (ou ontem, se hoje ainda não fechou)."""
     with get_db() as db:
@@ -1208,6 +1223,19 @@ def home():
         })
     streak = checkin_streak(user["id"])
     onboarding = tx_count == 0
+
+    # Uma dica do Herc por vez — a mais relevante primeiro
+    herc_tip = None
+    if not onboarding:
+        with get_db() as db:
+            tem_captura = db.execute(
+                "SELECT 1 FROM transacoes WHERE user_id = ? AND fonte = 'notificacao' LIMIT 1",
+                (user["id"],),
+            ).fetchone() is not None
+        if tem_captura and not tip_seen(user["id"], "primeira_captura"):
+            herc_tip = "primeira_captura"
+        elif not tip_seen(user["id"], "registro_rapido"):
+            herc_tip = "registro_rapido"
     # Texto compartilhado do WhatsApp (share_target do PWA) pré-preenche o registro rápido
     shared_text = sanitize_text(request.args.get("texto") or request.args.get("title"))[:200]
     avg_daily_spend = stats["month_expenses"] / max(1, date.today().day)
@@ -1230,6 +1258,8 @@ def home():
         streak=streak,
         onboarding=onboarding,
         shared_text=shared_text,
+        herc_tip=herc_tip,
+        herc_tip_text=HERC_TIPS.get(herc_tip),
         user=user,
         profile=profile,
         focus=focus,
@@ -1576,6 +1606,19 @@ def descartar_captura(captura_id):
         )
     flash("Captura descartada.")
     return redirect(url_for("home"))
+
+
+@app.route("/dicas/<key>/vista", methods=["POST"])
+@login_required
+def marcar_dica(key):
+    user = current_user()
+    if key in HERC_TIPS:
+        with get_db() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO dicas_vistas (user_id, dica) VALUES (?, ?)",
+                (user["id"], key),
+            )
+    return redirect(request.referrer or url_for("home"))
 
 
 @app.route("/saldo-inicial", methods=["POST"])
@@ -1954,10 +1997,13 @@ def listar_notas():
     query += " ORDER BY datetime(data_upload) DESC"
     with get_db() as db:
         notes = db.execute(query, params).fetchall()
+    herc_tip = "primeira_nota" if notes and not tip_seen(user["id"], "primeira_nota") else None
     return render_template(
         "listar.html",
         user=user,
         notes=notes,
+        herc_tip=herc_tip,
+        herc_tip_text=HERC_TIPS.get(herc_tip),
         q=q,
         categoria=categoria,
         tipo=tipo,

@@ -28,6 +28,8 @@
 </section>
 {% endif %}
 
+{% include '_herc_tip.html' %}
+
 {# ---- Registro relâmpago: fala ou escreve, o Herc entende ---- #}
 <section class="page-card quick-log" style="margin-bottom:18px;">
     <form method="POST" action="{{ url_for('registro_rapido') }}" class="quick-log-form" id="quickLogForm">

@@ -1225,3 +1225,25 @@ body.mode-simple .toast { font-size: 1.05rem; }
     .quick-log-form { flex-wrap: wrap; }
     .quick-log-form .button-primary { width: 100%; }
 }
+
+/* ============================================================
+   Dicas do Herc (ensino contextual, uma por vez)
+   ============================================================ */
+.herc-tip {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 18px;
+}
+.herc-tip-avatar { width: 48px; height: 48px; }
+.herc-tip-bubble {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+}
+.herc-tip-bubble span { flex: 1 1 240px; }
+.herc-tip-bubble form { margin: 0; }
+.herc-tip-ok { padding: 7px 16px !important; font-size: 0.88rem; }
