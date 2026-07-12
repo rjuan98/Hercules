@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% block title %}Painel MEI · Hércules{% endblock %}
+{% block page_title %}Painel MEI{% endblock %}
+{% block page_subtitle %}Faturamento, DAS e declaração anual — para você depender menos do contador.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="margin-bottom:18px;">
+    <div class="hercules-greeting">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>O básico do MEI é mais simples do que parece.</strong><br>
+            Você precisa pagar o DAS todo mês, não passar do limite anual e declarar um único
+            número em janeiro. Eu cuido dos três.
+        </div>
+    </div>
+</section>
+
+{# ---- Termômetro do limite anual ---- #}
+<section class="page-card" style="margin-bottom:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Faturamento em {{ ano_atual }}</h2>
+        <p class="topbar-subtitle">Somado das notas de entrada emitidas este ano.</p>
+    </div>
+
+    <div class="note-header">
+        <p class="metric-value" style="font-size:2rem;">{{ faturamento_atual|money }} <span class="helper-text" style="font-size:1rem;">de {{ limite|money }}</span></p>
+        <span class="badge {% if pct >= 100 %}badge-danger{% elif pct >= 80 %}badge-warn{% endif %}">{{ pct|round(0)|int }}%</span>
+    </div>
+    <div class="progress-track" style="margin-top:10px;">
+        <div class="progress-fill {% if pct >= 100 %}fill-danger{% elif pct >= 80 %}fill-warn{% endif %}" style="width: {{ pct }}%;"></div>
+    </div>
+
+    <p class="helper-text" style="margin-top:12px;">
+        Nesse ritmo, você fecha o ano em torno de <strong style="color:var(--primary-deep);">{{ projecao|money }}</strong>.
+    </p>
+
+    {% if pct >= 100 %}
+    <p class="helper-text" style="margin-top:8px; color:var(--danger);">
+        Atenção: você já passou do limite anual do MEI. Vale conversar com um contador sobre migrar de categoria.
+    </p>
+    {% elif pct >= 80 %}
+    <p class="helper-text" style="margin-top:8px; color:var(--warning);">
+        Você está perto do limite — se ultrapassar {{ limite|money }} no ano, pode ser desenquadrado do MEI.
+    </p>
+    {% endif %}
+</section>
+
+{# ---- DAS-MEI ---- #}
+<section class="page-card" style="margin-bottom:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">DAS-MEI</h2>
+        <p class="topbar-subtitle">O boleto mensal que mantém o MEI em dia.</p>
+    </div>
+
+    {% if das.proximo %}
+    <div class="note-header">
+        <div>
+            <p class="note-title">Próxima parcela: {{ das.proximo['valor']|money }}</p>
+            <p class="helper-text" style="margin-top:6px;">Vence em {{ das.proximo['vencimento']|format_date }}</p>
+        </div>
+        <span class="badge">{{ das.pagos }}/12 pagas em {{ ano_atual }}</span>
+    </div>
+    <p class="helper-text" style="margin-top:12px;">
+        Marque como paga na tela de <a href="{{ url_for('compromissos') }}" style="color:var(--primary-deep); font-weight:800;">Contas</a> — a próxima nasce sozinha.
+    </p>
+    {% else %}
+    <p class="helper-text" style="margin-bottom:14px;">Ainda não configurado. Ative e o Hércules lembra você todo mês.</p>
+    {% endif %}
+
+    <details class="form-advanced" style="margin-top:14px;">
+        <summary>{% if das.proximo %}Alterar valor do DAS{% else %}Ativar lembrete do DAS{% endif %}</summary>
+        <form method="POST" action="{{ url_for('ativar_das') }}" class="form-grid cols-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label for="das_valor_input">Valor do DAS <span class="helper-text">(está no carnê ou no app do Simples Nacional)</span></label>
+                <input id="das_valor_input" type="text" name="valor" value="{{ das_valor if das_valor > 0 else '' }}" placeholder="0,00" inputmode="decimal">
+            </div>
+            <div class="form-group">
+                <label for="das_dia_input">Dia do vencimento</label>
+                <input id="das_dia_input" type="number" name="dia" min="1" max="28" value="20">
+            </div>
+            <div class="form-group" style="grid-column:1 / -1;">
+                <button type="submit" class="button button-primary" style="width:100%;">
+                    {% if das.proximo %}Salvar novo valor{% else %}Ativar DAS-MEI{% endif %}
+                </button>
+            </div>
+        </form>
+    </details>
+</section>
+
+{# ---- DASN-SIMEI ---- #}
+<section class="page-card" style="margin-bottom:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Declaração anual (DASN-SIMEI)</h2>
+        <p class="topbar-subtitle">Em janeiro você declara o faturamento do ano anterior — um número só.</p>
+    </div>
+
+    <div class="note-header">
+        <div>
+            <p class="note-title">Faturamento de {{ ano_anterior }}</p>
+            <p class="helper-text" style="margin-top:6px;">É esse o número que entra na sua declaração.</p>
+        </div>
+        <span class="metric-value" style="font-size:1.5rem;">{{ faturamento_anterior|money }}</span>
+    </div>
+
+    {% if is_january %}
+    <p class="helper-text" style="margin-top:12px; color:var(--primary-deep); font-weight:700;">
+        É janeiro — hora de declarar! Copie o número acima.
+    </p>
+    {% endif %}
+
+    <details class="form-advanced" style="margin-top:14px;">
+        <summary>Como declarar</summary>
+        <ol style="margin:12px 0 0; padding-left:20px; line-height:1.9;">
+            <li>Acesse <strong>gov.br/mei</strong> e entre com sua conta gov.br.</li>
+            <li>Procure "Declaração Anual (DASN-SIMEI)".</li>
+            <li>Informe o faturamento de {{ ano_anterior }}: <strong>{{ faturamento_anterior|money }}</strong>.</li>
+            <li>Confirme se teve empregado no ano (se não teve, marque "não").</li>
+            <li>Envie — pronto, sem precisar de contador para essa parte.</li>
+        </ol>
+    </details>
+</section>
+
+{# ---- Dossiê para o contador ---- #}
+<section class="page-card">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Dossiê para o contador</h2>
+        <p class="topbar-subtitle">Se precisar de ajuda especializada, exporte tudo em um clique.</p>
+    </div>
+    <a href="{{ url_for('dossie_mei', year=ano_atual) }}" class="button button-outline">
+        <i data-lucide="folder-down"></i> Baixar dossiê de {{ ano_atual }} (ZIP)
+    </a>
+    <a href="{{ url_for('dossie_mei', year=ano_anterior) }}" class="button button-outline" style="margin-left:10px;">
+        <i data-lucide="folder-down"></i> Baixar dossiê de {{ ano_anterior }} (ZIP)
+    </a>
+    <p class="helper-text" style="margin-top:12px;">
+        O ZIP tem uma planilha com todas as notas do ano e os anexos que você guardou.
+    </p>
+</section>
+{% endblock %}

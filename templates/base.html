@@ -52,6 +52,7 @@
                 <a href="{{ url_for('listar_notas') }}" class="menu-link {% if request.path.startswith('/notas') %}active{% endif %}"><i data-lucide="files"></i><span>Notas</span></a>
                 {% if perfil in ['mei', 'lojista', 'hibrido'] and not modo_simples %}
                 <a href="{{ url_for('business_dashboard') }}" class="menu-link {% if request.path.startswith('/business') %}active{% endif %}"><i data-lucide="store"></i><span>Negócio</span></a>
+                <a href="{{ url_for('painel_mei') }}" class="menu-link {% if request.path.startswith('/mei') %}active{% endif %}"><i data-lucide="landmark"></i><span>Painel MEI</span></a>
                 <a href="{{ url_for('clientes') }}" class="menu-link {% if request.path.startswith('/clientes') %}active{% endif %}"><i data-lucide="users"></i><span>Clientes</span></a>
                 <a href="{{ url_for('servicos') }}" class="menu-link {% if request.path.startswith('/servicos') %}active{% endif %}"><i data-lucide="package"></i><span>Serviços</span></a>
                 {% endif %}

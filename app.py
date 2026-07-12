@@ -10,6 +10,7 @@ import re
 import secrets
 import sqlite3
 import uuid
+import zipfile
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -160,6 +161,10 @@ PLAN_LABELS = {
     "free": "Gratuito",
     "plus": "Plus",
 }
+
+# Teto anual de faturamento do MEI (Lei Complementar). Ultrapassar exige
+# atenção (desenquadramento); o termômetro do Painel MEI usa este valor.
+MEI_LIMITE_ANUAL = 81000.0
 
 MONTH_NAMES = {
     "01": "Janeiro",
@@ -1189,6 +1194,40 @@ def service_for_user(service_id: int, user_id: int):
         return db.execute("SELECT * FROM servicos WHERE id = ? AND user_id = ?", (service_id, user_id)).fetchone()
 
 
+# ------------------------
+# Painel MEI: faturamento, limite anual, DAS e DASN-SIMEI
+# ------------------------
+def calc_mei_faturamento(user_id: int, year: int) -> float:
+    """Faturamento MEI = soma das notas emitidas (tipo entrada) no ano.
+    Usa notas, não todas as 'entradas' de transações — um PIX de presente
+    da mãe não é faturamento, uma nota fiscal emitida é."""
+    with get_db() as db:
+        row = db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS total FROM notas
+               WHERE user_id = ? AND tipo = 'entrada'
+                 AND strftime('%Y', COALESCE(data_emissao, data_upload)) = ?""",
+            (user_id, str(year)),
+        ).fetchone()
+    return float(row["total"] or 0)
+
+
+def mei_das_status(user_id: int, year: int) -> dict[str, Any]:
+    with get_db() as db:
+        pagos = db.execute(
+            """SELECT COUNT(*) AS n FROM compromissos
+               WHERE user_id = ? AND descricao = 'DAS-MEI' AND status = 'pago'
+                 AND strftime('%Y', vencimento) = ?""",
+            (user_id, str(year)),
+        ).fetchone()["n"]
+        proximo = db.execute(
+            """SELECT * FROM compromissos
+               WHERE user_id = ? AND descricao = 'DAS-MEI' AND status = 'pendente'
+               ORDER BY date(vencimento) ASC LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+    return {"pagos": pagos, "proximo": proximo}
+
+
 def calculate_business_summary(user_id: int):
     today = date.today()
     month_start, month_end = month_bounds(today)
@@ -1567,6 +1606,127 @@ def business_dashboard():
         profile=profile,
         business=business,
         month=month_label(date.today().strftime("%Y-%m")),
+    )
+
+
+@app.route("/mei")
+@login_required
+def painel_mei():
+    user = current_user()
+    profile = user_profile(user)
+    if not is_business_profile(profile):
+        flash("O Painel MEI é para quem tem perfil MEI, lojista ou híbrido.")
+        return redirect(url_for("home"))
+
+    today = date.today()
+    faturamento_atual = calc_mei_faturamento(user["id"], today.year)
+    faturamento_anterior = calc_mei_faturamento(user["id"], today.year - 1)
+    pct = min(100.0, (faturamento_atual / MEI_LIMITE_ANUAL) * 100.0) if MEI_LIMITE_ANUAL else 0.0
+    projecao = (faturamento_atual / today.month) * 12 if today.month else faturamento_atual
+    das = mei_das_status(user["id"], today.year)
+    das_valor = float(user["das_valor"] or 0) if "das_valor" in user.keys() else 0.0
+
+    return render_template(
+        "mei.html",
+        user=user,
+        faturamento_atual=faturamento_atual,
+        faturamento_anterior=faturamento_anterior,
+        limite=MEI_LIMITE_ANUAL,
+        pct=pct,
+        projecao=projecao,
+        das=das,
+        das_valor=das_valor,
+        ano_atual=today.year,
+        ano_anterior=today.year - 1,
+        is_january=(today.month == 1),
+    )
+
+
+@app.route("/mei/das/ativar", methods=["POST"])
+@login_required
+def ativar_das():
+    user = current_user()
+    valor = parse_money(request.form.get("valor"))
+    dia = request.form.get("dia", type=int) or 20
+    dia = max(1, min(28, dia))
+    if valor <= 0:
+        flash("Informe o valor do seu DAS-MEI (está no carnê ou no app do Simples Nacional).")
+        return redirect(url_for("painel_mei"))
+
+    with get_db() as db:
+        db.execute("UPDATE usuarios SET das_valor = ? WHERE id = ?", (valor, user["id"]))
+        existing = db.execute(
+            "SELECT id FROM compromissos WHERE user_id = ? AND descricao = 'DAS-MEI' AND status = 'pendente'",
+            (user["id"],),
+        ).fetchone()
+        if existing:
+            db.execute("UPDATE compromissos SET valor = ? WHERE id = ?", (valor, existing["id"]))
+            flash("Valor do DAS-MEI atualizado.")
+        else:
+            today = date.today()
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            venc_dia = min(dia, last_day)
+            proximo = date(today.year, today.month, venc_dia)
+            if proximo < today:
+                ano = today.year + (1 if today.month == 12 else 0)
+                mes = 1 if today.month == 12 else today.month + 1
+                venc_dia = min(dia, calendar.monthrange(ano, mes)[1])
+                proximo = date(ano, mes, venc_dia)
+            db.execute(
+                """INSERT INTO compromissos (user_id, descricao, valor, vencimento, tipo, status, recorrente, frequencia)
+                   VALUES (?, 'DAS-MEI', ?, ?, 'saida', 'pendente', 1, 'mensal')""",
+                (user["id"], valor, proximo.isoformat()),
+            )
+            flash("DAS-MEI ativado! O Hércules vai lembrar você todo mês, e a próxima parcela nasce sozinha quando você marcar a atual como paga.")
+    return redirect(url_for("painel_mei"))
+
+
+@app.route("/mei/dossie")
+@login_required
+def dossie_mei():
+    user = current_user()
+    year = request.args.get("year", str(date.today().year))
+    with get_db() as db:
+        notes = db.execute(
+            """SELECT * FROM notas WHERE user_id = ?
+               AND strftime('%Y', COALESCE(data_emissao, data_upload)) = ?
+               ORDER BY COALESCE(data_emissao, data_upload) ASC""",
+            (user["id"], year),
+        ).fetchall()
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        csv_buffer = io.StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow(["descricao", "valor", "tipo", "categoria", "cliente", "cnpj_emitente",
+                          "numero_nota", "status", "data_emissao", "data_upload"])
+        for note in notes:
+            writer.writerow([
+                note["descricao"],
+                f"{float(note['valor']):.2f}",
+                note["tipo"],
+                note["categoria"],
+                note["cliente"] or "",
+                note["cnpj_emitente"] or "",
+                note["numero_nota"] or "",
+                note["status"] or "",
+                note["data_emissao"] or "",
+                note["data_upload"] or "",
+            ])
+        zf.writestr(f"notas_{year}.csv", csv_buffer.getvalue())
+
+        for note in notes:
+            if note["arquivo"]:
+                file_path = UPLOAD_DIR / note["arquivo"]
+                if file_path.exists():
+                    zf.write(file_path, arcname=f"anexos/{note['id']}_{note['arquivo']}")
+
+    buffer.seek(0)
+    filename = f"dossie_mei_{year}.zip"
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
