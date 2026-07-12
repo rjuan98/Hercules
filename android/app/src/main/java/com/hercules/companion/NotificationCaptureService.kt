@@ -31,16 +31,29 @@ class NotificationCaptureService : NotificationListenerService() {
         // Aceita bancos conhecidos OU a notificação de autoteste do próprio
         // app (botão "Testar captura") — ajuda a descobrir se o problema é o
         // pacote do banco ou o próprio recebimento de notificações no aparelho.
-        if (sbn.packageName != packageName && sbn.packageName !in BANK_PACKAGES) return
+        val isBank = sbn.packageName in BANK_PACKAGES
+        if (sbn.packageName != packageName && !isBank) return
 
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
         val corpo = listOf(title, text, bigText).filter { it.isNotBlank() }.distinct().joinToString(" - ")
-        if (corpo.isBlank()) return
 
         val token = Prefs.getToken(applicationContext) ?: return
+
+        if (corpo.isBlank()) {
+            // Os campos de texto padrão vieram vazios — em vez de descartar em
+            // silêncio (o que estava acontecendo até agora), manda um raio-x de
+            // tudo que a notificação carrega para aparecer nas "pendências" do
+            // site. Isso revela se o banco usa um formato de notificação diferente.
+            if (isBank) {
+                val dump = extras.keySet().joinToString(" | ") { key -> "$key=${extras.get(key)}" }
+                ApiClient.sendCapture(token, "[DIAGNOSTICO ${sbn.packageName}] $dump".take(480))
+            }
+            return
+        }
+
         ApiClient.sendCapture(token, corpo)
     }
 }

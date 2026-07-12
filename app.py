@@ -333,6 +333,17 @@ def parse_capture_text(user_id: int, text: str) -> dict[str, Any]:
 
 def register_capture(user_id: int, text: str, origem: str = "notificacao") -> dict[str, Any]:
     """Interpreta e lança a captura. Alta confiança vira transação; dúvida vira pendente."""
+    # Diagnóstico do app (notificação sem título/texto reconhecível): nunca
+    # tenta extrair valor daqui — o dump pode conter números soltos (IDs,
+    # timestamps) que pareceriam um valor válido e virariam um lançamento falso.
+    if text.strip().startswith("[DIAGNOSTICO"):
+        with get_db() as db:
+            db.execute(
+                "INSERT INTO capturas (user_id, origem, conteudo, status, dados_extraidos) VALUES (?, ?, ?, 'pendente', ?)",
+                (user_id, origem, sanitize_text(text)[:500], json.dumps({"diagnostico": True})),
+            )
+        return {"status": "pendente"}
+
     parsed = parse_capture_text(user_id, text)
     today_iso = date.today().isoformat()
 
