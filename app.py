@@ -2939,7 +2939,7 @@ def service_worker():
 # no workflow .github/workflows/android-companion.yml (passo "Print debug
 # keystore SHA-256 fingerprint"). Prova ao Android que só o app real do
 # Hércules pode receber o retorno do login do Google.
-ANDROID_APP_FINGERPRINT = "PENDENTE_COLAR_FINGERPRINT_DO_CI"
+ANDROID_APP_FINGERPRINT = "A6:95:39:B5:38:7D:DD:78:70:7F:3D:DE:39:36:9E:1D:38:81:1F:40:54:8F:05:29:CF:7E:A5:1D:B5:9A:A3:B9"
 
 
 @app.route("/.well-known/assetlinks.json")
