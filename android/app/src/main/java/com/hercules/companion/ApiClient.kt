@@ -15,44 +15,31 @@ object ApiClient {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    fun login(email: String, senha: String, callback: (token: String?, nome: String?, erro: String?) -> Unit) {
+    /** Busca o token de captura usando o cookie de sessão de quem já está
+     *  logado no WebView (login por e-mail/senha feito direto na página real
+     *  do Hércules). Sem isso, cobre o caso comum sem nenhuma tela de login
+     *  própria do app. */
+    fun fetchTokenWithCookie(cookie: String, callback: (token: String?, nome: String?) -> Unit) {
         Thread {
+            var result: Pair<String?, String?> = null to null
             try {
-                val conn = URL("$BASE_URL/api/token").openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                val conn = URL("$BASE_URL/api/meu-token").openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("Cookie", cookie)
                 conn.connectTimeout = 15000
                 conn.readTimeout = 15000
 
-                val body = JSONObject().put("email", email).put("senha", senha).toString()
-                OutputStreamWriter(conn.outputStream, StandardCharsets.UTF_8).use { it.write(body) }
-
-                val code = conn.responseCode
-                val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-                val respText = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() } ?: ""
-                val json = try {
-                    if (respText.isNotBlank()) JSONObject(respText) else JSONObject()
-                } catch (e: org.json.JSONException) {
-                    null
-                }
-
-                mainHandler.post {
-                    when {
-                        json == null -> callback(
-                            null, null,
-                            "O servidor respondeu de um jeito inesperado (código $code). " +
-                                "Ele pode estar desatualizado — avise quem cuida do Hércules."
-                        )
-                        code in 200..299 && json.optBoolean("ok", false) ->
-                            callback(json.optString("token"), json.optString("nome"), null)
-                        else ->
-                            callback(null, null, json.optString("erro", "Não foi possível entrar (código $code)."))
+                if (conn.responseCode in 200..299) {
+                    val respText = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+                    val json = JSONObject(respText)
+                    if (json.optBoolean("ok", false)) {
+                        result = json.optString("token") to json.optString("nome")
                     }
                 }
             } catch (e: Exception) {
-                mainHandler.post { callback(null, null, "Sem conexão com o Hércules: ${e.message}") }
+                // Sem sessão válida ainda, ou sem rede — silencioso, tenta de novo na próxima página
             }
+            mainHandler.post { callback(result.first, result.second) }
         }.start()
     }
 

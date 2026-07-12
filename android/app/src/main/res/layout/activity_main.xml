@@ -1,133 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:layout_height="match_parent">
 
-    <LinearLayout
+    <WebView
+        android:id="@+id/webView"
         android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Só aparece enquanto a captura automática não estiver ativada -->
+    <Button
+        android:id="@+id/btnAtivarNotificacoes"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:layout_gravity="bottom|end"
+        android:layout_margin="20dp"
+        android:text="🔔 Ativar captura automática"
+        android:backgroundTint="@color/herc_barro"
+        android:textColor="@color/herc_creme"
+        android:visibility="gone" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="🦁 Hércules Captura"
-            android:textSize="24sp"
-            android:textStyle="bold"
-            android:textColor="@color/herc_barro_escuro"
-            android:layout_marginBottom="24dp" />
-
-        <LinearLayout
-            android:id="@+id/grupoLogin"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="visible">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Entre com a sua conta do Hércules para o app começar a anotar seus gastos sozinho."
-                android:textSize="16sp"
-                android:layout_marginBottom="16dp" />
-
-            <EditText
-                android:id="@+id/inputEmail"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="E-mail"
-                android:inputType="textEmailAddress"
-                android:autofillHints="username" />
-
-            <EditText
-                android:id="@+id/inputSenha"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Senha"
-                android:inputType="textPassword"
-                android:autofillHints="password"
-                android:layout_marginTop="8dp" />
-
-            <TextView
-                android:id="@+id/textErro"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="@color/herc_erro"
-                android:visibility="gone"
-                android:layout_marginTop="8dp" />
-
-            <Button
-                android:id="@+id/btnEntrar"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Entrar"
-                android:backgroundTint="@color/herc_barro"
-                android:layout_marginTop="16dp" />
-
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/grupoConectado"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/textConectado"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="12dp" />
-
-            <TextView
-                android:id="@+id/textStatusListener"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="15sp"
-                android:layout_marginBottom="12dp" />
-
-            <Button
-                android:id="@+id/btnAtivarNotificacoes"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Ativar acesso a notificações"
-                android:backgroundTint="@color/herc_egeu" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/herc_borda"
-                android:layout_marginTop="20dp"
-                android:layout_marginBottom="20dp" />
-
-            <TextView
-                android:id="@+id/textStatusCaptura"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="14sp"
-                android:layout_marginBottom="12dp" />
-
-            <Button
-                android:id="@+id/btnTeste"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Enviar captura de teste"
-                style="@style/Widget.MaterialComponents.Button.TextButton" />
-
-            <Button
-                android:id="@+id/btnSair"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Sair"
-                android:layout_marginTop="24dp"
-                style="@style/Widget.MaterialComponents.Button.TextButton" />
-
-        </LinearLayout>
-
-    </LinearLayout>
-
-</ScrollView>
+</FrameLayout>

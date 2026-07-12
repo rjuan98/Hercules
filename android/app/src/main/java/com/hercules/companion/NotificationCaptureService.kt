@@ -37,8 +37,6 @@ class NotificationCaptureService : NotificationListenerService() {
         if (corpo.isBlank()) return
 
         val token = Prefs.getToken(applicationContext) ?: return
-        ApiClient.sendCapture(token, corpo) { ok ->
-            if (ok) Prefs.setLastCapture(applicationContext, corpo)
-        }
+        ApiClient.sendCapture(token, corpo)
     }
 }

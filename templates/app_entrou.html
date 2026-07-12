@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="3;url={{ url_for('home') }}">
+    <title>Voltando para o Hércules…</title>
+    <style>
+        body {
+            margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+            background: #F6E8CE; color: #241C14; font-family: Nunito, system-ui, sans-serif; text-align: center; padding: 24px;
+        }
+        .card { max-width: 360px; }
+        h1 { font-size: 1.3rem; margin-bottom: 8px; }
+        p { color: #77664D; }
+        a { color: #A4491C; font-weight: 800; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🦁 Login concluído!</h1>
+        <p>Voltando para o Hércules…</p>
+        <p><a href="{{ url_for('home') }}">Se não voltar sozinho, toque aqui.</a></p>
+    </div>
+</body>
+</html>

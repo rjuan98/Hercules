@@ -235,6 +235,20 @@ def init_db():
 
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS app_auto_login (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            code TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES usuarios (id) ON DELETE CASCADE
+        )
+        """
+    )
+
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS checkins (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,

@@ -812,6 +812,43 @@ def get_or_create_capture_token(user) -> str:
     return token
 
 
+def create_auto_login_code(user_id: int) -> str:
+    """Código de uso único (2 minutos) para o WebView do app virar uma sessão
+    de verdade após o login do Google acontecer numa aba de navegador
+    separada (Custom Tab), que não compartilha cookies com o WebView."""
+    code = secrets.token_urlsafe(24)
+    expires_at = (datetime.utcnow() + timedelta(minutes=2)).isoformat()
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO app_auto_login (user_id, code, expires_at) VALUES (?, ?, ?)",
+            (user_id, code, expires_at),
+        )
+    return code
+
+
+def redeem_auto_login_code(code: str):
+    """Troca o código pela linha do usuário, uma única vez. Devolve None se
+    inválido, já usado ou expirado."""
+    if not code:
+        return None
+    with get_db() as db:
+        row = db.execute(
+            "SELECT * FROM app_auto_login WHERE code = ? AND used = 0",
+            (code,),
+        ).fetchone()
+        if not row:
+            return None
+        try:
+            expired = datetime.utcnow() > datetime.fromisoformat(row["expires_at"])
+        except ValueError:
+            expired = True
+        if expired:
+            return None
+        db.execute("UPDATE app_auto_login SET used = 1 WHERE id = ?", (row["id"],))
+        user = db.execute("SELECT * FROM usuarios WHERE id = ?", (row["user_id"],)).fetchone()
+    return user
+
+
 def save_uploaded_file(file_storage) -> str | None | bool:
     if not file_storage or not getattr(file_storage, "filename", ""):
         return None
@@ -1413,6 +1450,10 @@ def google_login():
     if oauth is None:
         flash("Login com Google não está configurado neste servidor.")
         return redirect(url_for("login"))
+    # Marca que este login começou dentro do app Android, para o callback
+    # devolver o controle pro app em vez de continuar no navegador.
+    if request.args.get("from_app"):
+        session["login_origin_app"] = True
     redirect_uri = url_for("google_callback", _external=True)
     return oauth.google.authorize_redirect(redirect_uri)
 
@@ -1443,6 +1484,34 @@ def google_callback():
                 (nome, email, generate_password_hash(secrets.token_hex(16))),
             )
             user = db.execute("SELECT * FROM usuarios WHERE email = ?", (email,)).fetchone()
+    _start_session(user)
+
+    if session.pop("login_origin_app", False):
+        # Veio do app: devolve o controle pro app Android (App Link) com o
+        # token de captura e um código de uma vez para autenticar o WebView.
+        capture_token = get_or_create_capture_token(user)
+        auto_code = create_auto_login_code(user["id"])
+        return redirect(url_for("app_entrou", token=capture_token, code=auto_code))
+    return redirect(url_for("home"))
+
+
+@app.route("/app/entrou")
+def app_entrou():
+    """Alvo do App Link do app Android: o Chrome (Custom Tab) intercepta esta
+    navegação e entrega para o app. Se alguém chegar aqui direto num
+    navegador normal (app link não capturado), mostra uma página simples."""
+    return render_template("app_entrou.html")
+
+
+@app.route("/entrar-automatico")
+def entrar_automatico():
+    """O WebView do app chama esta rota com o código de uso único recebido
+    via App Link, para virar uma sessão de verdade dentro do WebView."""
+    code = request.args.get("code", "")
+    user = redeem_auto_login_code(code)
+    if not user:
+        flash("Esse link de entrada expirou. Entre novamente.")
+        return redirect(url_for("login"))
     _start_session(user)
     return redirect(url_for("home"))
 
@@ -2864,6 +2933,26 @@ def download(filename):
 def service_worker():
     # Servido da raiz para o escopo do service worker cobrir o app inteiro
     return send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript")
+
+
+# Impressão digital (SHA-256) da assinatura de debug do app Android, extraída
+# no workflow .github/workflows/android-companion.yml (passo "Print debug
+# keystore SHA-256 fingerprint"). Prova ao Android que só o app real do
+# Hércules pode receber o retorno do login do Google.
+ANDROID_APP_FINGERPRINT = "PENDENTE_COLAR_FINGERPRINT_DO_CI"
+
+
+@app.route("/.well-known/assetlinks.json")
+def android_asset_links():
+    payload = [{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.hercules.companion",
+            "sha256_cert_fingerprints": [ANDROID_APP_FINGERPRINT],
+        },
+    }]
+    return Response(json.dumps(payload), mimetype="application/json")
 
 
 # ------------------------
