@@ -280,10 +280,12 @@ def init_db():
     _add_column_if_missing(conn, "transacoes", "needs_review", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "transacoes", "extra_json", "TEXT")
     _add_column_if_missing(conn, "transacoes", "fitid", "TEXT")
+    _add_column_if_missing(conn, "transacoes", "no_credito", "INTEGER NOT NULL DEFAULT 0")
 
     _add_column_if_missing(conn, "usuarios", "view_mode", "TEXT NOT NULL DEFAULT 'completo'")
     _add_column_if_missing(conn, "usuarios", "capture_token", "TEXT")
     _add_column_if_missing(conn, "usuarios", "das_valor", "REAL NOT NULL DEFAULT 0.0")
+    _add_column_if_missing(conn, "usuarios", "last_ofx_import", "TEXT")
     _add_column_if_missing(conn, "categorias", "limite_mensal", "REAL NOT NULL DEFAULT 0.0")
     _add_column_if_missing(conn, "categorias", "created_at", "TIMESTAMP")
     # Cópias antigas do banco tinham categoria_id e nenhum timestamp nas regras

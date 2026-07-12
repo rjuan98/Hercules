@@ -51,6 +51,14 @@
             <input id="estabelecimento" type="text" name="estabelecimento" placeholder="Onde foi ou de onde veio">
         </div>
 
+        <div class="form-group" id="grupoCredito" style="grid-column:1 / -1;">
+            <label style="display:flex; align-items:center; gap:10px; font-weight:600; cursor:pointer;">
+                <input type="checkbox" id="noCreditoInput" name="no_credito" value="1" style="width:auto;">
+                Foi no cartão de crédito
+            </label>
+            <p class="helper-text" style="margin-top:2px;">Não desconta do saldo agora — vira fatura pra pagar depois.</p>
+        </div>
+
         <details class="form-advanced">
             <summary>Opções avançadas</summary>
             <div class="form-grid cols-2">
@@ -91,6 +99,8 @@ window.addEventListener('DOMContentLoaded', () => {
     const categoria = document.getElementById('categoria');
     const submitBtn = document.getElementById('submitBtn');
     const descricao = document.getElementById('descricao');
+    const grupoCredito = document.getElementById('grupoCredito');
+    const noCreditoInput = document.getElementById('noCreditoInput');
 
     function setTipo(tipo) {
         tipoInput.value = tipo;
@@ -98,6 +108,8 @@ window.addEventListener('DOMContentLoaded', () => {
         btnEntrada.classList.toggle('selected-entrada', tipo === 'entrada');
         submitBtn.textContent = tipo === 'entrada' ? 'Salvar entrada' : 'Salvar saída';
         descricao.placeholder = tipo === 'entrada' ? 'Ex.: salário, freela, venda' : 'Ex.: mercado, uber, quentinha';
+        grupoCredito.style.display = tipo === 'saida' ? '' : 'none';
+        if (tipo === 'entrada') noCreditoInput.checked = false;
         let firstVisible = null;
         Array.from(categoria.options).forEach((opt) => {
             const match = opt.dataset.tipo === tipo;

@@ -20,6 +20,14 @@
             <label for="arquivo">Arquivo OFX do banco</label>
             <input id="arquivo" type="file" name="arquivo" accept=".ofx,.qfx" required>
         </div>
+        <label style="display:flex; align-items:center; gap:10px; font-weight:600; cursor:pointer;">
+            <input type="checkbox" name="fatura_cartao" value="1" style="width:auto;">
+            É a fatura do cartão de crédito (não a conta corrente)
+        </label>
+        <p class="helper-text" style="margin-top:-8px;">
+            O Herc já tenta perceber isso sozinho pelo arquivo — marque aqui só se tiver dúvida.
+            Fatura de crédito não desconta do saldo agora, vira uma conta a pagar depois.
+        </p>
         <button type="submit" class="button button-primary" style="width:100%;">Importar extrato</button>
     </form>
 

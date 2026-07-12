@@ -33,6 +33,16 @@
     </article>
 </section>
 
+{% if stats['fatura_credito_mes'] > 0 %}
+<section class="metric-grid cols-2" style="margin-top:18px;">
+    <article class="glass-card metric-card">
+        <p class="metric-label">💳 Fatura do cartão (este mês)</p>
+        <p class="metric-value">{{ stats['fatura_credito_mes']|money }}</p>
+        <p class="metric-footnote">Compras no crédito ainda não pagas — não sai do saldo até você pagar a fatura.</p>
+    </article>
+</section>
+{% endif %}
+
 <section class="metric-grid cols-4" style="margin-top:18px;">
     <article class="glass-card metric-card">
         <p class="metric-label">Sobra prevista no mês</p>

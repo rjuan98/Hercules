@@ -285,6 +285,11 @@ _MERCHANT_CUTOFFS = (
     " cartão", " cartao", " final ", " às ", " as ", " hoje", " agora",
     " em ", ",", ".", ";", " - ", " no valor", " valor de",
 )
+# "no crédito" (forma de pagamento) é diferente de "crédito de" (dinheiro entrando) —
+# por isso é uma checagem separada, não reaproveita _ENTRADA_HINTS.
+_CREDIT_CARD_HINTS = (
+    "no crédito", "no credito", "cartão de crédito", "cartao de credito", "fatura",
+)
 
 
 def parse_capture_text(user_id: int, text: str) -> dict[str, Any]:
@@ -292,7 +297,10 @@ def parse_capture_text(user_id: int, text: str) -> dict[str, Any]:
     Devolve {'ok': bool, 'valor', 'tipo', 'estabelecimento', 'descricao'}."""
     raw = sanitize_text(text)
     low = raw.lower()
-    result: dict[str, Any] = {"ok": False, "valor": 0.0, "tipo": None, "estabelecimento": None, "descricao": raw[:120]}
+    result: dict[str, Any] = {
+        "ok": False, "valor": 0.0, "tipo": None, "estabelecimento": None, "descricao": raw[:120],
+        "no_credito": any(h in low for h in _CREDIT_CARD_HINTS),
+    }
     if not raw:
         return result
 
@@ -308,8 +316,12 @@ def parse_capture_text(user_id: int, text: str) -> dict[str, Any]:
     elif any(h in low for h in _SAIDA_HINTS):
         result["tipo"] = "saida"
 
-    # Estabelecimento: o que vem depois de "em/no/na/para/pra/de" após o valor
+    # Estabelecimento: o que vem depois de "em/no/na/para/pra/de" após o valor.
+    # Remove antes a forma de pagamento ("no crédito"/"no débito"), senão ela
+    # é capturada como se fosse o nome do estabelecimento.
     after_value = raw[m.end():]
+    after_value = re.sub(r"\bno\s+cr[ée]dito\b", "", after_value, flags=re.IGNORECASE)
+    after_value = re.sub(r"\bno\s+d[ée]bito\b", "", after_value, flags=re.IGNORECASE)
     merchant_match = re.search(r"\b(?:em|no|na|pra|para|com|de|do|da)\s+(.{2,60})", after_value, re.IGNORECASE)
     if merchant_match:
         merchant = merchant_match.group(1)
@@ -364,14 +376,15 @@ def register_capture(user_id: int, text: str, origem: str = "notificacao") -> di
             categoria = categorize(user_id, alvo)
             if parsed["tipo"] == "entrada" and categoria in TRANSACTION_CATEGORIES:
                 categoria = "Outros"
+            no_credito = 1 if (parsed["tipo"] == "saida" and parsed.get("no_credito")) else 0
             cur = db.execute(
                 """INSERT INTO transacoes
-                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, needs_review)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 90, 0)""",
-                (user_id, parsed["tipo"], parsed["valor"], alvo, alvo, categoria, today_iso, origem),
+                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, needs_review, no_credito)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 90, 0, ?)""",
+                (user_id, parsed["tipo"], parsed["valor"], alvo, alvo, categoria, today_iso, origem, no_credito),
             )
         return {"status": "lancada", "id": cur.lastrowid, "categoria": categoria,
-                "valor": parsed["valor"], "tipo": parsed["tipo"], "estabelecimento": alvo}
+                "valor": parsed["valor"], "tipo": parsed["tipo"], "estabelecimento": alvo, "no_credito": bool(no_credito)}
 
     # Não entendeu o bastante: fila de pendentes para o check-in
     with get_db() as db:
@@ -403,7 +416,11 @@ def _ofx_field(block: str, tag: str) -> str:
 
 
 def parse_ofx(content: str) -> list[dict[str, Any]]:
-    """Extrai as transações de um arquivo OFX. Bancos brasileiros usam OFX 1.x (SGML) ou 2.x (XML)."""
+    """Extrai as transações de um arquivo OFX. Bancos brasileiros usam OFX 1.x (SGML) ou 2.x (XML).
+    Extrato de fatura de cartão de crédito vem num bloco <CCSTMTRS> (em vez de <STMTRS> da
+    conta corrente) — marcamos todas as transações desse arquivo como 'no crédito', porque
+    esse dinheiro ainda não saiu da conta, só vai sair quando a fatura for paga."""
+    is_credit_card_file = bool(re.search(r"<CCSTMTRS", content, re.IGNORECASE))
     transactions = []
     for m in _OFX_TRN_RE.finditer(content):
         block = m.group(1)
@@ -426,11 +443,12 @@ def parse_ofx(content: str) -> list[dict[str, Any]]:
             "data": dt,
             "descricao": memo[:120],
             "fitid": _ofx_field(block, "FITID")[:80] or None,
+            "no_credito": is_credit_card_file,
         })
     return transactions
 
 
-def import_ofx_transactions(user_id: int, items: list[dict[str, Any]]) -> dict[str, int]:
+def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_credito: bool = False) -> dict[str, int]:
     """Importa com reconciliação: FITID já visto = pula; valor+data já registrado
     (captura/manual) = casa e marca; anterior ao saldo inicial = pula (protege o saldo)."""
     stats = {"importadas": 0, "ja_importadas": 0, "reconciliadas": 0, "antigas": 0}
@@ -456,6 +474,8 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]]) -> dict[s
                 if seen:
                     stats["ja_importadas"] += 1
                     continue
+            no_credito = 1 if (item.get("no_credito") or forcar_credito) else 0
+
             # Reconciliação: o Herc (ou o usuário) já registrou esse valor nesse dia?
             match = db.execute(
                 """SELECT id FROM transacoes
@@ -466,7 +486,11 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]]) -> dict[s
                 (user_id, item["tipo"], item["valor"], item["data"]),
             ).fetchone()
             if match:
-                db.execute("UPDATE transacoes SET fitid = ? WHERE id = ?", (item["fitid"], match["id"]))
+                # O extrato sabe melhor se foi no crédito do que a captura em tempo real
+                db.execute(
+                    "UPDATE transacoes SET fitid = ?, no_credito = ? WHERE id = ?",
+                    (item["fitid"], no_credito, match["id"]),
+                )
                 stats["reconciliadas"] += 1
                 continue
             categoria = categorize(user_id, item["descricao"]) if item["tipo"] == "saida" else "Outros"
@@ -474,10 +498,10 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]]) -> dict[s
                 categoria = apply_rules(user_id, item["descricao"])
             db.execute(
                 """INSERT INTO transacoes
-                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, fitid)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'ofx', 95, ?)""",
+                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, fitid, no_credito)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'ofx', 95, ?, ?)""",
                 (user_id, item["tipo"], item["valor"], item["descricao"], item["descricao"],
-                 categoria, item["data"], item["fitid"]),
+                 categoria, item["data"], item["fitid"], no_credito),
             )
             stats["importadas"] += 1
     return stats
@@ -812,6 +836,22 @@ def is_personal_profile(profile: str) -> bool:
     return profile in {"pf", "hibrido"}
 
 
+# A cada quantos dias o Herc lembra de importar o extrato — cobre o que a
+# captura automática deixar passar, sem depender dela funcionar perfeitamente.
+OFX_LEMBRETE_DIAS = 7
+
+
+def dias_desde_ultimo_ofx(user) -> int | None:
+    """None = nunca importou (sempre lembra); caso contrário, dias desde a última vez."""
+    last = user["last_ofx_import"] if "last_ofx_import" in user.keys() else None
+    if not last:
+        return None
+    try:
+        return (date.today() - date.fromisoformat(last)).days
+    except ValueError:
+        return None
+
+
 def get_or_create_capture_token(user) -> str:
     """Token do app companion: nasce no primeiro pedido, independente de
     como a pessoa logou (e-mail/senha ou Google)."""
@@ -971,17 +1011,26 @@ def calc_transaction_totals(user_id: int):
                AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
+        # Compra no crédito não sai da conta agora — fica de fora do saldo e do
+        # "quanto posso gastar hoje" até a fatura ser paga de verdade.
         month_expenses = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida'
+               WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
                AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
         balance = db.execute(
             """SELECT COALESCE(SUM(CASE WHEN tipo = 'entrada' THEN valor ELSE -valor END), 0) AS total
-               FROM transacoes WHERE user_id = ?""",
+               FROM transacoes WHERE user_id = ? AND no_credito = 0""",
             (user_id,),
+        ).fetchone()["total"]
+        fatura_credito_mes = db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS total
+               FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
+               AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+            (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
         monthly_by_category = db.execute(
             """SELECT COALESCE(categoria, 'Outros') AS categoria,
@@ -1077,6 +1126,7 @@ def calc_transaction_totals(user_id: int):
         "month_income": float(month_income or 0),
         "month_expenses": float(month_expenses or 0),
         "balance": float(balance or 0),
+        "fatura_credito_mes": float(fatura_credito_mes or 0),
         "monthly_by_category": monthly_by_category,
         "upcoming_commitments": upcoming_commitments,
         "overdue_commitments": overdue_commitments,
@@ -1625,6 +1675,9 @@ def home():
     projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month() - 1))
     view_mode = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
 
+    dias_ofx = dias_desde_ultimo_ofx(user)
+    lembrar_ofx = (not onboarding) and (dias_ofx is None or dias_ofx >= OFX_LEMBRETE_DIAS)
+
     session["last_balance"] = money(stats["balance"])
     session["meta_mensal"] = user["meta_mensal"]
     focus_labels = dict(HOME_FOCUS_CHOICES)
@@ -1643,6 +1696,8 @@ def home():
         shared_text=shared_text,
         herc_tip=herc_tip,
         herc_tip_text=HERC_TIPS.get(herc_tip),
+        lembrar_ofx=lembrar_ofx,
+        dias_ofx=dias_ofx,
         user=user,
         profile=profile,
         focus=focus,
@@ -2772,6 +2827,7 @@ def nova_transacao():
         needs_review = 1 if request.form.get("needs_review") else 0
         extra_json = request.form.get("extra_json") or ""
         captura_id = request.form.get("captura_id", type=int)
+        no_credito = 1 if (tipo == "saida" and request.form.get("no_credito")) else 0
         if tipo not in {"entrada", "saida"}:
             flash("Escolha um tipo válido.")
             return redirect(url_for("nova_transacao"))
@@ -2786,8 +2842,8 @@ def nova_transacao():
         with get_db() as db:
             cursor = db.execute(
                 """INSERT INTO transacoes
-                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, needs_review, extra_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, needs_review, extra_json, no_credito)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     user["id"],
                     tipo,
@@ -2800,6 +2856,7 @@ def nova_transacao():
                     max(0, min(100, confidence)),
                     needs_review,
                     extra_json,
+                    no_credito,
                 ),
             )
             new_id = cursor.lastrowid
@@ -2857,7 +2914,11 @@ def importar_ofx():
         if not items:
             flash("Não encontrei movimentações nesse arquivo. Confirme que é um extrato OFX.")
             return redirect(url_for("importar_ofx"))
-        stats = import_ofx_transactions(user["id"], items)
+        forcar_credito = bool(request.form.get("fatura_cartao"))
+        detectou_credito = any(item.get("no_credito") for item in items)
+        stats = import_ofx_transactions(user["id"], items, forcar_credito=forcar_credito)
+        with get_db() as db:
+            db.execute("UPDATE usuarios SET last_ofx_import = ? WHERE id = ?", (date.today().isoformat(), user["id"]))
         partes = [f"{stats['importadas']} novas importadas"]
         if stats["reconciliadas"]:
             partes.append(f"{stats['reconciliadas']} já estavam anotadas (conferidas ✓)")
@@ -2865,6 +2926,8 @@ def importar_ofx():
             partes.append(f"{stats['ja_importadas']} repetidas puladas")
         if stats["antigas"]:
             partes.append(f"{stats['antigas']} anteriores ao seu saldo inicial, puladas")
+        if detectou_credito or forcar_credito:
+            partes.append("marcadas como fatura de cartão (não descontam do saldo agora)")
         flash("Extrato processado: " + " · ".join(partes) + ".")
         return redirect(url_for("listar_transacoes"))
     return render_template("importar.html", user=user)

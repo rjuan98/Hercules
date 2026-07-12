@@ -30,6 +30,25 @@
 
 {% include '_herc_tip.html' %}
 
+{# ---- Lembrete: hora de conferir o extrato (cobre o que a captura automática perder) ---- #}
+{% if lembrar_ofx %}
+<section class="page-card suggestion-card" style="margin-bottom:18px;">
+    <div class="hercules-greeting">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>
+                {% if dias_ofx is none %}Ainda não conferimos o extrato do banco.
+                {% else %}Faz {{ dias_ofx }} dias que não conferimos o extrato.{% endif %}
+            </strong><br>
+            Importa o OFX pra eu revisar tudo e ter certeza de que não perdemos nada.
+        </div>
+    </div>
+    <a href="{{ url_for('importar_ofx') }}" class="button button-primary" style="margin-top:12px;">
+        <i data-lucide="file-down"></i> Importar extrato agora
+    </a>
+</section>
+{% endif %}
+
 {# ---- Registro relâmpago: fala ou escreve, o Herc entende ---- #}
 <section class="page-card quick-log" style="margin-bottom:18px;">
     <form method="POST" action="{{ url_for('registro_rapido') }}" class="quick-log-form" id="quickLogForm">
@@ -212,6 +231,16 @@
     </article>
 </section>
 
+{% if stats['fatura_credito_mes'] > 0 %}
+<section class="metric-grid cols-2" style="margin-top:18px;">
+    <article class="glass-card metric-card">
+        <p class="metric-label">💳 Fatura do cartão (este mês)</p>
+        <p class="metric-value">{{ stats['fatura_credito_mes']|money }}</p>
+        <p class="metric-footnote">Compras no crédito ainda não pagas — não sai do saldo até você pagar a fatura.</p>
+    </article>
+</section>
+{% endif %}
+
 <section class="metric-grid cols-2" style="margin-top:18px;">
     <article class="chart-card">
         <div class="topbar-copy" style="margin-bottom:14px;">
@@ -261,7 +290,7 @@
             <li class="data-item">
                 <div class="note-header">
                     <div>
-                        <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}</p>
+                        <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}{% if tx['no_credito'] %} <span title="No crédito — não descontado do saldo ainda">💳</span>{% endif %}</p>
                         <div class="note-meta">
                             <span>{{ tx['categoria'] or 'Outros' }}</span>
                             <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
