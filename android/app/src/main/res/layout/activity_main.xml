@@ -20,4 +20,17 @@
         android:textColor="@color/herc_creme"
         android:visibility="gone" />
 
+    <!-- Ferramenta de diagnóstico: posta uma notificação de teste do próprio
+         app pra confirmar se a captura em si está funcionando, sem depender
+         de um banco específico -->
+    <Button
+        android:id="@+id/btnTestarCaptura"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="20dp"
+        android:text="🧪 Testar captura"
+        android:backgroundTint="@color/herc_egeu"
+        android:textColor="@color/herc_creme" />
+
 </FrameLayout>

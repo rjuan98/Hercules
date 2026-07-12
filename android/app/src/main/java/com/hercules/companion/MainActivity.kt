@@ -1,9 +1,14 @@
 package com.hercules.companion
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
@@ -11,8 +16,12 @@ import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.hercules.companion.databinding.ActivityMainBinding
 
 /** A tela principal É o Hércules de verdade, dentro de um WebView — não existe
@@ -23,6 +32,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val appHost = Uri.parse(ApiClient.BASE_URL).host
+    private val canalTeste = "herc_teste"
+
+    private val pedirPermissaoNotificacao = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { concedida -> if (concedida) postarNotificacaoTeste() }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +81,7 @@ class MainActivity : AppCompatActivity() {
         binding.btnAtivarNotificacoes.setOnClickListener {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
+        binding.btnTestarCaptura.setOnClickListener { testarCaptura() }
 
         if (!handleAppLinkIntent(intent)) {
             webView.loadUrl(ApiClient.BASE_URL)
@@ -104,6 +119,36 @@ class MainActivity : AppCompatActivity() {
             binding.webView.loadUrl(ApiClient.BASE_URL)
         }
         return true
+    }
+
+    /** Posta uma notificação de teste do próprio app. Se ela aparecer no
+     *  Hércules, prova que a captura (leitura + rede + servidor) funciona de
+     *  ponta a ponta — o que sobrar de errado é só o pacote do banco. */
+    private fun testarCaptura() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+        ) {
+            pedirPermissaoNotificacao.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        postarNotificacaoTeste()
+    }
+
+    private fun postarNotificacaoTeste() {
+        val manager = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel(canalTeste) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(canalTeste, "Teste do Hércules", NotificationManager.IMPORTANCE_DEFAULT)
+            )
+        }
+        val notif = NotificationCompat.Builder(this, canalTeste)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle("Teste do Hércules")
+            .setContentText("Compra de R$ 1,23 em TESTE CAPTURA")
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(this).notify(9999, notif)
     }
 
     private fun isListenerAtivo(): Boolean {

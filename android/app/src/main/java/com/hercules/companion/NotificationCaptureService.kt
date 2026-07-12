@@ -16,6 +16,7 @@ class NotificationCaptureService : NotificationListenerService() {
             "br.com.intermedium",          // Banco Inter
             "com.c6bank.app",              // C6 Bank
             "com.bradesco",                // Bradesco
+            "br.com.bradesco.next",        // Next
             "br.com.bb.android",           // Banco do Brasil
             "com.caixa.gov.meucaixa",      // Caixa
             "br.com.picpay",                // PicPay
@@ -27,7 +28,10 @@ class NotificationCaptureService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (sbn.packageName !in BANK_PACKAGES) return
+        // Aceita bancos conhecidos OU a notificação de autoteste do próprio
+        // app (botão "Testar captura") — ajuda a descobrir se o problema é o
+        // pacote do banco ou o próprio recebimento de notificações no aparelho.
+        if (sbn.packageName != packageName && sbn.packageName !in BANK_PACKAGES) return
 
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
