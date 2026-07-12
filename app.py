@@ -801,6 +801,17 @@ def is_personal_profile(profile: str) -> bool:
     return profile in {"pf", "hibrido"}
 
 
+def get_or_create_capture_token(user) -> str:
+    """Token do app companion: nasce no primeiro pedido, independente de
+    como a pessoa logou (e-mail/senha ou Google)."""
+    token = user["capture_token"] if "capture_token" in user.keys() else None
+    if not token:
+        token = secrets.token_urlsafe(24)
+        with get_db() as db:
+            db.execute("UPDATE usuarios SET capture_token = ? WHERE id = ?", (token, user["id"]))
+    return token
+
+
 def save_uploaded_file(file_storage) -> str | None | bool:
     if not file_storage or not getattr(file_storage, "filename", ""):
         return None
@@ -1799,11 +1810,7 @@ def settings():
     with get_db() as db:
         goals_count = db.execute("SELECT COUNT(*) AS count FROM metas WHERE user_id = ?", (user["id"],)).fetchone()["count"]
         commitments_count = db.execute("SELECT COUNT(*) AS count FROM compromissos WHERE user_id = ?", (user["id"],)).fetchone()["count"]
-        # Token de captura: nasce no primeiro acesso às configurações
-        capture_token = user["capture_token"] if "capture_token" in user.keys() else None
-        if not capture_token:
-            capture_token = secrets.token_urlsafe(24)
-            db.execute("UPDATE usuarios SET capture_token = ? WHERE id = ?", (capture_token, user["id"]))
+    capture_token = get_or_create_capture_token(user)
 
     return render_template(
         "settings.html",
@@ -1956,8 +1963,7 @@ def delete_goal(goal_id):
 # ------------------------
 @app.route("/api/token", methods=["POST"])
 def api_token():
-    """Login do app companion: e-mail+senha → capture_token do usuário.
-    Gera o token na hora se ainda não existir (mesma lógica da tela de Configurações)."""
+    """Login do app companion via e-mail+senha (usuários que não usam Google)."""
     payload = request.get_json(silent=True) or request.form
     email = sanitize_text(payload.get("email")).lower()
     senha = payload.get("senha") or payload.get("password") or ""
@@ -1965,12 +1971,20 @@ def api_token():
         return {"erro": "e-mail e senha são obrigatórios"}, 400
     with get_db() as db:
         user = db.execute("SELECT * FROM usuarios WHERE email = ?", (email,)).fetchone()
-        if not user or not check_password_hash(user["senha"], senha):
-            return {"erro": "e-mail ou senha inválidos"}, 401
-        capture_token = user["capture_token"] if "capture_token" in user.keys() else None
-        if not capture_token:
-            capture_token = secrets.token_urlsafe(24)
-            db.execute("UPDATE usuarios SET capture_token = ? WHERE id = ?", (capture_token, user["id"]))
+    if not user or not check_password_hash(user["senha"], senha):
+        return {"erro": "e-mail ou senha inválidos"}, 401
+    capture_token = get_or_create_capture_token(user)
+    return {"ok": True, "token": capture_token, "nome": user["nome"]}, 200
+
+
+@app.route("/api/meu-token")
+@login_required
+def api_meu_token():
+    """Token do app companion para quem JÁ está logado no navegador/WebView
+    (cobre login por Google, que não tem senha para digitar no app).
+    O app Android lê o cookie de sessão do WebView e chama esta rota com ele."""
+    user = current_user()
+    capture_token = get_or_create_capture_token(user)
     return {"ok": True, "token": capture_token, "nome": user["nome"]}, 200
 
 

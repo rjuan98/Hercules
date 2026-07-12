@@ -47,6 +47,15 @@ jobs:
               -dname "CN=Herc,OU=Hercules,O=Hercules,L=BR,S=BR,C=BR"
           fi
 
+      # Impressão digital (SHA-256) da assinatura de debug — necessária para o
+      # assetlinks.json que prova ao Android que só o nosso app pode receber
+      # o retorno do login do Google (Android App Links). Aparece nos logs
+      # deste passo; copie de lá para app.py (rota /.well-known/assetlinks.json).
+      - name: Print debug keystore SHA-256 fingerprint
+        run: |
+          keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey \
+            | grep "SHA256:"
+
       - name: Build debug APK
         working-directory: android
         run: gradle assembleDebug --stacktrace
