@@ -31,13 +31,23 @@ object ApiClient {
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                 val respText = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() } ?: ""
-                val json = if (respText.isNotBlank()) JSONObject(respText) else JSONObject()
+                val json = try {
+                    if (respText.isNotBlank()) JSONObject(respText) else JSONObject()
+                } catch (e: org.json.JSONException) {
+                    null
+                }
 
                 mainHandler.post {
-                    if (code in 200..299 && json.optBoolean("ok", false)) {
-                        callback(json.optString("token"), json.optString("nome"), null)
-                    } else {
-                        callback(null, null, json.optString("erro", "Não foi possível entrar (código $code)."))
+                    when {
+                        json == null -> callback(
+                            null, null,
+                            "O servidor respondeu de um jeito inesperado (código $code). " +
+                                "Ele pode estar desatualizado — avise quem cuida do Hércules."
+                        )
+                        code in 200..299 && json.optBoolean("ok", false) ->
+                            callback(json.optString("token"), json.optString("nome"), null)
+                        else ->
+                            callback(null, null, json.optString("erro", "Não foi possível entrar (código $code)."))
                     }
                 }
             } catch (e: Exception) {
