@@ -109,7 +109,7 @@
                 </form>
                 <form method="POST" action="{{ url_for('delete_goal', goal_id=goal['id']) }}" data-confirm="Excluir a meta '{{ goal['nome'] }}'?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="button button-outline">Excluir</button>
+                    <button type="submit" class="button button-danger">Excluir</button>
                 </form>
             </div>
         </li>

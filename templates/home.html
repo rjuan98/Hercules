@@ -5,7 +5,7 @@
 
 {% block content %}
 
-{# ---- Boas-vindas do Herc: conta nova precisa do saldo de partida ---- #}
+{# ---- Um recado por vez: boas-vindas > lembrete de extrato > ensinar categoria > dica do Herc ---- #}
 {% if onboarding %}
 <section class="page-card suggestion-card" style="margin-bottom:18px;">
     <div class="hercules-greeting" style="margin-bottom:14px;">
@@ -26,12 +26,8 @@
         <a href="{{ url_for('compromissos') }}" style="color:var(--primary-deep); font-weight:800;">Contas</a>.
     </p>
 </section>
-{% endif %}
 
-{% include '_herc_tip.html' %}
-
-{# ---- Lembrete: hora de conferir o extrato (cobre o que a captura automática perder) ---- #}
-{% if lembrar_ofx %}
+{% elif lembrar_ofx %}
 <section class="page-card suggestion-card" style="margin-bottom:18px;">
     <div class="hercules-greeting">
         <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
@@ -47,6 +43,37 @@
         <i data-lucide="file-down"></i> Importar extrato agora
     </a>
 </section>
+
+{% elif suggestions %}
+{% set s = suggestions[0] %}
+<section class="page-card suggestion-card" style="margin-bottom:18px;">
+    <div class="suggestion-head">
+        <span class="suggestion-icon">🤔</span>
+        <p class="suggestion-text">
+            Percebi <strong>{{ s['vezes'] }} gastos em “{{ s['display'] }}”</strong>
+            somando <strong>{{ s['total']|money }}</strong> nos últimos 2 meses.
+            O que é isso pra você?
+        </p>
+    </div>
+    <form method="POST" action="{{ url_for('criar_regra') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="padrao_texto" value="{{ s['display'] }}">
+        <input type="hidden" name="voltar" value="{{ url_for('home') }}">
+        <div class="chip-row">
+            {% for cat in suggestion_categories[:8] %}
+            <button type="submit" name="categoria_nome" value="{{ cat }}" class="chip chip-action">{{ cat }}</button>
+            {% endfor %}
+        </div>
+        <div class="suggestion-actions">
+            <input type="text" name="nova_categoria" placeholder="Ou crie uma nova: ex. Doces" maxlength="40">
+            <button type="submit" class="button button-primary">Ensinar</button>
+            <button type="submit" name="acao" value="ignorar" class="button button-outline">Deixar como está</button>
+        </div>
+    </form>
+</section>
+
+{% else %}
+{% include '_herc_tip.html' %}
 {% endif %}
 
 {# ---- Registro relâmpago: fala ou escreve, o Herc entende ---- #}
@@ -112,35 +139,6 @@
     {% endif %}
 </section>
 {% endif %}
-
-{# ---- Pergunta inteligente: o Hércules aprende com uma pergunta ---- #}
-{% for s in suggestions %}
-<section class="page-card suggestion-card" style="margin-bottom:18px;">
-    <div class="suggestion-head">
-        <span class="suggestion-icon">🤔</span>
-        <p class="suggestion-text">
-            Percebi <strong>{{ s['vezes'] }} gastos em “{{ s['display'] }}”</strong>
-            somando <strong>{{ s['total']|money }}</strong> nos últimos 2 meses.
-            O que é isso pra você?
-        </p>
-    </div>
-    <form method="POST" action="{{ url_for('criar_regra') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="padrao_texto" value="{{ s['display'] }}">
-        <input type="hidden" name="voltar" value="{{ url_for('home') }}">
-        <div class="chip-row">
-            {% for cat in suggestion_categories[:8] %}
-            <button type="submit" name="categoria_nome" value="{{ cat }}" class="chip chip-action">{{ cat }}</button>
-            {% endfor %}
-        </div>
-        <div class="suggestion-actions">
-            <input type="text" name="nova_categoria" placeholder="Ou crie uma nova: ex. Doces" maxlength="40">
-            <button type="submit" class="button button-primary">Ensinar</button>
-            <button type="submit" name="acao" value="ignorar" class="button button-outline">Deixar como está</button>
-        </div>
-    </form>
-</section>
-{% endfor %}
 
 {% if view_mode == 'simples' %}
 {# ---- Modo simples: três frases e um botão ---- #}
@@ -241,102 +239,6 @@
 </section>
 {% endif %}
 
-<section class="metric-grid cols-2" style="margin-top:18px;">
-    <article class="chart-card">
-        <div class="topbar-copy" style="margin-bottom:14px;">
-            <h2 class="topbar-title" style="font-size:1.25rem;">Onde o dinheiro está indo</h2>
-            <p class="topbar-subtitle">Resumo por categoria no mês atual.</p>
-        </div>
-        <canvas id="categoryChart" height="300"></canvas>
-    </article>
-
-    <article class="page-card">
-        <div class="topbar-copy" style="margin-bottom:14px;">
-            <h2 class="topbar-title" style="font-size:1.25rem;">Próximos compromissos</h2>
-            <p class="topbar-subtitle">O que merece atenção nos próximos dias.</p>
-        </div>
-        <ul class="data-list">
-            {% for item in stats['due_soon_commitments'][:5] %}
-            <li class="data-item">
-                <div class="note-header">
-                    <div>
-                        <p class="note-title">{{ item['descricao'] }}</p>
-                        <div class="note-meta">
-                            <span>{{ item['vencimento']|format_date }}</span>
-                            <span>{{ item['tipo']|capitalize }}</span>
-                        </div>
-                    </div>
-                    <span class="badge">{{ item['valor']|money }}</span>
-                </div>
-            </li>
-            {% else %}
-            <li class="empty-state">
-                <strong>Nenhum compromisso urgente.</strong>
-                <span>Isso já é um bom sinal.</span>
-            </li>
-            {% endfor %}
-        </ul>
-    </article>
-</section>
-
-<section class="metric-grid cols-2" style="margin-top:18px;">
-    <article class="page-card">
-        <div class="topbar-copy" style="margin-bottom:14px;">
-            <h2 class="topbar-title" style="font-size:1.25rem;">Últimas movimentações</h2>
-            <p class="topbar-subtitle">O que entrou e saiu recentemente.</p>
-        </div>
-        <ul class="data-list">
-            {% for tx in stats['recent_transactions'] %}
-            <li class="data-item">
-                <div class="note-header">
-                    <div>
-                        <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}{% if tx['no_credito'] %} <span title="No crédito — não descontado do saldo ainda">💳</span>{% endif %}</p>
-                        <div class="note-meta">
-                            <span>{{ tx['categoria'] or 'Outros' }}</span>
-                            <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
-                        </div>
-                    </div>
-                    <span class="badge">{{ tx['tipo']|capitalize }} · {{ tx['valor']|money }}</span>
-                </div>
-            </li>
-            {% else %}
-            <li class="empty-state">
-                <strong>Nenhuma movimentação ainda.</strong>
-                <span>Adicione a primeira para o Hércules começar a aprender.</span>
-            </li>
-            {% endfor %}
-        </ul>
-    </article>
-
-    <article class="page-card">
-        <div class="topbar-copy" style="margin-bottom:14px;">
-            <h2 class="topbar-title" style="font-size:1.25rem;">Notas e documentos</h2>
-            <p class="topbar-subtitle">Organização fiscal e buscas rápidas.</p>
-        </div>
-        <ul class="data-list">
-            {% for note in stats['notes'][:5] %}
-            <li class="data-item">
-                <div class="note-header">
-                    <div>
-                        <p class="note-title">{{ note['descricao'] }}</p>
-                        <div class="note-meta">
-                            <span>{{ note['categoria'] }}</span>
-                            <span>{{ note['cliente'] or 'Sem cliente' }}</span>
-                        </div>
-                    </div>
-                    <span class="badge">{{ note['status'] }}</span>
-                </div>
-            </li>
-            {% else %}
-            <li class="empty-state">
-                <strong>Nenhuma nota ainda.</strong>
-                <span>Quando ela entrar, o Hércules guarda e liga isso à movimentação.</span>
-            </li>
-            {% endfor %}
-        </ul>
-    </article>
-</section>
-
 {% if business %}
 <section class="metric-grid cols-4" style="margin-top:18px;" id="businessMetrics">
     <article class="glass-card metric-card">
@@ -392,41 +294,6 @@ window.addEventListener('DOMContentLoaded', () => {
         });
         rec.addEventListener('error', () => { ouvindo = false; micBtn.classList.remove('gravando'); });
     }
-
-    const canvas = document.getElementById('categoryChart');
-    if (!canvas || !window.Chart) return;
-
-    const labels = {{ categories|tojson }};
-    const values = {{ category_values|tojson }};
-
-    if (!labels.length) return;
-
-    new Chart(canvas, {
-        type: 'doughnut',
-        data: {
-            labels: labels,
-            datasets: [{
-                data: values,
-                borderColor: '#FDF6E7',
-                borderWidth: 2,
-                hoverOffset: 10,
-                backgroundColor: ['#C96F3B', '#2E6D8C', '#3D5A2E', '#9C6A10', '#7E4E7A', '#5C8A73', '#B23A2A']
-            }]
-        },
-        options: {
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        color: getComputedStyle(document.body).getPropertyValue('--text').trim(),
-                        boxWidth: 14,
-                        padding: 16
-                    }
-                }
-            }
-        }
-    });
 });
 </script>
 {% endblock %}

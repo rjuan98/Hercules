@@ -90,7 +90,7 @@
                 <a href="{{ url_for('editar_nota', note_id=note['id']) }}">Editar</a>
                 <form method="POST" action="{{ url_for('delete_nota', note_id=note['id']) }}" data-confirm="Excluir esta nota?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="button button-outline" type="submit">Excluir</button>
+                    <button class="button button-danger" type="submit">Excluir</button>
                 </form>
             </div>
         </li>

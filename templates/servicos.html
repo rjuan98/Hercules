@@ -46,7 +46,7 @@
             <div class="note-actions">
                 <form method="POST" action="{{ url_for('delete_service', service_id=service['id']) }}" data-confirm="Excluir este serviço?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="button button-outline" type="submit">Excluir</button>
+                    <button class="button button-danger" type="submit">Excluir</button>
                 </form>
             </div>
         </li>

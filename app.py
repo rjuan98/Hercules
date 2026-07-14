@@ -1613,9 +1613,6 @@ def home():
     can_spend_today = stats["available_today"]
     next_commitment = stats["upcoming_commitments"][0] if stats["upcoming_commitments"] else None
 
-    categories = [row["categoria"] for row in stats["monthly_by_category"]]
-    values = [row["total"] or 0 for row in stats["monthly_by_category"]]
-
     # Pergunta inteligente: gastos repetidos que o Hércules ainda não entende
     suggestions = pending_suggestions(user["id"])
 
@@ -1711,8 +1708,6 @@ def home():
         can_spend_today=can_spend_today,
         next_commitment=next_commitment,
         current_month=current_month,
-        categories=categories,
-        category_values=values,
         goal=goal,
         note_pending=note_pending,
     )

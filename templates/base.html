@@ -40,6 +40,7 @@
             <nav class="sidebar-nav">
                 <a href="{{ url_for('home') }}" class="menu-link {% if request.path == '/' %}active{% endif %}"><i data-lucide="house"></i><span>Início</span></a>
                 {% if not modo_simples %}
+                <p class="sidebar-section-label">Seu dia a dia</p>
                 <a href="{{ url_for('dashboard') }}" class="menu-link {% if request.path.startswith('/dashboard') %}active{% endif %}"><i data-lucide="pie-chart"></i><span>Resumo</span></a>
                 {% endif %}
                 <a href="{{ url_for('listar_transacoes') }}" class="menu-link {% if request.path.startswith('/transacoes') %}active{% endif %}"><i data-lucide="activity"></i><span>Entradas e saídas</span></a>
@@ -51,11 +52,13 @@
                 {% endif %}
                 <a href="{{ url_for('listar_notas') }}" class="menu-link {% if request.path.startswith('/notas') %}active{% endif %}"><i data-lucide="files"></i><span>Notas</span></a>
                 {% if perfil in ['mei', 'lojista', 'hibrido'] and not modo_simples %}
+                <p class="sidebar-section-label">Seu negócio</p>
                 <a href="{{ url_for('business_dashboard') }}" class="menu-link {% if request.path.startswith('/business') %}active{% endif %}"><i data-lucide="store"></i><span>Negócio</span></a>
                 <a href="{{ url_for('painel_mei') }}" class="menu-link {% if request.path.startswith('/mei') %}active{% endif %}"><i data-lucide="landmark"></i><span>Painel MEI</span></a>
                 <a href="{{ url_for('clientes') }}" class="menu-link {% if request.path.startswith('/clientes') %}active{% endif %}"><i data-lucide="users"></i><span>Clientes</span></a>
                 <a href="{{ url_for('servicos') }}" class="menu-link {% if request.path.startswith('/servicos') %}active{% endif %}"><i data-lucide="package"></i><span>Serviços</span></a>
                 {% endif %}
+                <p class="sidebar-section-label">Conta</p>
                 <a href="{{ url_for('settings') }}" class="menu-link {% if request.path.startswith('/settings') %}active{% endif %}"><i data-lucide="settings-2"></i><span>Configurações</span></a>
             </nav>
 
@@ -115,7 +118,7 @@
         <a href="{{ url_for('listar_transacoes') }}" aria-label="Entradas e saídas"><i data-lucide="activity"></i></a>
         <a href="{{ url_for('nova_transacao') }}" class="fab-button" aria-label="Registrar"><i data-lucide="plus"></i></a>
         <a href="{{ url_for('compromissos') }}" aria-label="Contas"><i data-lucide="calendar-days"></i></a>
-        <a href="{{ url_for('settings') }}" aria-label="Configurações"><i data-lucide="settings-2"></i></a>
+        <button type="button" id="mobileNavMore" aria-label="Mais opções"><i data-lucide="menu"></i></button>
     </nav>
     {% endif %}
 
@@ -162,17 +165,15 @@
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebarOverlay');
             const menuToggle = document.getElementById('menuToggle');
+            const mobileNavMore = document.getElementById('mobileNavMore');
             const sidebarClose = document.getElementById('sidebarClose');
             const collapseBtn = document.getElementById('sidebarCollapse');
             const shell = document.getElementById('appShell');
 
             const closeDrawer = () => { sidebar && sidebar.classList.remove('open'); overlay && overlay.classList.remove('show'); };
-            if (menuToggle && sidebar) {
-                menuToggle.addEventListener('click', () => {
-                    sidebar.classList.add('open');
-                    overlay && overlay.classList.add('show');
-                });
-            }
+            const openDrawer = () => { sidebar && sidebar.classList.add('open'); overlay && overlay.classList.add('show'); };
+            menuToggle && menuToggle.addEventListener('click', openDrawer);
+            mobileNavMore && mobileNavMore.addEventListener('click', openDrawer);
             overlay && overlay.addEventListener('click', closeDrawer);
             sidebarClose && sidebarClose.addEventListener('click', closeDrawer);
             document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });

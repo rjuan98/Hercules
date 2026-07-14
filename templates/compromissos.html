@@ -75,7 +75,7 @@
                 </form>
                 <form method="POST" action="{{ url_for('delete_commitment', commitment_id=c['id']) }}" data-confirm="Excluir a conta '{{ c['descricao'] }}'?">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="button button-outline" type="submit">Excluir</button>
+                    <button class="button button-danger" type="submit">Excluir</button>
                 </form>
             </div>
         </li>

@@ -141,6 +141,17 @@ button { cursor: pointer; }
     border-top: 1.5px solid var(--border);
 }
 
+.sidebar-section-label {
+    margin: 6px 4px 0;
+    padding-top: 14px;
+    border-top: 1.5px solid var(--border);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
 .sidebar-note {
     padding: 16px;
     border-radius: 20px;
@@ -530,7 +541,7 @@ input, select, textarea { min-height: 52px; }
     color: var(--text);
 }
 .button-outline:hover { background: rgba(36, 28, 20, 0.06); }
-.button:hover, .button-primary:hover, .button-outline:hover, .button-secondary:hover {
+.button:hover, .button-primary:hover, .button-outline:hover, .button-secondary:hover, .button-danger:hover {
     transform: translateY(-1px);
 }
 
@@ -657,6 +668,18 @@ input, select, textarea { min-height: 52px; }
     box-shadow: 3px 3px 0 var(--border-strong);
 }
 .mobile-nav a { color: var(--text); }
+.mobile-nav button {
+    color: var(--text);
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
 
 @media (max-width: 1180px) {
     .app-shell { grid-template-columns: 248px minmax(0, 1fr); }
@@ -915,11 +938,10 @@ body {
 .button-danger {
     background: var(--danger);
     color: #FDF6E7;
-    border: none;
-    border-radius: 999px;
-    padding: 11px 18px;
-    font-weight: 800;
+    border-color: transparent;
+    box-shadow: 0 10px 22px rgba(178, 58, 42, 0.28);
 }
+.button-danger:hover { background: #98301F; }
 
 /* ============================================================
    Destaque de item recém-criado

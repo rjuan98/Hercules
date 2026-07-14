@@ -71,7 +71,7 @@
                 </details>
                 <form method="POST" action="{{ url_for('delete_categoria', cat_id=cat['id']) }}" data-confirm="Excluir a categoria '{{ cat['nome'] }}'? As movimentações continuam existindo.">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="button button-outline">Excluir</button>
+                    <button type="submit" class="button button-danger">Excluir</button>
                 </form>
             </div>
         </li>
