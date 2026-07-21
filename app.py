@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import sqlite3
+import unicodedata
 import uuid
 import zipfile
 from collections import Counter, defaultdict
@@ -931,22 +932,103 @@ def category_month_spending(user_id: int) -> dict[str, float]:
     return {r["categoria"]: float(r["total"] or 0) for r in rows}
 
 
+def _strip_accents(s: str) -> str:
+    """'Ônibus' e 'ONIBUS' viram 'onibus' — o extrato do banco vem sem padrão de acento/caixa."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
+# Palavras/marcas que aparecem de verdade em extrato brasileiro. ORDEM = prioridade
+# (primeira que casar vence). Tudo minúsculo e SEM acento (o texto é normalizado antes).
+# Marca entre \b...\b vira busca por palavra inteira (evita "99" pegar valor, "claro" pegar frase).
+_CATEGORY_RULES: list[tuple[str, list[str]]] = [
+    # Assinaturas antes de Lazer, pra streaming cair aqui (é assinatura recorrente).
+    ("Assinaturas", ["netflix", "spotify", "disney+", "disney plus", "hbo", "amazon prime", "prime video",
+                     "globoplay", "youtube premium", "deezer", "paramount", "star+", "apple.com/bill",
+                     "apple music", "icloud", "google one", "playstation plus", "game pass",
+                     "canva", "chatgpt", "openai", "notion", "dropbox", "assinatura", "subscription"]),
+    ("Saúde", ["farmacia", "drogaria", "drogasil", "droga raia", "drogaraia", "pacheco", "pague menos",
+               "ultrafarma", "panvel", "nissei", "hospital", "clinica", "medic", "consultorio", "consulta medic",
+               "odonto", "dentist", "psicolog", "psiquiatr", "laboratorio", "exame", "fleury", "sabin",
+               "hermes pardini", "unimed", "hapvida", "amil", "otica", "oculos", "academia", "smartfit",
+               "smart fit", "bodytech", "bio ritmo", "bioritmo", "selfit", "bluefit", "gympass",
+               "totalpass", "vacina", "fisioterap", "posto de saude"]),
+    ("Educação", ["escola", "colegio", "faculdade", "universidade", "curso", "udemy", "alura", "coursera",
+                  "hotmart", "livraria", "livro", "papelaria", "apostila", "kumon", "wizard", "ccaa",
+                  "fisk", "cultura inglesa", "aula", "treinamento", "ensino", "creche", "bercario",
+                  "material escolar"]),
+    ("Transporte", ["uber", "99app", "99 pop", "99pop", "99 tecnolog", "99*", "cabify", "indriver", "in driver",
+                    "onibus", "metro", "cptm", "sptrans", "riocard", "bilhete unico", "cartao transporte",
+                    r"\bbrt\b", "vlt", "supervia", "trensurb", "recarga transporte", "passagem", "rodoviaria",
+                    "viacao", "buser", "clickbus", "posto", "auto posto", "ipiranga", "shell", "petrobras",
+                    "br mania", "gasolina", "combustivel", "etanol", "diesel", "estacionamento", "estapar",
+                    "estacione", "zona azul", "zul+", "pedagio", "sem parar", "conectcar", "veloe", "taggy",
+                    "autopass", "tembici", "yellow bike", "taxi"]),
+    ("Alimentação", ["quentinha", "marmita", "restaurante", "lanchonete", "lanche", "padaria", "panificadora",
+                     "pizzaria", "pizza", "hamburgueria", "burger", "hamburg", "ifood", "rappi", "aiqfome",
+                     "delivery", r"\bbar\b", "boteco", "botequim", "choperia", "cafeteria", "confeitaria",
+                     "doceria", "sorveteria", "sorvete", "acai", "esfiha", "esfirra", "pastel", "coxinha",
+                     "salgad", "sushi", "temaki", "churrascaria", "espetinho", "mcdonald", "mc donald", "burger king",
+                     "subway", "habib", "giraffas", "spoleto", "outback", "madero", "coco bambu", "kfc",
+                     "bobs", "dominos", "pizza hut", "starbucks", "comida", "gelato"]),
+    ("Moradia", ["aluguel", "condominio", "condom", "imobiliaria", "enel", "cemig", "cpfl", "celpe", "coelba",
+                 "copel", "energisa", "equatorial", "neoenergia", "energia eletrica", "conta de luz", "sabesp",
+                 "cedae", "sanepar", "caesb", "cagece", "embasa", "conta de agua", "comgas", "ultragaz",
+                 "liquigas", "consigaz", "supergasbras", "iptu", "internet", "vivo fibra", "oi fibra",
+                 "net virtua", r"\bvivo\b", r"\bclaro\b", r"\btim\b", "faxina", "diarista", "reforma",
+                 "material de construcao", "leroy merlin", "telha norte", "obramax"]),
+    ("Lazer", ["cinema", "cinemark", "kinoplex", "ingresso", "sympla", "eventim", "show", "teatro", "museu",
+               "parque", "hopi hari", "beto carrero", "viagem", "hotel", "pousada", "airbnb", "booking",
+               "decolar", "hurb", "cvc", "123 milhas", "latam", "gol linhas", "azul viagens", "steam",
+               "playstation", "xbox", "nintendo", "epic games", "boliche", "balada"]),
+    # Varejo antes de Mercado: "mercado livre" é loja online, não supermercado.
+    ("Varejo", ["mercado livre", "mercadolivre", "amazon", "shopee", "aliexpress", "shein", "magalu",
+                "magazine luiza", "americanas", "casas bahia", "ponto frio", "submarino", "kabum", "pichau",
+                "renner", "riachuelo", "marisa", "pernambucanas", "zara", "hering", "nike", "adidas",
+                "centauro", "netshoes", "decathlon", "kalunga", "havan", "vivara", "pandora", "shopping",
+                "loja"]),
+    ("Mercado", ["supermercado", "hipermercado", "atacadao", "atacad", "assai", "carrefour", "pao de acucar",
+                 "sacolao", "hortifruti", "acougue", "quitanda", "mercearia", "mercadinho", "sams club",
+                 "sam's club", "makro", "tenda atacado", "bompreco", "guanabara", "prezunic", "mundial",
+                 "mercado"]),
+    ("Serviços", ["barbearia", "cabeleireiro", "salao de beleza", "manicure", "estetica", "lavanderia",
+                  "chaveiro", "correios", "sedex", "cartorio", "advocacia", "advogad", "contador", "contabil",
+                  "consultoria", "manutencao", "assistencia tecnica", "conserto", "oficina", "borracharia",
+                  "grafica", "petshop", "pet shop", "veterinari", "banho e tosa", "freela", "software"]),
+]
+
+
 def auto_category(text: str) -> str:
-    txt = (text or "").lower()
-    rules = {
-        "Saúde": ["farmácia", "hospital", "médic", "medic", "consulta", "dent", "psic", "laboratório"],
-        "Educação": ["escola", "curso", "faculdade", "colégio", "livro", "aula", "treinamento"],
-        "Moradia": ["aluguel", "condom", "luz", "água", "agua", "internet", "gás", "gas"],
-        "Transporte": ["uber", "99", "taxi", "táxi", "onibus", "ônibus", "metro", "metrô", "passagem", "combust", "estacionamento"],
-        "Alimentação": ["ifood", "ifood", "restaurante", "lanche", "salgado", "mercado", "padaria", "almoço", "almoco"],
-        "Lazer": ["cinema", "show", "viagem", "hotel", "streaming", "spotify", "netflix", "jogo"],
-        "Serviços": ["consultoria", "freela", "manutenção", "manutencao", "design", "site", "software"],
-        "Assinaturas": ["assinatura", "mensalidade", "recorrente", "subscription"],
-    }
-    for category, keywords in rules.items():
-        if any(word in txt for word in keywords):
-            return category
+    txt = _strip_accents((text or "").lower())
+    if not txt:
+        return "Outros"
+    for category, keywords in _CATEGORY_RULES:
+        for kw in keywords:
+            if kw.startswith("\\b"):
+                if re.search(kw, txt):
+                    return category
+            elif kw in txt:
+                return category
     return "Outros"
+
+
+def recategorize_outros(user_id: int) -> int:
+    """Re-roda a categorização automática nas saídas que ficaram em 'Outros' — útil depois de
+    melhorar as palavras-chave ou de ensinar regras novas. Só mexe no que virar categoria de verdade;
+    respeita as regras aprendidas (categorize() aplica regra antes das palavras-chave)."""
+    changed = 0
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT id, descricao, estabelecimento FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida'
+                 AND COALESCE(NULLIF(categoria, ''), 'Outros') = 'Outros'""",
+            (user_id,),
+        ).fetchall()
+        for r in rows:
+            cat = categorize(user_id, r["descricao"], r["estabelecimento"])
+            if cat and cat != "Outros":
+                db.execute("UPDATE transacoes SET categoria = ? WHERE id = ?", (cat, r["id"]))
+                changed += 1
+    return changed
 
 
 def login_required(view):
@@ -2460,6 +2542,20 @@ def delete_categoria(cat_id):
         )
     flash(f"Categoria {cat['nome']} removida (as movimentações continuam lá).")
     return redirect(url_for("categorias"))
+
+
+@app.route("/categorias/revisar", methods=["POST"])
+@login_required
+def revisar_categorias():
+    """Reprocessa as saídas que ficaram em 'Outros' com as palavras-chave e regras atuais."""
+    user = current_user()
+    n = recategorize_outros(user["id"])
+    if n:
+        flash(f"Revisão pronta: {n} movimentações que estavam em 'Outros' ganharam categoria.")
+    else:
+        flash("Revisei tudo, mas não achei categoria automática pro que sobrou em 'Outros'. "
+              "Esses você pode me ensinar na tela inicial 😉")
+    return redirect(request.referrer or url_for("categorias"))
 
 
 @app.route("/regras", methods=["POST"])

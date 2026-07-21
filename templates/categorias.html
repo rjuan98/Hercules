@@ -29,6 +29,19 @@
     </form>
 </section>
 
+<section class="page-card" style="margin-top:18px;">
+    <div class="note-header">
+        <div class="topbar-copy">
+            <h2 class="topbar-title" style="font-size:1.15rem;">Muita coisa em "Outros"?</h2>
+            <p class="topbar-subtitle">O Herc reprocessa o que ficou sem categoria com as regras mais novas.</p>
+        </div>
+        <form method="POST" action="{{ url_for('revisar_categorias') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="button button-primary"><i data-lucide="wand-2"></i> Revisar "Outros"</button>
+        </form>
+    </div>
+</section>
+
 <section style="margin-top:18px;">
     <div class="topbar-copy" style="margin-bottom:10px;">
         <h2 class="topbar-title" style="font-size:1.15rem;">Suas categorias — {{ month }}</h2>
