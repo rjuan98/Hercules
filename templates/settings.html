@@ -125,6 +125,45 @@
 
 <section class="page-card" style="margin-top:18px;">
     <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Conectar banco (Open Finance) 🔗</h2>
+        <p class="topbar-subtitle">O jeito automático de verdade: com sua autorização, o banco entrega os gastos direto pro Herc — sem subir arquivo. Usa o Open Finance oficial via Pluggy.</p>
+    </div>
+
+    {% if pluggy_ativo %}
+    <div class="auth-note" style="border-color:rgba(61,90,46,0.35); background:rgba(61,90,46,0.10);">
+        <strong>✓ Conexão ligada.</strong> Puxe seus gastos do banco quando quiser.
+    </div>
+    <div class="page-actions" style="justify-content:flex-start; margin-top:14px;">
+        <form method="POST" action="{{ url_for('pluggy_sincronizar') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="button button-primary"><i data-lucide="refresh-cw"></i> Sincronizar agora</button>
+        </form>
+        <form method="POST" action="{{ url_for('pluggy_testar') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="button button-outline"><i data-lucide="plug"></i> Testar conexão</button>
+        </form>
+    </div>
+    {% else %}
+    <div class="auth-note">
+        Ainda não está ligado. É grátis para uso pessoal (Meu Pluggy) e leva uns 10 minutos pra configurar uma vez.
+    </div>
+    <details class="form-advanced" style="margin-top:14px;">
+        <summary>Como ligar (passo a passo)</summary>
+        <ol style="margin:12px 0 0; padding-left:20px; line-height:1.9;">
+            <li>Crie uma conta grátis no <strong>Meu Pluggy</strong> (meu.pluggy.ai) e <strong>conecte seu banco</strong> lá (login no próprio banco — isso é você que faz, com segurança).</li>
+            <li>No painel de desenvolvedor (dashboard.pluggy.ai), crie uma aplicação e pegue o <strong>Client ID</strong>, o <strong>Client Secret</strong> e o <strong>Item ID</strong> do banco conectado.</li>
+            <li>No PythonAnywhere, defina as variáveis de ambiente <code>PLUGGY_CLIENT_ID</code>, <code>PLUGGY_CLIENT_SECRET</code> e <code>PLUGGY_ITEM_IDS</code> e recarregue o app.</li>
+        </ol>
+        <p class="helper-text" style="margin-top:10px;">
+            <strong>Nunca cole o Client Secret aqui no chat nem em lugar público.</strong> Ele fica só nas variáveis do servidor.
+            Assim que ligar, aparecem aqui os botões de sincronizar. Me chama que eu te guio em cada passo.
+        </p>
+    </details>
+    {% endif %}
+</section>
+
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
         <h2 class="topbar-title" style="font-size:1.25rem;">Captura automática 🦁⚡</h2>
         <p class="topbar-subtitle">No app do Herc para Android é só ligar uma vez o acesso às notificações. O que ele conseguir capturar entra sozinho; o que passar batido, você confere importando o extrato (OFX).</p>
     </div>

@@ -54,6 +54,13 @@ except ImportError:  # optional (necessário para importar extrato em PDF)
 # Leitura de notas com IA: liga sozinha quando a chave existir no ambiente
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
+# Open Finance via Pluggy: liga sozinho quando as chaves existirem no ambiente.
+# PLUGGY_ITEM_IDS = ids dos bancos conectados (no Meu Pluggy), separados por vírgula.
+PLUGGY_API = "https://api.pluggy.ai"
+PLUGGY_CLIENT_ID = os.environ.get("PLUGGY_CLIENT_ID")
+PLUGGY_CLIENT_SECRET = os.environ.get("PLUGGY_CLIENT_SECRET")
+PLUGGY_ITEM_IDS = [s.strip() for s in (os.environ.get("PLUGGY_ITEM_IDS") or "").split(",") if s.strip()]
+
 BASE_DIR = Path(__file__).resolve().parent
 # Em produção (Render, PythonAnywhere etc.) aponte UPLOAD_DIR para o disco persistente
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR") or BASE_DIR / "uploads")
@@ -655,6 +662,85 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
             )
             stats["importadas"] += 1
     return stats
+
+
+# ------------------------
+# Open Finance via Pluggy: o banco entrega os gastos direto, sem subir arquivo
+# ------------------------
+def pluggy_configured() -> bool:
+    return bool(PLUGGY_CLIENT_ID and PLUGGY_CLIENT_SECRET and PLUGGY_ITEM_IDS and http_requests)
+
+
+def pluggy_auth() -> str:
+    """Troca clientId/secret por um apiKey temporário (vale ~2h). Levanta exceção em erro."""
+    resp = http_requests.post(
+        f"{PLUGGY_API}/auth",
+        json={"clientId": PLUGGY_CLIENT_ID, "clientSecret": PLUGGY_CLIENT_SECRET},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["apiKey"]
+
+
+def _pluggy_get(api_key: str, path: str, params: dict | None = None):
+    resp = http_requests.get(
+        f"{PLUGGY_API}{path}",
+        params=params or {},
+        headers={"X-API-KEY": api_key},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def pluggy_accounts(api_key: str) -> list[dict]:
+    """Todas as contas conectadas (de todos os itens configurados no ambiente)."""
+    contas = []
+    for item_id in PLUGGY_ITEM_IDS:
+        data = _pluggy_get(api_key, "/accounts", {"itemId": item_id})
+        contas.extend(data.get("results", []))
+    return contas
+
+
+def pluggy_fetch_items(api_key: str, since: str) -> list[dict[str, Any]]:
+    """Transações de todas as contas desde `since` (YYYY-MM-DD), no formato do import do Herc.
+    Sinal do valor: em conta de banco, negativo = gasto; em cartão de crédito é INVERTIDO
+    (positivo = compra/gasto, negativo = pagamento/estorno da fatura, que pulamos)."""
+    items = []
+    for conta in pluggy_accounts(api_key):
+        conta_id = conta.get("id")
+        if not conta_id:
+            continue
+        is_credit = conta.get("type") == "CREDIT"
+        page = 1
+        while True:
+            data = _pluggy_get(api_key, "/transactions",
+                               {"accountId": conta_id, "from": since, "page": page, "pageSize": 500})
+            resultados = data.get("results", [])
+            for t in resultados:
+                amount = t.get("amount")
+                if amount is None or amount == 0:
+                    continue
+                if is_credit:
+                    if amount <= 0:
+                        continue  # pagamento/estorno da fatura, não é compra
+                    tipo = "saida"
+                else:
+                    tipo = "entrada" if amount > 0 else "saida"
+                desc = t.get("description") or t.get("descriptionRaw") or "Movimentação"
+                items.append({
+                    "valor": abs(float(amount)),
+                    "tipo": tipo,
+                    "data": (t.get("date") or "")[:10],
+                    "descricao": sanitize_text(desc)[:120] or "Movimentação",
+                    "fitid": "PLG-" + str(t.get("id"))[:70],
+                    "no_credito": is_credit,
+                })
+            total_pages = data.get("totalPages") or 1
+            if page >= total_pages or not resultados:
+                break
+            page += 1
+    return items
 
 
 # ------------------------
@@ -2182,6 +2268,7 @@ def settings():
         plan_label=PLAN_LABELS["free"],
         capture_token=capture_token,
         capture_url=url_for("api_captura", _external=True),
+        pluggy_ativo=pluggy_configured(),
     )
 
 
@@ -3193,6 +3280,67 @@ def importar_ofx():
         flash("Extrato processado: " + " · ".join(partes) + ".")
         return redirect(url_for("listar_transacoes"))
     return render_template("importar.html", user=user)
+
+
+@app.route("/pluggy/testar", methods=["POST"])
+@login_required
+def pluggy_testar():
+    """Confere as chaves e lista as contas conectadas, sem importar nada."""
+    if not pluggy_configured():
+        flash("A conexão automática ainda não está ligada neste servidor.")
+        return redirect(url_for("settings"))
+    try:
+        contas = pluggy_accounts(pluggy_auth())
+    except Exception:
+        flash("Não consegui falar com a Pluggy. Confira as chaves e o banco conectado no Meu Pluggy.")
+        return redirect(url_for("settings"))
+    if not contas:
+        flash("Conectei na Pluggy, mas não achei contas — confirme que o banco está conectado no Meu Pluggy.")
+    else:
+        nomes = ", ".join(
+            f"{c.get('name') or c.get('marketingName') or 'conta'} "
+            f"({'cartão' if c.get('type') == 'CREDIT' else 'conta'})"
+            for c in contas
+        )
+        flash(f"Conexão OK! Encontrei: {nomes}.")
+    return redirect(url_for("settings"))
+
+
+@app.route("/pluggy/sincronizar", methods=["POST"])
+@login_required
+def pluggy_sincronizar():
+    """Puxa os gastos do banco via Open Finance e importa (mesmo pipeline do OFX)."""
+    user = current_user()
+    if not pluggy_configured():
+        flash("A conexão automática ainda não está ligada neste servidor.")
+        return redirect(url_for("settings"))
+    last = user["last_ofx_import"] if "last_ofx_import" in user.keys() else None
+    try:
+        since = (date.fromisoformat(last) - timedelta(days=7)).isoformat() if last else \
+                (date.today() - timedelta(days=90)).isoformat()
+    except ValueError:
+        since = (date.today() - timedelta(days=90)).isoformat()
+    try:
+        items = pluggy_fetch_items(pluggy_auth(), since)
+    except Exception:
+        flash("Não consegui sincronizar agora. Confira as chaves/o banco conectado e tente de novo.")
+        return redirect(url_for("settings"))
+    if not items:
+        flash("Sincronizei, mas não vieram movimentações novas nesse período.")
+        return redirect(url_for("settings"))
+    stats = import_ofx_transactions(user["id"], items)
+    with get_db() as db:
+        db.execute("UPDATE usuarios SET last_ofx_import = ? WHERE id = ?",
+                   (date.today().isoformat(), user["id"]))
+    partes = [f"{stats['importadas']} novas"]
+    if stats["reconciliadas"]:
+        partes.append(f"{stats['reconciliadas']} já anotadas (conferidas ✓)")
+    if stats["ja_importadas"]:
+        partes.append(f"{stats['ja_importadas']} repetidas puladas")
+    if stats["antigas"]:
+        partes.append(f"{stats['antigas']} anteriores ao saldo inicial")
+    flash("Banco sincronizado pelo Open Finance: " + " · ".join(partes) + ".")
+    return redirect(url_for("listar_transacoes"))
 
 
 # ------------------------
