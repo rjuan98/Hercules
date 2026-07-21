@@ -1960,7 +1960,7 @@ def regenerar_token():
     novo = secrets.token_urlsafe(24)
     with get_db() as db:
         db.execute("UPDATE usuarios SET capture_token = ? WHERE id = ?", (novo, user["id"]))
-    flash("Token novo gerado. Atualize o MacroDroid com ele.")
+    flash("Token novo gerado. Se você usa alguma integração manual, atualize com ele.")
     return redirect(url_for("settings"))
 
 
@@ -2089,7 +2089,7 @@ def delete_goal(goal_id):
 
 
 # ------------------------
-# Captura automática (notificações do banco via app companion Android/MacroDroid)
+# Captura automática (notificações do banco lidas pelo app Android do Herc)
 # ------------------------
 @app.route("/api/token", methods=["POST"])
 def api_token():
