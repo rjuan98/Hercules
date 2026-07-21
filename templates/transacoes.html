@@ -74,6 +74,23 @@
                     {{ '+' if tx['tipo'] == 'entrada' else '−' }} {{ tx['valor']|money }}
                 </span>
             </div>
+            {% if tx['tipo'] == 'saida' %}
+            <details class="form-advanced" style="margin-top:8px;">
+                <summary>{% if (tx['categoria'] or 'Outros') == 'Outros' %}Que gasto é esse? Ensinar{% else %}Categoria errada? Corrigir{% endif %}</summary>
+                <form method="POST" action="{{ url_for('criar_regra') }}" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="voltar" value="{{ request.full_path }}">
+                    <input type="text" name="padrao_texto" value="{{ tx['estabelecimento'] or tx['descricao'] or '' }}" maxlength="80" style="flex:2 1 150px;" aria-label="Trecho que identifica o gasto">
+                    <select name="categoria_nome" style="flex:1 1 130px;" aria-label="Categoria">
+                        {% for cat in expense_categories %}
+                        <option value="{{ cat }}" {% if tx['categoria'] == cat %}selected{% endif %}>{{ cat }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="button button-primary">Ensinar</button>
+                </form>
+                <p class="helper-text" style="margin-top:8px;">Deixe só o trecho que se repete (ex.: <strong>mais.mobi</strong>), não a linha toda. Vale pra todos os gastos com esse trecho — inclusive os antigos.</p>
+            </details>
+            {% endif %}
         </li>
         {% else %}
         <li class="empty-state">

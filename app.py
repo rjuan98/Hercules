@@ -957,7 +957,8 @@ _CATEGORY_RULES: list[tuple[str, list[str]]] = [
                   "fisk", "cultura inglesa", "aula", "treinamento", "ensino", "creche", "bercario",
                   "material escolar"]),
     ("Transporte", ["uber", "99app", "99 pop", "99pop", "99 tecnolog", "99*", "cabify", "indriver", "in driver",
-                    "onibus", "metro", "cptm", "sptrans", "riocard", "bilhete unico", "cartao transporte",
+                    "onibus", "metro", "cptm", "sptrans", "riocard", "mais.mobi", "mais mobi", "jae.com",
+                    "bilhete unico", "cartao transporte",
                     r"\bbrt\b", "vlt", "supervia", "trensurb", "recarga transporte", "passagem", "rodoviaria",
                     "viacao", "buser", "clickbus", "posto", "auto posto", "ipiranga", "shell", "petrobras",
                     "br mania", "gasolina", "combustivel", "etanol", "diesel", "estacionamento", "estapar",
@@ -3046,6 +3047,7 @@ def listar_transacoes():
         data_inicio=data_inicio,
         data_fim=data_fim,
         categories=expense_category_names(user["id"]) + [c for c in INCOME_CATEGORIES if c not in TRANSACTION_CATEGORIES],
+        expense_categories=[c for c in expense_category_names(user["id"]) if c != "Outros"],
         types=TRANSACTION_TYPES,
         novo=request.args.get("novo", type=int),
     )
