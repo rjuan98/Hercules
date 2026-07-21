@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import calendar
 import csv
+import hashlib
 import io
 import json
 import os
@@ -43,6 +44,11 @@ try:
     import requests as http_requests
 except ImportError:  # optional (necessário para a leitura de notas com IA)
     http_requests = None
+
+try:
+    from pypdf import PdfReader
+except ImportError:  # optional (necessário para importar extrato em PDF)
+    PdfReader = None
 
 # Leitura de notas com IA: liga sozinha quando a chave existir no ambiente
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
@@ -446,6 +452,149 @@ def parse_ofx(content: str) -> list[dict[str, Any]]:
             "no_credito": is_credit_card_file,
         })
     return transactions
+
+
+# ------------------------
+# PDF / texto colado: quando o banco não dá OFX (ex.: Nubank só deixa achar o PDF)
+# ------------------------
+_PT_MONTHS = {"jan": 1, "fev": 2, "mar": 3, "abr": 4, "mai": 5, "jun": 6,
+              "jul": 7, "ago": 8, "set": 9, "out": 10, "nov": 11, "dez": 12}
+# Valor em reais: "1.234,56" (com milhar) ou "1234,56"/"12,50" (sem). Aceita "-" e "R$" antes.
+_BRL_VALUE_RE = re.compile(r"(-\s*)?R?\$?\s*((?:\d{1,3}(?:\.\d{3})+|\d+),\d{2})")
+_LEADING_DATE_DMY = re.compile(r"^(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?")
+_LEADING_DATE_DMON = re.compile(
+    r"^(\d{1,2})\s+(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-zç]*\.?(?:\s+de)?\s*(\d{4})?",
+    re.IGNORECASE,
+)
+# Uma entrada de dinheiro (o resto é gasto): o extrato do banco usa estas palavras.
+_STATEMENT_ENTRADA_HINTS = ("recebid", "estorno", "devoluç", "devoluc", "reembolso",
+                            "cashback", "rendimento", "salário", "salario", "crédito em conta",
+                            "credito em conta", "deposito", "depósito")
+# Linhas de resumo/saldo que NÃO são transações — pular pra não somar saldo como gasto.
+_STATEMENT_SKIP_PREFIX = ("saldo", "total", "subtotal", "valor a pagar", "valor total",
+                          "limite", "fatura anterior", "pagamento recebido", "pagamento da fatura",
+                          "encargos e", "movimentações", "movimentacoes", "resumo")
+
+
+def extract_pdf_text(raw: bytes) -> str:
+    """Texto de um PDF de extrato. Só funciona em PDF de texto (não em PDF escaneado/imagem)."""
+    if PdfReader is None:
+        return ""
+    try:
+        reader = PdfReader(io.BytesIO(raw))
+        return "\n".join((page.extract_text() or "") for page in reader.pages)
+    except Exception:
+        return ""
+
+
+def _resolve_year(day: int, month: int, year: int | None, hoje: date) -> date | None:
+    if year is not None:
+        if year < 100:
+            year += 2000
+        try:
+            return date(year, month, day)
+        except ValueError:
+            return None
+    # Sem ano no extrato: usa o ano que deixa a data no passado recente (não no futuro).
+    for candidate in (hoje.year, hoje.year - 1):
+        try:
+            d = date(candidate, month, day)
+        except ValueError:
+            continue
+        if d <= hoje + timedelta(days=1):
+            return d
+    return None
+
+
+def _leading_date(line: str, hoje: date) -> date | None:
+    """Data só quando lidera a linha (convenção de extrato) — evita pegar '2/6' de 'Parcela 2/6'."""
+    m = _LEADING_DATE_DMON.match(line)
+    if m:
+        month = _PT_MONTHS.get(m.group(2).lower()[:3])
+        if month:
+            yr = int(m.group(3)) if m.group(3) else None
+            return _resolve_year(int(m.group(1)), month, yr, hoje)
+    m = _LEADING_DATE_DMY.match(line)
+    if m:
+        yr = int(m.group(3)) if m.group(3) else None
+        return _resolve_year(int(m.group(1)), int(m.group(2)), yr, hoje)
+    return None
+
+
+def _strip_leading_date(text: str) -> str:
+    text = _LEADING_DATE_DMON.sub("", text.strip(), count=1)
+    text = _LEADING_DATE_DMY.sub("", text.strip(), count=1)
+    return text.strip()
+
+
+def parse_bank_statement_text(text: str, forcar_credito: bool = False) -> list[dict[str, Any]]:
+    """Lê o texto de um extrato (de PDF ou colado) e devolve transações no mesmo formato do OFX.
+    Estratégia tolerante: a data lidera a linha (ou é um cabeçalho de dia); o valor é o número
+    em reais na linha; o tipo vem do sinal '-' ou de palavras como 'recebido'. Sem certeza,
+    assume GASTO (mais seguro num app que controla gastos). Cada linha ganha um id sintético
+    pra reimportar o mesmo extrato não duplicar. O que não der pra situar no tempo é descartado."""
+    low_all = text.lower()
+    is_credit = forcar_credito or bool(
+        re.search(r"cart[aã]o de cr[eé]dito", low_all)
+        or ("fatura" in low_all and ("vencimento" in low_all or "transaç" in low_all or "transac" in low_all))
+    )
+    hoje = date.today()
+    current_date: date | None = None
+    seq_counter: dict[tuple, int] = {}
+    items: list[dict[str, Any]] = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        d = _leading_date(line, hoje)
+        if d:
+            current_date = d
+        low = line.lower()
+        if low.startswith(_STATEMENT_SKIP_PREFIX):
+            continue
+        val_matches = list(_BRL_VALUE_RE.finditer(line))
+        if not val_matches:
+            continue
+        vm = val_matches[-1]  # o valor da transação costuma ser o último número da linha
+        valor = float(vm.group(2).replace(".", "").replace(",", "."))
+        if valor <= 0:
+            continue
+        the_date = current_date or d
+        if the_date is None:
+            continue  # sem data não dá pra situar no tempo com segurança
+        neg = bool(vm.group(1))
+
+        if is_credit:
+            # Numa fatura, pagamento/estorno abatem a conta — não são compras, então pulamos.
+            if any(k in low for k in ("pagamento", "estorno", "crédito", "credito")):
+                continue
+            tipo, no_cred = "saida", True
+        elif neg:
+            tipo, no_cred = "saida", False
+        elif any(h in low for h in _STATEMENT_ENTRADA_HINTS):
+            tipo, no_cred = "entrada", False
+        else:
+            tipo, no_cred = "saida", False
+
+        desc = (line[:vm.start()] + " " + line[vm.end():]).strip()
+        desc = _strip_leading_date(desc)
+        desc = re.sub(r"\s{2,}", " ", desc).strip(" -–—\t")
+        desc = sanitize_text(desc)[:120] or "Movimentação importada"
+
+        key = (the_date.isoformat(), tipo, round(valor, 2), desc)
+        seq = seq_counter.get(key, 0)
+        seq_counter[key] = seq + 1
+        fitid = "PDF-" + hashlib.sha1(f"{key}|{seq}".encode("utf-8")).hexdigest()[:20]
+        items.append({
+            "valor": valor,
+            "tipo": tipo,
+            "data": the_date.isoformat(),
+            "descricao": desc,
+            "fitid": fitid,
+            "no_credito": no_cred,
+        })
+    return items
 
 
 def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_credito: bool = False) -> dict[str, int]:
@@ -2893,23 +3042,43 @@ def delete_transacao(tx_id):
 def importar_ofx():
     user = current_user()
     if request.method == "POST":
-        arquivo = request.files.get("arquivo")
-        if not arquivo or not arquivo.filename:
-            flash("Escolha o arquivo OFX exportado do seu banco.")
-            return redirect(url_for("importar_ofx"))
-        if not arquivo.filename.lower().endswith((".ofx", ".qfx")):
-            flash("O arquivo precisa ser .ofx (exportado do app do banco).")
-            return redirect(url_for("importar_ofx"))
-        raw = arquivo.read()
-        try:
-            content = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            content = raw.decode("latin-1", errors="replace")
-        items = parse_ofx(content)
-        if not items:
-            flash("Não encontrei movimentações nesse arquivo. Confirme que é um extrato OFX.")
-            return redirect(url_for("importar_ofx"))
         forcar_credito = bool(request.form.get("fatura_cartao"))
+        arquivo = request.files.get("arquivo")
+        texto_colado = (request.form.get("texto_extrato") or "").strip()
+        items = None
+
+        if arquivo and arquivo.filename:
+            nome = arquivo.filename.lower()
+            raw = arquivo.read()
+            if nome.endswith((".ofx", ".qfx")):
+                try:
+                    content = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    content = raw.decode("latin-1", errors="replace")
+                items = parse_ofx(content)
+            elif nome.endswith(".pdf"):
+                if PdfReader is None:
+                    flash("A leitura de PDF ainda não está ativa neste servidor (falta a biblioteca pypdf).")
+                    return redirect(url_for("importar_ofx"))
+                texto = extract_pdf_text(raw)
+                if not texto.strip():
+                    flash("Não consegui ler texto nesse PDF — pode ser um PDF escaneado (imagem). "
+                          "Tente o arquivo OFX, ou copie o texto do extrato e cole no campo abaixo.")
+                    return redirect(url_for("importar_ofx"))
+                items = parse_bank_statement_text(texto, forcar_credito=forcar_credito)
+            else:
+                flash("Envie um arquivo .ofx, .qfx ou .pdf — ou cole o texto do extrato.")
+                return redirect(url_for("importar_ofx"))
+        elif texto_colado:
+            items = parse_bank_statement_text(texto_colado, forcar_credito=forcar_credito)
+        else:
+            flash("Escolha o arquivo do extrato (OFX ou PDF) ou cole o texto do extrato.")
+            return redirect(url_for("importar_ofx"))
+
+        if not items:
+            flash("Não encontrei movimentações. Confirme que é um extrato do banco "
+                  "(com datas e valores) — se for PDF escaneado, tente o OFX ou cole o texto.")
+            return redirect(url_for("importar_ofx"))
         detectou_credito = any(item.get("no_credito") for item in items)
         stats = import_ofx_transactions(user["id"], items, forcar_credito=forcar_credito)
         with get_db() as db:

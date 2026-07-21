@@ -9,37 +9,53 @@
         <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
         <div class="hercules-bubble">
             <strong>Me dá o extrato que eu organizo tudo.</strong><br>
-            Importo as movimentações do mês de uma vez, aplico as categorias que você me ensinou
-            e <strong>não duplico nada</strong> que eu já tinha anotado sozinho.
+            Serve o arquivo <strong>OFX</strong> ou o <strong>PDF</strong> do banco. Importo o mês de uma vez,
+            aplico as categorias que você me ensinou e <strong>não duplico nada</strong> que eu já tinha anotado.
         </div>
     </div>
 
     <form method="POST" enctype="multipart/form-data" class="form-grid">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group">
-            <label for="arquivo">Arquivo OFX do banco</label>
-            <input id="arquivo" type="file" name="arquivo" accept=".ofx,.qfx" required>
+            <label for="arquivo">Arquivo do banco (OFX ou PDF)</label>
+            <input id="arquivo" type="file" name="arquivo" accept=".ofx,.qfx,.pdf">
         </div>
         <label style="display:flex; align-items:center; gap:10px; font-weight:600; cursor:pointer;">
             <input type="checkbox" name="fatura_cartao" value="1">
             É a fatura do cartão de crédito (não a conta corrente)
         </label>
         <p class="helper-text" style="margin-top:-8px;">
-            O Herc já tenta perceber isso sozinho pelo arquivo — marque aqui só se tiver dúvida.
+            O Herc já tenta perceber isso sozinho — marque aqui só se tiver dúvida.
             Fatura de crédito não desconta do saldo agora, vira uma conta a pagar depois.
         </p>
+
+        <details class="form-advanced">
+            <summary>Não tem o arquivo? Cole o texto do extrato</summary>
+            <p class="helper-text" style="margin:10px 0;">
+                Selecione as movimentações no app/site do banco (ou no PDF), copie e cole aqui.
+                O Herc lê linha por linha do mesmo jeito.
+            </p>
+            <textarea name="texto_extrato" rows="6" placeholder="Ex.:
+05 JUN PADARIA R$ 12,50
+06 JUN mercado R$ 80,00"></textarea>
+        </details>
+
         <button type="submit" class="button button-primary" style="width:100%;">Importar extrato</button>
     </form>
 
     <details class="form-advanced" style="margin-top:18px;">
-        <summary>Como baixar o OFX no seu banco</summary>
+        <summary>Como pegar o extrato no seu banco</summary>
         <ul style="margin:12px 0 0; padding-left:20px; line-height:1.9;">
-            <li><strong>Nubank:</strong> app → aba da conta → Extrato → ícone de compartilhar → Exportar → OFX.</li>
-            <li><strong>Itaú / Bradesco / Caixa / BB:</strong> internet banking → Extrato → Salvar/Exportar → formato OFX (ou "Money").</li>
-            <li><strong>Inter / C6:</strong> app → Extrato → Exportar → OFX.</li>
+            <li><strong>Nubank:</strong> app → aba da conta → Extrato → ícone de compartilhar (canto superior) →
+                escolha <strong>OFX</strong> ou <strong>PDF</strong>. Como o Nubank abre a tela de
+                compartilhar, mande direto pro Hércules ou toque em "Salvar em Arquivos" e depois envie aqui.</li>
+            <li><strong>Itaú / Bradesco / Caixa / BB:</strong> internet banking → Extrato → Salvar/Exportar →
+                OFX (ou "Money"); se só tiver PDF, serve também.</li>
+            <li><strong>Inter / C6:</strong> app → Extrato → Exportar → OFX ou PDF.</li>
         </ul>
         <p class="helper-text" style="margin-top:10px;">
-            Dica: uma vez por semana ou por mês já basta — o dia a dia a captura automática cobre.
+            PDF escaneado (foto de papel) não dá — nesse caso use o OFX ou cole o texto.
+            Uma vez por semana ou por mês já basta.
         </p>
     </details>
 </section>
