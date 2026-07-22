@@ -2272,6 +2272,9 @@ def settings():
         capture_token=capture_token,
         capture_url=url_for("api_captura", _external=True),
         pluggy_ativo=pluggy_configured(),
+        pluggy_tem_id=bool(PLUGGY_CLIENT_ID),
+        pluggy_tem_secret=bool(PLUGGY_CLIENT_SECRET),
+        pluggy_tem_item=bool(PLUGGY_ITEM_IDS),
     )
 
 

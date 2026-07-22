@@ -147,6 +147,15 @@
     <div class="auth-note">
         Ainda não está ligado. É grátis para uso pessoal (Meu Pluggy) e leva uns 10 minutos pra configurar uma vez.
     </div>
+    <p class="helper-text" style="margin-top:10px;">
+        O servidor está lendo:
+        Client ID {{ '✓' if pluggy_tem_id else '✗' }} ·
+        Client Secret {{ '✓' if pluggy_tem_secret else '✗' }} ·
+        Item ID {{ '✓' if pluggy_tem_item else '✗' }}.
+        {% if not (pluggy_tem_id and pluggy_tem_secret and pluggy_tem_item) %}
+        Quem estiver com ✗ não chegou nas variáveis de ambiente (confira a ordem no arquivo WSGI e dê Reload).
+        {% endif %}
+    </p>
     <details class="form-advanced" style="margin-top:14px;">
         <summary>Como ligar (passo a passo)</summary>
         <ol style="margin:12px 0 0; padding-left:20px; line-height:1.9;">
