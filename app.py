@@ -709,9 +709,12 @@ def pluggy_fetch_items(api_key: str, since: str) -> list[dict[str, Any]]:
     items = []
     for conta in pluggy_accounts(api_key):
         conta_id = conta.get("id")
-        if not conta_id:
+        tipo_conta = conta.get("type")
+        # Só conta corrente/poupança e cartão viram transações. Investimento/empréstimo
+        # têm lógica própria (aporte, rendimento) e não entram como gasto/entrada aqui.
+        if not conta_id or tipo_conta not in ("BANK", "CREDIT"):
             continue
-        is_credit = conta.get("type") == "CREDIT"
+        is_credit = tipo_conta == "CREDIT"
         page = 1
         while True:
             data = _pluggy_get(api_key, "/transactions",
