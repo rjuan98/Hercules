@@ -59,30 +59,6 @@
             <p class="helper-text" style="margin-top:2px;">Não desconta do saldo agora — vira fatura pra pagar depois.</p>
         </div>
 
-        <details class="form-advanced">
-            <summary>Opções avançadas</summary>
-            <div class="form-grid cols-2">
-                <div class="form-group">
-                    <label for="fonte">Fonte</label>
-                    <select id="fonte" name="fonte">
-                        <option value="manual">Manual</option>
-                        <option value="notificacao">Notificação</option>
-                        <option value="email">E-mail</option>
-                        <option value="whatsapp">WhatsApp</option>
-                        <option value="ofx">OFX</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="confidence">Confiança (%)</label>
-                    <input id="confidence" type="number" min="0" max="100" name="confidence" value="100">
-                </div>
-                <div class="form-group" style="grid-column:1 / -1;">
-                    <label for="extra_json">Dados extras (JSON)</label>
-                    <textarea id="extra_json" name="extra_json" placeholder='{"merchant":"Uber"}'></textarea>
-                </div>
-            </div>
-        </details>
-
         <div class="form-group" style="grid-column:1 / -1;">
             <button type="submit" class="button button-primary" id="submitBtn" style="width:100%;">Salvar saída</button>
         </div>

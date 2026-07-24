@@ -67,7 +67,7 @@
                     <div class="note-meta">
                         <span>{{ tx['categoria'] or 'Outros' }}</span>
                         <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
-                        {% if tx['confidence'] < 100 %}<span>Confiança {{ tx['confidence'] }}%</span>{% endif %}
+                        {% if tx['no_credito'] %}<span>💳 no crédito</span>{% endif %}
                     </div>
                 </div>
                 <span class="badge {{ 'tx-badge-entrada' if tx['tipo'] == 'entrada' else 'tx-badge-saida' }}">
