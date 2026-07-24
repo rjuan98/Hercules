@@ -76,7 +76,7 @@
 <section class="page-card" style="margin-top:18px;">
     <div class="topbar-copy" style="margin-bottom:14px;">
         <h2 class="topbar-title" style="font-size:1.25rem;">Como você usa o Hércules</h2>
-        <p class="topbar-subtitle">Perfil, foco da tela inicial e notificações.</p>
+        <p class="topbar-subtitle">Perfil, modo de visão e notificações.</p>
     </div>
     <form method="POST" class="form-grid cols-2">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -86,14 +86,6 @@
             <select id="perfil" name="perfil">
                 {% for key, label in profile_choices %}
                 <option value="{{ key }}" {% if session.get('perfil', 'pf') == key %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="home_focus">Home principal</label>
-            <select id="home_focus" name="home_focus">
-                {% for key, label in focus_choices %}
-                <option value="{{ key }}" {% if session.get('home_focus', 'saldo') == key %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -171,51 +163,4 @@
     {% endif %}
 </section>
 
-<section class="page-card" style="margin-top:18px;">
-    <div class="topbar-copy" style="margin-bottom:14px;">
-        <h2 class="topbar-title" style="font-size:1.25rem;">Captura automática 🦁⚡</h2>
-        <p class="topbar-subtitle">No app do Herc para Android é só ligar uma vez o acesso às notificações. O que ele conseguir capturar entra sozinho; o que passar batido, você confere importando o extrato (OFX).</p>
-    </div>
-
-    <div class="auth-note">
-        <strong>Já uso o app no Android?</strong> Abra o Herc, toque em <em>“Ativar captura automática”</em> e pronto — não precisa copiar nem colar nada aqui.
-    </div>
-
-    <details class="form-advanced" style="margin-top:14px;">
-        <summary>Integração manual (avançado)</summary>
-        <p class="helper-text" style="margin:10px 0 14px;">
-            Só é preciso mexer aqui se você for ligar a captura por conta própria (outro app ou automação). No app oficial do Herc isso já é automático.
-        </p>
-        <div class="form-group">
-            <label>Endereço de captura</label>
-            <input type="text" readonly value="{{ capture_url }}" onclick="this.select()">
-        </div>
-        <div class="form-group" style="margin-top:12px;">
-            <label>Token secreto <span class="helper-text">(não compartilhe)</span></label>
-            <input type="text" readonly value="{{ capture_token }}" onclick="this.select()">
-        </div>
-        <form method="POST" action="{{ url_for('regenerar_token') }}" style="margin-top:14px;" data-confirm="Gerar um token novo? Qualquer integração manual precisará ser atualizada com ele.">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="button button-outline">Gerar token novo</button>
-        </form>
-    </details>
-</section>
-
-<section class="metric-grid cols-3" style="margin-top:18px;">
-    <article class="glass-card metric-card">
-        <p class="metric-label">Saldo atual</p>
-        <p class="metric-value">{{ session.get('last_balance', '—') }}</p>
-        <p class="metric-footnote">Atualiza conforme as movimentações.</p>
-    </article>
-    <article class="glass-card metric-card">
-        <p class="metric-label">Nível de atenção</p>
-        <p class="metric-value" style="font-size:1.7rem;">{{ session.get('notification_mode', 'equilibrado')|capitalize }}</p>
-        <p class="metric-footnote">Silencioso, equilibrado ou detalhista.</p>
-    </article>
-    <article class="glass-card metric-card">
-        <p class="metric-label">Próximo passo</p>
-        <p class="metric-value" style="font-size:1.35rem;">Personalizar metas</p>
-        <p class="metric-footnote"><a href="{{ url_for('metas') }}" style="color:var(--primary-deep); font-weight:800;">Abrir metas</a></p>
-    </article>
-</section>
 {% endblock %}

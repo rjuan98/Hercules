@@ -1,11 +1,11 @@
 {% extends 'base.html' %}
 {% block title %}Início · Hércules{% endblock %}
 {% block page_title %}Início{% endblock %}
-{% block page_subtitle %}Tudo em dia, metas e próximos passos.{% endblock %}
+{% block page_subtitle %}Seu saldo, num olhar.{% endblock %}
 
 {% block content %}
 
-{# ---- Um recado por vez: boas-vindas > lembrete de extrato > ensinar categoria > dica do Herc ---- #}
+{# ---- Um recado por vez: boas-vindas > lembrete de extrato (só sem Pluggy) > ensinar categoria > dica ---- #}
 {% if onboarding %}
 <section class="page-card suggestion-card" style="margin-bottom:18px;">
     <div class="hercules-greeting" style="margin-bottom:14px;">
@@ -27,7 +27,7 @@
     </p>
 </section>
 
-{% elif lembrar_ofx %}
+{% elif lembrar_ofx and not pluggy_ativo %}
 <section class="page-card suggestion-card" style="margin-bottom:18px;">
     <div class="hercules-greeting">
         <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
@@ -36,7 +36,7 @@
                 {% if dias_ofx is none %}Ainda não conferimos o extrato do banco.
                 {% else %}Faz {{ dias_ofx }} dias que não conferimos o extrato.{% endif %}
             </strong><br>
-            Importa o OFX pra eu revisar tudo e ter certeza de que não perdemos nada.
+            Importa o OFX (ou PDF) pra eu revisar tudo e ter certeza de que não perdemos nada.
         </div>
     </div>
     <a href="{{ url_for('importar_ofx') }}" class="button button-primary" style="margin-top:12px;">
@@ -76,161 +76,74 @@
 {% include '_herc_tip.html' %}
 {% endif %}
 
-{# ---- Registro relâmpago: fala ou escreve, o Herc entende ---- #}
-<section class="page-card quick-log" style="margin-bottom:18px;">
-    <form method="POST" action="{{ url_for('registro_rapido') }}" class="quick-log-form" id="quickLogForm">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="text" name="texto" id="quickLogInput" maxlength="200"
-               placeholder="🦁 O que aconteceu? Ex.: gastei 12 na quentinha"
-               value="{{ shared_text or '' }}" autocomplete="off">
-        <button type="button" class="icon-button quick-log-mic" id="quickLogMic" aria-label="Falar com o Herc" title="Falar com o Herc" hidden>
-            <i data-lucide="mic"></i>
-        </button>
-        <button type="submit" class="button button-primary">Anotar</button>
-    </form>
-</section>
-
-{# ---- Check-in: o Herc mostra o dia e você só confirma ---- #}
-{% if not onboarding %}
-<section class="page-card checkin-card" style="margin-bottom:18px;">
-    <div class="note-header" style="margin-bottom:10px;">
-        <h2 class="topbar-title" style="font-size:1.15rem; margin:0;">Seu dia, segundo o Herc</h2>
-        {% if streak > 0 %}<span class="badge">🔥 {{ streak }} {{ 'dia' if streak == 1 else 'dias' }} em dia</span>{% endif %}
-    </div>
-
-    {% if today_txs %}
-    <ul class="checkin-list">
-        {% for tx in today_txs %}
-        <li>
-            <span class="checkin-desc">{{ tx['descricao'] or tx['estabelecimento'] }} <em>({{ tx['categoria'] or 'Outros' }})</em></span>
-            <span class="{% if tx['tipo'] == 'entrada' %}checkin-in{% else %}checkin-out{% endif %}">
-                {{ '+' if tx['tipo'] == 'entrada' else '−' }} {{ tx['valor']|money }}
-            </span>
-        </li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <p class="helper-text" style="margin-bottom:12px;">Nenhuma movimentação hoje até agora.</p>
-    {% endif %}
-
-    {% for p in pendentes %}
-    <div class="pendente-item">
-        <p class="pendente-texto">🤔 Capturei mas não entendi: “{{ p.conteudo[:90] }}{% if p.conteudo|length > 90 %}…{% endif %}”</p>
-        <div class="pendente-acoes">
-            <a class="button button-outline" style="padding:7px 14px;"
-               href="{{ url_for('nova_transacao', valor=p.valor, descricao=p.conteudo[:60], tipo=p.tipo, captura_id=p.id) }}">Registrar</a>
-            <form method="POST" action="{{ url_for('descartar_captura', captura_id=p.id) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="button button-outline" style="padding:7px 14px;">Ignorar</button>
-            </form>
-        </div>
-    </div>
-    {% endfor %}
-
-    {% if not checkin_done %}
-    <form method="POST" action="{{ url_for('fechar_dia') }}" style="margin-top:14px;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="button button-primary" style="width:100%;">
-            {% if today_spent > 0 or today_txs %}Fechar o dia ✓{% else %}Não gastei nada hoje ✓{% endif %}
-        </button>
-    </form>
-    {% else %}
-    <p class="checkin-done">✓ Dia fechado. Até amanhã! 🦁</p>
-    {% endif %}
-</section>
-{% endif %}
-
 {% if view_mode == 'simples' %}
-{# ---- Modo simples: três frases e um botão ---- #}
+{# ---- Modo simples: saldo, gasto de hoje e um botão grande ---- #}
 <section class="simple-home">
     <p class="simple-status">{{ status_emoji }}
         {% if all_clear %}Você está com tudo em dia.{% else %}Temos algumas coisas para resolver — <a href="{{ url_for('compromissos') }}">veja aqui</a>.{% endif %}
     </p>
-    <h1 class="simple-line">Você gastou <strong>{{ today_spent|money }}</strong> hoje.</h1>
-    <p class="simple-line-2">Continuando assim, você termina o mês com cerca de <strong>{{ projected_end|money }}</strong>.</p>
+    <h1 class="simple-line">Seu saldo é <strong>{{ stats['balance']|money }}</strong>.</h1>
+    <p class="simple-line-2">Você gastou <strong>{{ today_spent|money }}</strong> hoje. Seguindo assim, termina o mês com cerca de <strong>{{ projected_end|money }}</strong>.</p>
     <div class="simple-actions">
+        {% if pluggy_ativo %}
+        <form method="POST" action="{{ url_for('pluggy_sincronizar') }}" style="width:100%;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="button button-primary simple-big-btn" style="width:100%;"><i data-lucide="refresh-cw"></i> Atualizar com o banco</button>
+        </form>
+        {% else %}
         <a href="{{ url_for('nova_transacao') }}" class="button button-primary simple-big-btn"><i data-lucide="plus-circle"></i> Registrar gasto ou entrada</a>
+        {% endif %}
         <a href="{{ url_for('nova_nota') }}" class="button button-outline simple-big-btn"><i data-lucide="camera"></i> Guardar uma nota</a>
     </div>
     <p class="simple-footnote">Quer ver mais detalhes? <a href="{{ url_for('dashboard') }}">Abrir o resumo completo</a></p>
 </section>
 
 {% else %}
-<section class="page-card hero-card">
-    <div class="hero-grid">
-        <div class="hero-copy">
-            <span class="hero-kicker">{{ status_emoji }} {{ status_phrase }}</span>
-            <div>
-                <h1 class="page-title" style="margin-bottom:10px;">Olá, {{ user['nome'] }}.</h1>
-                <p class="subtitle">O Hércules está aqui para te mostrar se está tudo em dia, quanto você pode gastar e para onde o dinheiro está indo.</p>
-            </div>
-            <div class="hero-actions">
-                <a href="{{ url_for('nova_transacao') }}" class="button button-primary"><i data-lucide="plus-circle"></i> Gasto rápido</a>
-                <a href="{{ url_for('nova_nota') }}" class="button button-outline"><i data-lucide="file-plus-2"></i> Nova nota</a>
-                <a href="{{ url_for('metas') }}" class="button button-outline"><i data-lucide="target"></i> Metas</a>
-            </div>
-            {% if recommended_focus != focus %}
-            {% set recommended_label = focus_label[recommended_focus] if recommended_focus in focus_label else recommended_focus.replace('_', ' ') %}
-            <div class="auth-note" style="margin-top:12px;">
-                Percebemos que talvez você queira ver <strong>{{ recommended_label }}</strong>.
-                <a href="{{ url_for('settings') }}" style="color:var(--primary-deep); font-weight:800;">Ajustar na configuração</a>
-            </div>
-            {% endif %}
+{# ---- Saldo em primeiro: é o que a pessoa abre o app pra ver ---- #}
+<section class="page-card balance-hero">
+    <div class="note-header" style="align-items:flex-start; gap:14px;">
+        <div>
+            <p class="metric-label">Saldo atual · olá, {{ (user['nome'] or 'você').split(' ')[0] }}</p>
+            <p class="balance-big">{{ stats['balance']|money }}</p>
+            <p class="metric-footnote">
+                {{ status_emoji }} {% if stats['balance'] >= 0 %}No azul{% else %}Atenção: no vermelho{% endif %}
+                · pode gastar hoje <strong style="color:var(--primary-deep);">{{ can_spend_today|money }}</strong>
+            </p>
         </div>
-
-        <div class="hero-panel">
-            <article class="panel-card" style="text-align:center;">
-                <p class="metric-label">Seu foco principal</p>
-                <p class="metric-value" style="font-size:1.7rem;">{{ focus_label[focus] }}</p>
-                <p class="metric-footnote">Você pode mudar isso depois nas configurações.</p>
-            </article>
-            <article class="panel-card">
-                <p class="metric-label">Resumo do mês</p>
-                <p class="metric-value" style="font-size:1.55rem;">Saldo: {{ stats['balance']|money }}</p>
-                <p class="metric-footnote">Entradas {{ stats['month_income']|money }} · Saídas {{ stats['month_expenses']|money }}</p>
-            </article>
-        </div>
+        {% if pluggy_ativo %}
+        <form method="POST" action="{{ url_for('pluggy_sincronizar') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="button button-primary"><i data-lucide="refresh-cw"></i> Sincronizar</button>
+        </form>
+        {% endif %}
     </div>
+    {% if pluggy_ativo %}
+    <p class="helper-text" style="margin-top:10px;">
+        {% if dias_ofx is none %}Banco ainda não sincronizado — toque em Sincronizar pra puxar seus gastos.
+        {% elif dias_ofx == 0 %}Sincronizado com o banco hoje ✓
+        {% else %}Última sincronização com o banco há {{ dias_ofx }} {{ 'dia' if dias_ofx == 1 else 'dias' }}.{% endif %}
+    </p>
+    {% endif %}
 </section>
 
-<section class="metric-grid cols-4" style="margin-top:18px;">
-    <article class="glass-card metric-card">
-        <p class="metric-label">Saldo atual</p>
-        <p class="metric-value">{{ stats['balance']|money }}</p>
-        <p class="metric-footnote">O total das movimentações registradas.</p>
-    </article>
-    <article class="glass-card metric-card">
-        <p class="metric-label">Pode gastar hoje</p>
-        <p class="metric-value">{{ can_spend_today|money }}</p>
-        <p class="metric-footnote">
-            {% if stats['reserve_remaining_month'] > 0 %}
-                Já contando os {{ stats['reserve_remaining_month']|money }} que você quer guardar este mês.
-            {% else %}
-                Para continuar sobrando no fim do mês.
-            {% endif %}
-        </p>
-    </article>
+{# ---- Segundo plano: tudo em dia? e a meta ---- #}
+<section class="metric-grid cols-2" style="margin-top:14px;">
     <article class="glass-card metric-card">
         <p class="metric-label">Tudo em dia?</p>
-        <p class="metric-value">{{ 'Sim' if all_clear else 'Ainda não' }}</p>
+        <p class="metric-value" style="font-size:1.5rem;">{{ 'Sim' if all_clear else 'Ainda não' }}</p>
         <p class="metric-footnote">{{ note_pending }} notas pendentes · {{ stats['due_soon_commitments']|length }} vencimentos próximos</p>
     </article>
     <article class="glass-card metric-card">
         <p class="metric-label">Meta principal</p>
-        <p class="metric-value">{{ goal['nome'] if goal else 'Reserva' }}</p>
+        <p class="metric-value" style="font-size:1.5rem;">{{ goal['nome'] if goal else 'Reserva' }}</p>
         <p class="metric-footnote">
-            {% if goal %}
-                {{ goal['valor_atual']|money }} / {{ goal['meta_valor']|money }}
-                {% if stats['goal_forecast_months'] %} · pronta em ~{{ stats['goal_forecast_months'] }} {{ 'mês' if stats['goal_forecast_months'] == 1 else 'meses' }}{% endif %}
-            {% else %}
-                Nenhuma meta ativa
-            {% endif %}
+            {% if goal %}{{ goal['valor_atual']|money }} / {{ goal['meta_valor']|money }}{% else %}Nenhuma meta ativa — <a href="{{ url_for('metas') }}" style="color:var(--primary-deep); font-weight:800;">criar</a>{% endif %}
         </p>
     </article>
 </section>
 
 {% if stats['fatura_credito_mes'] > 0 %}
-<section class="metric-grid cols-2" style="margin-top:18px;">
+<section class="metric-grid cols-2" style="margin-top:14px;">
     <article class="glass-card metric-card">
         <p class="metric-label">💳 Fatura do cartão (este mês)</p>
         <p class="metric-value">{{ stats['fatura_credito_mes']|money }}</p>
@@ -240,7 +153,7 @@
 {% endif %}
 
 {% if business %}
-<section class="metric-grid cols-4" style="margin-top:18px;" id="businessMetrics">
+<section class="metric-grid cols-4" style="margin-top:14px;" id="businessMetrics">
     <article class="glass-card metric-card">
         <p class="metric-label">Receita do negócio</p>
         <p class="metric-value">{{ business['revenue_month']|money }}</p>
@@ -260,40 +173,4 @@
 </section>
 {% endif %}
 {% endif %}{# fim do modo completo #}
-{% endblock %}
-
-{% block scripts %}
-<script>
-window.addEventListener('DOMContentLoaded', () => {
-    // ---- Falar com o Herc (Web Speech API, Android/Chrome) ----
-    const micBtn = document.getElementById('quickLogMic');
-    const quickInput = document.getElementById('quickLogInput');
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (micBtn && quickInput && SpeechRec) {
-        micBtn.hidden = false;
-        let ouvindo = false;
-        const rec = new SpeechRec();
-        rec.lang = 'pt-BR';
-        rec.interimResults = false;
-        rec.maxAlternatives = 1;
-        micBtn.addEventListener('click', () => {
-            if (ouvindo) { rec.stop(); return; }
-            ouvindo = true;
-            micBtn.classList.add('gravando');
-            quickInput.placeholder = 'Estou ouvindo…';
-            rec.start();
-        });
-        rec.addEventListener('result', (e) => {
-            quickInput.value = e.results[0][0].transcript;
-        });
-        rec.addEventListener('end', () => {
-            ouvindo = false;
-            micBtn.classList.remove('gravando');
-            quickInput.placeholder = '🦁 O que aconteceu? Ex.: gastei 12 na quentinha';
-            if (quickInput.value.trim()) quickInput.focus();
-        });
-        rec.addEventListener('error', () => { ouvindo = false; micBtn.classList.remove('gravando'); });
-    }
-});
-</script>
 {% endblock %}

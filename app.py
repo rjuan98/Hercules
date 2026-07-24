@@ -899,7 +899,7 @@ def evaluate_trabalhos(user_id: int) -> list[str]:
 
 # Dicas do Herc: ensino contextual, uma frase por vez, some depois de vista
 HERC_TIPS = {
-    "registro_rapido": "Dica: escreve ali em cima algo como “gastei 10 no mercado” que eu entendo e anoto sozinho. Pode até falar, no botão do microfone. 🎤",
+    "registro_rapido": "Dica: quando um gasto ficar em “Outros”, abra Entradas e saídas e toque em “Ensinar” — eu aprendo e arrumo todos os parecidos de uma vez. 🎯",
     "primeira_captura": "Viu essa movimentação aí? Eu anotei sozinho pela notificação do banco — você não precisou fazer nada. 😉",
     "primeira_nota": "Guardei sua nota! Sempre que precisar achar alguma, elas ficam todas aqui, organizadas. No fim do ano, é só exportar para o contador.",
 }
@@ -1977,16 +1977,8 @@ def home():
 
     # Uma dica do Herc por vez — a mais relevante primeiro
     herc_tip = None
-    if not onboarding:
-        with get_db() as db:
-            tem_captura = db.execute(
-                "SELECT 1 FROM transacoes WHERE user_id = ? AND fonte = 'notificacao' LIMIT 1",
-                (user["id"],),
-            ).fetchone() is not None
-        if tem_captura and not tip_seen(user["id"], "primeira_captura"):
-            herc_tip = "primeira_captura"
-        elif not tip_seen(user["id"], "registro_rapido"):
-            herc_tip = "registro_rapido"
+    if not onboarding and not tip_seen(user["id"], "registro_rapido"):
+        herc_tip = "registro_rapido"
     # Texto compartilhado do WhatsApp (share_target do PWA) pré-preenche o registro rápido
     shared_text = sanitize_text(request.args.get("texto") or request.args.get("title"))[:200]
     avg_daily_spend = stats["month_expenses"] / max(1, date.today().day)
@@ -2031,6 +2023,7 @@ def home():
         current_month=current_month,
         goal=goal,
         note_pending=note_pending,
+        pluggy_ativo=pluggy_configured(),
     )
 
 
@@ -3288,6 +3281,18 @@ def importar_ofx():
     return render_template("importar.html", user=user)
 
 
+def _pluggy_erro_detalhe(e: Exception) -> str:
+    """Mostra o motivo real da falha (status HTTP + corpo) em vez de um genérico."""
+    resp = getattr(e, "response", None)
+    if resp is not None:
+        try:
+            corpo = (resp.text or "")[:200]
+        except Exception:
+            corpo = ""
+        return f"HTTP {resp.status_code} — {corpo}"
+    return f"{type(e).__name__}: {e}"[:200]
+
+
 @app.route("/pluggy/testar", methods=["POST"])
 @login_required
 def pluggy_testar():
@@ -3297,8 +3302,8 @@ def pluggy_testar():
         return redirect(url_for("settings"))
     try:
         contas = pluggy_accounts(pluggy_auth())
-    except Exception:
-        flash("Não consegui falar com a Pluggy. Confira as chaves e o banco conectado no Meu Pluggy.")
+    except Exception as e:
+        flash("Falha na conexão com a Pluggy: " + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))
     if not contas:
         flash("Conectei na Pluggy, mas não achei contas — confirme que o banco está conectado no Meu Pluggy.")
@@ -3328,8 +3333,8 @@ def pluggy_sincronizar():
         since = (date.today() - timedelta(days=90)).isoformat()
     try:
         items = pluggy_fetch_items(pluggy_auth(), since)
-    except Exception:
-        flash("Não consegui sincronizar agora. Confira as chaves/o banco conectado e tente de novo.")
+    except Exception as e:
+        flash("Não consegui sincronizar: " + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))
     if not items:
         flash("Sincronizei, mas não vieram movimentações novas nesse período.")

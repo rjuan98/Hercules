@@ -453,6 +453,16 @@ button { cursor: pointer; }
     font-weight: 800;
     font-variant-numeric: tabular-nums;
 }
+/* Saldo em destaque na Início — o número que a pessoa abre o app pra ver */
+.balance-big {
+    margin: 8px 0 6px;
+    font-size: clamp(2.3rem, 7vw, 3.2rem);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    color: var(--primary-deep);
+}
 .progress-ring {
     width: 150px;
     height: 150px;
@@ -744,6 +754,9 @@ input[type="checkbox"]:focus-visible {
 
 @media (max-width: 760px) {
     .mobile-nav { display: flex; }
+    /* No celular a barra de baixo já tem "Mais" — o hambúrguer do topo vira redundante.
+       Seletor específico pra vencer o `.icon-button { display: inline-flex }` de ≤980px. */
+    .topbar .mobile-menu-btn { display: none; }
     .main-content { padding: 16px 16px 124px; }
     .hero-actions, .page-actions {
         display: grid;
