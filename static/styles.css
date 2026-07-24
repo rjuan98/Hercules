@@ -754,9 +754,6 @@ input[type="checkbox"]:focus-visible {
 
 @media (max-width: 760px) {
     .mobile-nav { display: flex; }
-    /* No celular a barra de baixo já tem "Mais" — o hambúrguer do topo vira redundante.
-       Seletor específico pra vencer o `.icon-button { display: inline-flex }` de ≤980px. */
-    .topbar .mobile-menu-btn { display: none; }
     .main-content { padding: 16px 16px 124px; }
     .hero-actions, .page-actions {
         display: grid;

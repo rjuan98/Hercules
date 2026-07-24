@@ -3301,9 +3301,15 @@ def pluggy_testar():
         flash("A conexão automática ainda não está ligada neste servidor.")
         return redirect(url_for("settings"))
     try:
-        contas = pluggy_accounts(pluggy_auth())
+        api_key = pluggy_auth()
     except Exception as e:
-        flash("Falha na conexão com a Pluggy: " + _pluggy_erro_detalhe(e))
+        flash("Autenticação falhou (confira o Client ID/Secret no WSGI): " + _pluggy_erro_detalhe(e))
+        return redirect(url_for("settings"))
+    try:
+        contas = pluggy_accounts(api_key)
+    except Exception as e:
+        flash("Autentiquei OK, mas não acessei o item (o Item ID pode ser de outra aplicação): "
+              + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))
     if not contas:
         flash("Conectei na Pluggy, mas não achei contas — confirme que o banco está conectado no Meu Pluggy.")

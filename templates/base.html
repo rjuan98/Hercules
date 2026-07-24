@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='11') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='12') }}">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='herc.svg', v='2') }}">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest', v='3') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='herc-192.png') }}">
@@ -114,11 +114,10 @@
 
     {% if session.get('user_id') %}
     <nav class="mobile-nav">
-        <a href="{{ url_for('home') }}" aria-label="Início"><i data-lucide="house"></i></a>
-        <a href="{{ url_for('listar_transacoes') }}" aria-label="Entradas e saídas"><i data-lucide="activity"></i></a>
-        <a href="{{ url_for('nova_transacao') }}" class="fab-button" aria-label="Registrar"><i data-lucide="plus"></i></a>
-        <a href="{{ url_for('compromissos') }}" aria-label="Contas"><i data-lucide="calendar-days"></i></a>
-        <button type="button" id="mobileNavMore" aria-label="Mais opções"><i data-lucide="menu"></i></button>
+        <a href="{{ url_for('home') }}" aria-label="Início" title="Início"><i data-lucide="house"></i></a>
+        <a href="{{ url_for('listar_transacoes') }}" aria-label="Entradas e saídas" title="Entradas e saídas"><i data-lucide="activity"></i></a>
+        <a href="{{ url_for('compromissos') }}" aria-label="Contas" title="Contas"><i data-lucide="calendar-days"></i></a>
+        <a href="{{ url_for('dashboard') }}" aria-label="Resumo" title="Resumo"><i data-lucide="pie-chart"></i></a>
     </nav>
     {% endif %}
 
