@@ -126,18 +126,26 @@
     {% endif %}
 </section>
 
-{# ---- Segundo plano: tudo em dia? e a meta ---- #}
+{# ---- Segundo plano: contas próximas (concreto) e a meta ---- #}
 <section class="metric-grid cols-2" style="margin-top:14px;">
     <article class="glass-card metric-card">
-        <p class="metric-label">Tudo em dia?</p>
-        <p class="metric-value" style="font-size:1.5rem;">{{ 'Sim' if all_clear else 'Ainda não' }}</p>
-        <p class="metric-footnote">{{ note_pending }} notas pendentes · {{ stats['due_soon_commitments']|length }} vencimentos próximos</p>
+        <p class="metric-label">Próximas contas</p>
+        {% set proximas = stats['due_soon_commitments']|length %}
+        {% set vencidas = stats['overdue_commitments']|length %}
+        <p class="metric-value" style="font-size:1.5rem;">
+            {% if proximas %}{{ stats['commitments_total']|money }}{% elif vencidas %}{{ vencidas }} vencida{{ 's' if vencidas != 1 }}{% else %}Tudo pago{% endif %}
+        </p>
+        <p class="metric-footnote">
+            {% if proximas %}{{ proximas }} conta{{ 's' if proximas != 1 }} vence{{ 'm' if proximas != 1 }} em 7 dias{% if vencidas %} · ⚠️ {{ vencidas }} vencida{{ 's' if vencidas != 1 }}{% endif %}
+            {% elif vencidas %}⚠️ contas vencidas — <a href="{{ url_for('compromissos') }}" style="color:var(--primary-deep); font-weight:800;">ver</a>
+            {% else %}Nada vencendo agora ✓{% endif %}
+        </p>
     </article>
     <article class="glass-card metric-card">
         <p class="metric-label">Meta principal</p>
-        <p class="metric-value" style="font-size:1.5rem;">{{ goal['nome'] if goal else 'Reserva' }}</p>
+        <p class="metric-value" style="font-size:1.5rem;">{{ goal['nome'] if goal else '—' }}</p>
         <p class="metric-footnote">
-            {% if goal %}{{ goal['valor_atual']|money }} / {{ goal['meta_valor']|money }}{% else %}Nenhuma meta ativa — <a href="{{ url_for('metas') }}" style="color:var(--primary-deep); font-weight:800;">criar</a>{% endif %}
+            {% if goal %}{{ goal['valor_atual']|money }} / {{ goal['meta_valor']|money }}{% else %}Nenhuma meta — <a href="{{ url_for('metas') }}" style="color:var(--primary-deep); font-weight:800;">criar uma</a>{% endif %}
         </p>
     </article>
 </section>
@@ -152,25 +160,35 @@
 </section>
 {% endif %}
 
-{% if business %}
-<section class="metric-grid cols-4" style="margin-top:14px;" id="businessMetrics">
-    <article class="glass-card metric-card">
-        <p class="metric-label">Receita do negócio</p>
-        <p class="metric-value">{{ business['revenue_month']|money }}</p>
-    </article>
-    <article class="glass-card metric-card">
-        <p class="metric-label">Despesas do negócio</p>
-        <p class="metric-value">{{ business['expenses_month']|money }}</p>
-    </article>
-    <article class="glass-card metric-card">
-        <p class="metric-label">Lucro estimado</p>
-        <p class="metric-value">{{ business['lucro']|money }}</p>
-    </article>
-    <article class="glass-card metric-card">
-        <p class="metric-label">Notas pendentes</p>
-        <p class="metric-value">{{ business['pending_notes'] }}</p>
-    </article>
+{# ---- Mini-extrato: as últimas movimentações (o pulso, padrão de fintech) ---- #}
+<section class="page-card" style="margin-top:14px;">
+    <div class="note-header" style="margin-bottom:8px;">
+        <p class="metric-label" style="margin:0;">Últimas movimentações</p>
+        <a href="{{ url_for('listar_transacoes') }}" style="color:var(--primary-deep); font-weight:800; font-size:0.9rem;">Ver tudo</a>
+    </div>
+    <ul class="data-list">
+        {% for tx in stats['recent_transactions'][:4] %}
+        <li class="data-item" style="padding:12px 14px;">
+            <div class="note-header">
+                <div>
+                    <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}{% if tx['no_credito'] %} 💳{% endif %}</p>
+                    <div class="note-meta">
+                        <span>{{ tx['categoria'] or 'Outros' }}</span>
+                        <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
+                    </div>
+                </div>
+                <span class="badge {{ 'tx-badge-entrada' if tx['tipo'] == 'entrada' else 'tx-badge-saida' }}">
+                    {{ '+' if tx['tipo'] == 'entrada' else '−' }} {{ tx['valor']|money }}
+                </span>
+            </div>
+        </li>
+        {% else %}
+        <li class="empty-state" style="padding:18px;">
+            <strong>Nada registrado ainda.</strong>
+            <span>Quando entrar movimentação, aparece aqui.</span>
+        </li>
+        {% endfor %}
+    </ul>
 </section>
-{% endif %}
 {% endif %}{# fim do modo completo #}
 {% endblock %}
