@@ -126,6 +126,23 @@
     {% endif %}
 </section>
 
+{% if sobra_guardar %}
+<section class="page-card suggestion-card" style="margin-top:14px;">
+    <div class="hercules-greeting" style="margin-bottom:10px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Reta final do mês e sobrou dinheiro!</strong><br>
+            Dá pra guardar <strong>{{ sobra_guardar|money }}</strong> na sua reserva de emergência agora — o "você do futuro" agradece. 😉
+        </div>
+    </div>
+    <form method="POST" action="{{ url_for('guardar_sobra') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="valor" value="{{ sobra_guardar|round(2) }}">
+        <button type="submit" class="button button-primary">Guardar {{ sobra_guardar|money }} na reserva</button>
+    </form>
+</section>
+{% endif %}
+
 {# ---- Segundo plano: contas próximas (concreto) e a meta ---- #}
 <section class="metric-grid cols-2" style="margin-top:14px;">
     <article class="glass-card metric-card">

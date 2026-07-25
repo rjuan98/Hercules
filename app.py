@@ -1998,6 +1998,23 @@ def home():
     dias_ofx = dias_desde_ultimo_ofx(user)
     lembrar_ofx = (not onboarding) and (dias_ofx is None or dias_ofx >= OFX_LEMBRETE_DIAS)
 
+    # "Sobrou? Guarda": na reta final do mês, se sobrou dinheiro e há uma reserva
+    # incompleta, o Herc oferece jogar a sobra na reserva num toque.
+    sobra_guardar = None
+    if date.today().day >= 20:
+        with get_db() as db:
+            reserva_goal = db.execute(
+                """SELECT meta_valor, valor_atual FROM metas
+                   WHERE user_id = ? AND ativo = 1 AND LOWER(nome) LIKE '%reserva%'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (user["id"],),
+            ).fetchone()
+        if reserva_goal:
+            faltante = max(0.0, float(reserva_goal["meta_valor"]) - float(reserva_goal["valor_atual"]))
+            sobra_mes = max(0.0, float(stats["month_income"]) - float(stats["month_expenses"]))
+            if sobra_mes > 0 and faltante > 0:
+                sobra_guardar = min(sobra_mes, faltante)
+
     session["last_balance"] = money(stats["balance"])
     session["meta_mensal"] = user["meta_mensal"]
     focus_labels = dict(HOME_FOCUS_CHOICES)
@@ -2034,6 +2051,7 @@ def home():
         goal=goal,
         note_pending=note_pending,
         pluggy_ativo=pluggy_configured(),
+        sobra_guardar=sobra_guardar,
     )
 
 
@@ -2367,6 +2385,32 @@ def metas():
     }
     novo = request.args.get("novo", type=int)
     return render_template("metas.html", user=user, goals=goals_view, stats=stats, novo=novo, reserva=reserva)
+
+
+@app.route("/reserva/guardar", methods=["POST"])
+@login_required
+def guardar_sobra():
+    """Joga a sobra do mês na reserva de emergência (incrementa a meta, sem passar do alvo)."""
+    user = current_user()
+    valor = parse_money(request.form.get("valor"))
+    if valor <= 0:
+        flash("Nada a guardar agora.")
+        return redirect(url_for("home"))
+    with get_db() as db:
+        goal = db.execute(
+            """SELECT id, meta_valor, valor_atual FROM metas
+               WHERE user_id = ? AND ativo = 1 AND LOWER(nome) LIKE '%reserva%'
+               ORDER BY created_at DESC LIMIT 1""",
+            (user["id"],),
+        ).fetchone()
+        if not goal:
+            flash("Você ainda não tem uma reserva. Crie uma em Metas.")
+            return redirect(url_for("metas"))
+        novo = min(float(goal["meta_valor"]), float(goal["valor_atual"]) + valor)
+        guardado = novo - float(goal["valor_atual"])
+        db.execute("UPDATE metas SET valor_atual = ? WHERE id = ?", (novo, goal["id"]))
+    flash(f"{money(guardado)} guardados na reserva! 🎉")
+    return redirect(url_for("home"))
 
 
 @app.route("/metas/<int:goal_id>/editar", methods=["POST"])
