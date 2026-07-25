@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}Prévia do IR · Hércules{% endblock %}
+{% block page_title %}Prévia do IR{% endblock %}
+{% block page_subtitle %}Uma estimativa pra você não perder dedução — não é o cálculo oficial.{% endblock %}
+
+{% block content %}
+<section class="page-card">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Seu retrato de imposto em {{ ir.year }}.</strong><br>
+            {% if not ir.tem_dados %}
+                Assim que você tiver renda e gastos de saúde/educação lançados no ano, eu mostro aqui o que dá pra deduzir.
+            {% elif ir.precisa_declarar %}
+                Sua renda tributável no ano já passou de <strong>{{ ir.limite_declaracao|money }}</strong> — nesse caso costuma ser obrigatório declarar.
+            {% else %}
+                Sua renda tributável no ano está em <strong>{{ ir.renda|money }}</strong>. A obrigação de declarar costuma começar por volta de {{ ir.limite_declaracao|money }} por ano.
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+{% if ir.tem_dados %}
+<section class="metric-grid cols-3" style="margin-top:18px;">
+    <article class="glass-card metric-card">
+        <p class="metric-label">Saúde (dedutível)</p>
+        <p class="metric-value">{{ ir.saude|money }}</p>
+        <p class="metric-footnote">Sem limite — todo gasto com saúde conta.</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Educação (dedutível)</p>
+        <p class="metric-value">{{ ir.educacao_dedutivel|money }}</p>
+        <p class="metric-footnote">
+            {% if ir.educacao > ir.educacao_limite %}Você tem {{ ir.educacao|money }}, mas o limite é {{ ir.educacao_limite|money }} por pessoa/ano.{% else %}Limite de {{ ir.educacao_limite|money }} por pessoa/ano.{% endif %}
+        </p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Pode reduzir seu imposto em até</p>
+        <p class="metric-value" style="color:var(--success);">{{ ir.economia_teto|money }}</p>
+        <p class="metric-footnote">Estimativa pelo teto da tabela. O valor real depende da sua faixa de renda.</p>
+    </article>
+</section>
+{% endif %}
+
+<section class="page-card" style="margin-top:18px;">
+    <p class="subtitle" style="margin:0;">
+        💡 Junte os comprovantes de <strong>saúde</strong> e <strong>educação</strong> — são eles que abatem seu imposto.
+        Guarde as notas em <a href="{{ url_for('listar_notas') }}" style="color:var(--primary-deep); font-weight:800;">Notas</a> e categorize seus gastos certinho pra eu somar tudo.
+    </p>
+    <div class="auth-note" style="margin-top:14px;">
+        ⚠️ Isto é uma <strong>estimativa</strong> pra você se planejar e não deixar dedução na mesa. <strong>Não é o cálculo oficial</strong> e não substitui um contador nem o programa da Receita. Os limites acima são valores de referência — confirme os do ano vigente.
+    </div>
+</section>
+{% endblock %}

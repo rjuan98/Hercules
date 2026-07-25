@@ -48,6 +48,7 @@
                 <a href="{{ url_for('compromissos') }}" class="menu-link {% if request.path.startswith('/compromissos') %}active{% endif %}"><i data-lucide="calendar-days"></i><span>Contas</span></a>
                 <a href="{{ url_for('categorias') }}" class="menu-link {% if request.path.startswith('/categorias') %}active{% endif %}"><i data-lucide="tags"></i><span>Categorias</span></a>
                 <a href="{{ url_for('metas') }}" class="menu-link {% if request.path.startswith('/metas') %}active{% endif %}"><i data-lucide="target"></i><span>Metas</span></a>
+                <a href="{{ url_for('previa_ir') }}" class="menu-link {% if request.path.startswith('/ir') %}active{% endif %}"><i data-lucide="percent"></i><span>Prévia do IR</span></a>
                 <a href="{{ url_for('trabalhos') }}" class="menu-link {% if request.path.startswith('/trabalhos') %}active{% endif %}"><i data-lucide="trophy"></i><span>Conquistas</span></a>
                 {% endif %}
                 <a href="{{ url_for('listar_notas') }}" class="menu-link {% if request.path.startswith('/notas') %}active{% endif %}"><i data-lucide="files"></i><span>Notas</span></a>

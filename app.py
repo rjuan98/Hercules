@@ -2055,6 +2055,66 @@ def home():
     )
 
 
+# Prévia do IR — valores de REFERÊNCIA (mudam todo ano; confirmar no ano vigente).
+IR_LIMITE_DECLARACAO = 30000.0   # renda tributável anual a partir da qual costuma ser obrigatório declarar
+IR_LIMITE_EDUCACAO = 3561.50     # dedução de educação por pessoa/ano
+IR_ALIQUOTA_TETO = 0.275         # maior alíquota da tabela (pra estimar o TETO de economia)
+IR_RENDA_CATS = ("Salário", "Freelance / bico", "Vendas", "Rendimentos")
+
+
+def calc_ir_preview(user_id: int, year: int) -> dict[str, Any]:
+    """Estimativa (não é cálculo oficial): renda tributável do ano + deduções de
+    saúde/educação já lançadas, e o teto de economia que elas podem gerar."""
+    ini, fim = f"{year}-01-01", f"{year}-12-31"
+    marks = ",".join(["?"] * len(IR_RENDA_CATS))
+    with get_db() as db:
+        renda = db.execute(
+            f"""SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+               WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
+                 AND categoria IN ({marks})
+                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+            (user_id, *IR_RENDA_CATS, ini, fim),
+        ).fetchone()["t"]
+        saude = db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida' AND categoria = 'Saúde'
+                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+            (user_id, ini, fim),
+        ).fetchone()["t"]
+        educ = db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida' AND categoria = 'Educação'
+                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+            (user_id, ini, fim),
+        ).fetchone()["t"]
+    renda = float(renda or 0)
+    saude = float(saude or 0)
+    educacao = float(educ or 0)
+    educacao_dedutivel = min(educacao, IR_LIMITE_EDUCACAO)
+    deducao_total = saude + educacao_dedutivel
+    return {
+        "year": year,
+        "renda": renda,
+        "saude": saude,
+        "educacao": educacao,
+        "educacao_dedutivel": educacao_dedutivel,
+        "educacao_limite": IR_LIMITE_EDUCACAO,
+        "deducao_total": deducao_total,
+        "economia_teto": deducao_total * IR_ALIQUOTA_TETO,
+        "precisa_declarar": renda >= IR_LIMITE_DECLARACAO,
+        "limite_declaracao": IR_LIMITE_DECLARACAO,
+        "tem_dados": renda > 0 or deducao_total > 0,
+    }
+
+
+@app.route("/ir")
+@login_required
+def previa_ir():
+    user = current_user()
+    ir = calc_ir_preview(user["id"], date.today().year)
+    return render_template("ir.html", user=user, ir=ir)
+
+
 @app.route("/dashboard")
 @login_required
 def dashboard():
