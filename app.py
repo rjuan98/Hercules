@@ -2331,8 +2331,17 @@ def metas():
         m_left = months_until(g["prazo"]) if g["prazo"] else None
         monthly = (missing / m_left) if (m_left and missing > 0) else None
         goals_view.append({"row": g, "missing": missing, "months_left": m_left, "monthly": monthly})
+    # Reserva de emergência guiada: 3–6× o custo de vida mensal (gastos + fatura do cartão)
+    custo_mensal = float(stats["month_expenses"]) + float(stats["fatura_credito_mes"])
+    tem_reserva = any("reserva" in (g["row"]["nome"] or "").lower() for g in goals_view)
+    reserva = {
+        "mostrar": custo_mensal > 0 and not tem_reserva,
+        "custo": custo_mensal,
+        "r3": custo_mensal * 3,
+        "r6": custo_mensal * 6,
+    }
     novo = request.args.get("novo", type=int)
-    return render_template("metas.html", user=user, goals=goals_view, stats=stats, novo=novo)
+    return render_template("metas.html", user=user, goals=goals_view, stats=stats, novo=novo, reserva=reserva)
 
 
 @app.route("/metas/<int:goal_id>/editar", methods=["POST"])

@@ -4,6 +4,26 @@
 {% block page_subtitle %}Reserva, viagem, casa e qualquer objetivo seu.{% endblock %}
 
 {% block content %}
+{% if reserva.mostrar %}
+<section class="page-card suggestion-card" style="margin-bottom:18px;">
+    <div class="hercules-greeting" style="margin-bottom:12px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Vamos montar sua reserva de emergência?</strong><br>
+            Pelo seu ritmo de gastos (~{{ reserva.custo|money }} por mês), o ideal é ter guardado entre
+            <strong>{{ reserva.r3|money }}</strong> (3 meses) e <strong>{{ reserva.r6|money }}</strong> (6 meses) —
+            um colchão pra imprevisto sem precisar recorrer ao cartão.
+        </div>
+    </div>
+    <form method="POST" action="{{ url_for('metas') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="nome" value="Reserva de emergência">
+        <input type="hidden" name="meta_valor" value="{{ reserva.r3|round(2) }}">
+        <button type="submit" class="button button-primary">Começar com 3 meses ({{ reserva.r3|money }})</button>
+    </form>
+</section>
+{% endif %}
+
 <section class="page-card">
     <div class="topbar-copy" style="margin-bottom:14px;">
         <h2 class="topbar-title" style="font-size:1.25rem;">Criar nova meta</h2>
