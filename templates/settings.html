@@ -101,6 +101,11 @@
             <input id="meta_mensal" type="text" name="meta_mensal" value="{{ session.get('meta_mensal', 0) }}" placeholder="Ex.: 300" inputmode="decimal">
             <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">Usado no cálculo do "pode gastar hoje" quando a meta não tem prazo.</p>
         </div>
+        <div class="form-group">
+            <label for="cartao_orcamento">Teto de gasto no cartão (por mês)</label>
+            <input id="cartao_orcamento" type="text" name="cartao_orcamento" value="{{ user['cartao_orcamento'] or '' }}" placeholder="Ex.: 500" inputmode="decimal">
+            <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">O Herc mostra a fatura crescer e avisa quando chegar perto desse teto.</p>
+        </div>
         <div class="form-group" style="grid-column:1 / -1;">
             <button class="button button-primary" type="submit">Salvar preferências</button>
         </div>

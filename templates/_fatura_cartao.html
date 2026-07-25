@@ -1,0 +1,34 @@
+{# Controle do cartão ao longo do mês: fatura crescendo, teto e % da renda comprometida.
+   Requer `stats` no contexto. Usado na Início e no Resumo. #}
+{% if stats['fatura_credito_mes'] > 0 %}
+<section class="page-card" style="margin-top:14px;">
+    <div class="note-header" style="margin-bottom:4px;">
+        <p class="metric-label" style="margin:0;">💳 Fatura do cartão (este mês)</p>
+        {% if not stats['cartao_orcamento'] %}
+        <a href="{{ url_for('settings') }}" style="color:var(--primary-deep); font-weight:800; font-size:0.85rem;">Definir um teto</a>
+        {% endif %}
+    </div>
+    <p class="metric-value" style="font-size:1.7rem;">{{ stats['fatura_credito_mes']|money }}</p>
+
+    {% if stats['cartao_orcamento'] %}
+    {% set pct = stats['fatura_pct_orcamento'] %}
+    <div class="progress-track" style="margin-top:10px;">
+        <div class="progress-fill {% if pct >= 100 %}fill-danger{% elif pct >= 80 %}fill-warn{% endif %}" style="width: {{ [pct, 100]|min }}%;"></div>
+    </div>
+    <p class="metric-footnote" style="margin-top:8px;">
+        {{ pct|round(0)|int }}% do seu teto de {{ stats['cartao_orcamento']|money }}
+        {% if pct >= 100 %} · ⚠️ você passou do teto{% elif pct >= 80 %} · ⚠️ chegando no teto{% else %} · ainda cabem {{ (stats['cartao_orcamento'] - stats['fatura_credito_mes'])|money }}{% endif %}
+    </p>
+    {% endif %}
+
+    {% if stats['credito_pct_renda'] %}
+    <p class="metric-footnote" style="margin-top:6px;">
+        {{ stats['credito_pct_renda']|round(0)|int }}% da sua renda do mês já está no cartão{% if stats['credito_pct_renda'] >= 50 %} — cuidado pra ele não virar extensão da renda.{% endif %}
+    </p>
+    {% endif %}
+
+    {% if not stats['cartao_orcamento'] and not stats['credito_pct_renda'] %}
+    <p class="metric-footnote" style="margin-top:6px;">Compras no crédito ainda não pagas — não sai do saldo até você pagar a fatura.</p>
+    {% endif %}
+</section>
+{% endif %}

@@ -1399,7 +1399,7 @@ def calc_transaction_totals(user_id: int):
 
     # --- Reserva: quanto separar por mês para cumprir a meta no prazo ---
     with get_db() as db:
-        user_row = db.execute("SELECT meta_mensal FROM usuarios WHERE id = ?", (user_id,)).fetchone()
+        user_row = db.execute("SELECT meta_mensal, cartao_orcamento FROM usuarios WHERE id = ?", (user_id,)).fetchone()
         month_reserve_saved = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
@@ -1442,12 +1442,22 @@ def calc_transaction_totals(user_id: int):
     if goal_missing > 0 and reserve_monthly_needed > 0:
         goal_forecast_months = int(-(-goal_missing // reserve_monthly_needed))  # ceil
 
+    # Cartão: controle ao longo do mês — quanto da fatura já bateu no teto que a pessoa
+    # definiu, e quanto da renda do mês já está comprometida no crédito (a dor real).
+    cartao_orcamento = float(user_row["cartao_orcamento"] or 0) if (user_row and "cartao_orcamento" in user_row.keys()) else 0.0
+    fatura_atual = float(fatura_credito_mes or 0)
+    fatura_pct_orcamento = (fatura_atual / cartao_orcamento * 100) if cartao_orcamento > 0 else None
+    credito_pct_renda = (fatura_atual / float(month_income) * 100) if (month_income and float(month_income) > 0) else None
+
     stats = {
         "transactions": transactions,
         "month_income": float(month_income or 0),
         "month_expenses": float(month_expenses or 0),
         "balance": float(balance or 0),
         "fatura_credito_mes": float(fatura_credito_mes or 0),
+        "cartao_orcamento": cartao_orcamento,
+        "fatura_pct_orcamento": fatura_pct_orcamento,
+        "credito_pct_renda": credito_pct_renda,
         "monthly_by_category": monthly_by_category,
         "upcoming_commitments": upcoming_commitments,
         "overdue_commitments": overdue_commitments,
@@ -2232,14 +2242,15 @@ def settings():
         home_focus = normalize_focus(request.form.get("home_focus"))
         notification_mode = normalize_notification_mode(request.form.get("notification_mode"))
         meta_mensal = parse_money(request.form.get("meta_mensal"))
+        cartao_orcamento = parse_money(request.form.get("cartao_orcamento"))
         view_mode = request.form.get("view_mode", "completo")
         if view_mode not in {"simples", "completo"}:
             view_mode = "completo"
         with get_db() as db:
             db.execute(
-                """UPDATE usuarios SET perfil = ?, home_focus = ?, notification_mode = ?, meta_mensal = ?, view_mode = ?
-                   WHERE id = ?""",
-                (perfil, home_focus, notification_mode, meta_mensal, view_mode, user["id"]),
+                """UPDATE usuarios SET perfil = ?, home_focus = ?, notification_mode = ?, meta_mensal = ?,
+                   cartao_orcamento = ?, view_mode = ? WHERE id = ?""",
+                (perfil, home_focus, notification_mode, meta_mensal, cartao_orcamento, view_mode, user["id"]),
             )
         session["perfil"] = perfil
         session["home_focus"] = home_focus
