@@ -2045,6 +2045,30 @@ def dashboard():
     stats = calc_transaction_totals(user["id"])
     labels = [row["categoria"] for row in stats["monthly_by_category"]]
     values = [row["total"] or 0 for row in stats["monthly_by_category"]]
+
+    # Retrato do mês: a narrativa curta que abre o Resumo
+    by_cat = stats["monthly_by_category"]
+    maior_cat = max(by_cat, key=lambda r: r["total"] or 0) if by_cat else None
+    prev_start, prev_end = _prev_month_bounds()
+    with get_db() as db:
+        prev_expenses = db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
+                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+            (user["id"], prev_start, prev_end),
+        ).fetchone()["t"]
+    exp = float(stats["month_expenses"])
+    retrato = {
+        "tem_dados": exp > 0 or float(stats["month_income"]) > 0,
+        "income": float(stats["month_income"]),
+        "expenses": exp,
+        "saldo_mes": float(stats["month_income"]) - exp,
+        "maior_cat": maior_cat,
+        "maior_cat_pct": (float(maior_cat["total"] or 0) / exp * 100) if (maior_cat and exp > 0) else 0,
+        "prev_expenses": float(prev_expenses or 0),
+        "delta": exp - float(prev_expenses or 0),
+        "fatura": float(stats["fatura_credito_mes"]),
+    }
     return render_template(
         "dashboard.html",
         user=user,
@@ -2052,6 +2076,7 @@ def dashboard():
         stats=stats,
         labels=labels,
         values=values,
+        retrato=retrato,
         month=month_label(date.today().strftime("%Y-%m")),
     )
 

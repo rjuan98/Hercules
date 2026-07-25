@@ -4,6 +4,22 @@
 {% block page_subtitle %}O mês inteiro em uma tela: entradas, saídas, contas, metas e notas.{% endblock %}
 
 {% block content %}
+{% if retrato.tem_dados %}
+<section class="page-card" style="margin-bottom:18px;">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Retrato de {{ month }}.</strong><br>
+            Entraram <strong>{{ retrato.income|money }}</strong> e saíram <strong>{{ retrato.expenses|money }}</strong> —
+            {% if retrato.saldo_mes >= 0 %}você está no azul, sobrando <strong>{{ retrato.saldo_mes|money }}</strong>.{% else %}saiu <strong>{{ (-retrato.saldo_mes)|money }}</strong> a mais do que entrou.{% endif %}
+            {% if retrato.maior_cat %}<br>Onde mais foi: <strong>{{ retrato.maior_cat['categoria'] or 'Outros' }}</strong> ({{ retrato.maior_cat['total']|money }} · {{ retrato.maior_cat_pct|round(0)|int }}% dos gastos).{% endif %}
+            {% if retrato.prev_expenses > 0 %}<br>{% if retrato.delta > 0 %}Você já gastou <strong>{{ retrato.delta|money }} a mais</strong> que no mês passado.{% elif retrato.delta < 0 %}Você gastou <strong>{{ (-retrato.delta)|money }} a menos</strong> que no mês passado. 👏{% else %}Mesmo ritmo do mês passado.{% endif %}{% endif %}
+            {% if retrato.fatura > 0 %}<br>No cartão: <strong>{{ retrato.fatura|money }}</strong> de fatura em aberto.{% endif %}
+        </div>
+    </div>
+</section>
+{% endif %}
+
 <section class="metric-grid cols-4">
     <article class="glass-card metric-card">
         <p class="metric-label">Saldo atual</p>
