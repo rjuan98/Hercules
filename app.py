@@ -3461,7 +3461,16 @@ def pluggy_testar():
               + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))
     if not contas:
-        flash("Conectei na Pluggy, mas não achei contas — confirme que o banco está conectado no Meu Pluggy.")
+        # Sem contas: prova cada item configurado pra ver se as chaves enxergam o item
+        detalhes = []
+        for item_id in PLUGGY_ITEM_IDS:
+            try:
+                it = _pluggy_get(api_key, f"/items/{item_id}")
+                conn = (it.get("connector") or {}).get("name", "?")
+                detalhes.append(f"item {item_id[:8]}… OK (conector {conn}, status {it.get('status', '?')})")
+            except Exception as e:
+                detalhes.append(f"item {item_id[:8]}… NÃO acessível com estas chaves — {_pluggy_erro_detalhe(e)}")
+        flash("Autentiquei, mas o item não tem contas visíveis. " + " · ".join(detalhes))
         return redirect(url_for("settings"))
     # Diagnóstico: quantos lançamentos cada conta devolve em 90 dias e a data da última
     since90 = (date.today() - timedelta(days=90)).isoformat()
