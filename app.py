@@ -2089,6 +2089,7 @@ def home():
         pluggy_ativo=pluggy_configured(),
         pluggy_tem_banco=bool(pluggy_user_item_ids(user)),
         sobra_guardar=sobra_guardar,
+        dividas_resumo=calc_dividas(user["id"]),
     )
 
 
@@ -2482,6 +2483,85 @@ def metas():
     }
     novo = request.args.get("novo", type=int)
     return render_template("metas.html", user=user, goals=goals_view, stats=stats, novo=novo, reserva=reserva)
+
+
+def calc_dividas(user_id: int) -> dict[str, Any]:
+    """Resumo de dívidas: o que você deve e o que te devem (só o que falta pagar)."""
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT * FROM dividas WHERE user_id = ? ORDER BY quitada ASC, COALESCE(vencimento, '9999') ASC, id DESC",
+            (user_id,),
+        ).fetchall()
+    devo = sum(max(0.0, float(r["valor_total"]) - float(r["valor_pago"])) for r in rows
+               if r["tipo"] == "devo" and not r["quitada"])
+    me_devem = sum(max(0.0, float(r["valor_total"]) - float(r["valor_pago"])) for r in rows
+                   if r["tipo"] == "me_devem" and not r["quitada"])
+    return {"rows": rows, "devo": devo, "me_devem": me_devem, "tem": bool(rows)}
+
+
+@app.route("/dividas", methods=["GET", "POST"])
+@login_required
+def dividas():
+    user = current_user()
+    if request.method == "POST":
+        tipo = request.form.get("tipo")
+        if tipo not in {"devo", "me_devem"}:
+            tipo = "devo"
+        descricao = sanitize_text(request.form.get("descricao"))[:120]
+        pessoa = sanitize_text(request.form.get("pessoa"))[:80]
+        valor_total = parse_money(request.form.get("valor_total"))
+        valor_pago = parse_money(request.form.get("valor_pago"))
+        vencimento = request.form.get("vencimento") or None
+        if vencimento:
+            try:
+                date.fromisoformat(vencimento)
+            except ValueError:
+                vencimento = None
+        if not descricao or valor_total <= 0:
+            flash("Escreva o que é e um valor válido.")
+            return redirect(url_for("dividas"))
+        with get_db() as db:
+            cur = db.execute(
+                """INSERT INTO dividas (user_id, tipo, descricao, pessoa, valor_total, valor_pago, vencimento)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (user["id"], tipo, descricao, pessoa, valor_total, min(valor_pago, valor_total), vencimento),
+            )
+            novo = cur.lastrowid
+        flash("Dívida anotada." if tipo == "devo" else "Anotado — essa é pra você receber.")
+        return redirect(url_for("dividas", novo=novo))
+    return render_template("dividas.html", user=user, d=calc_dividas(user["id"]),
+                           novo=request.args.get("novo", type=int), hoje=date.today().isoformat())
+
+
+@app.route("/dividas/<int:divida_id>/pagar", methods=["POST"])
+@login_required
+def pagar_divida(divida_id):
+    """Registra um abatimento (ou quita de uma vez quando o valor cobre o que falta)."""
+    user = current_user()
+    valor = parse_money(request.form.get("valor"))
+    with get_db() as db:
+        d = db.execute("SELECT * FROM dividas WHERE id = ? AND user_id = ?", (divida_id, user["id"])).fetchone()
+        if not d:
+            flash("Dívida não encontrada.")
+            return redirect(url_for("dividas"))
+        falta = max(0.0, float(d["valor_total"]) - float(d["valor_pago"]))
+        if valor <= 0:
+            valor = falta  # sem valor informado = quitar o que falta
+        novo_pago = min(float(d["valor_total"]), float(d["valor_pago"]) + valor)
+        quitada = 1 if novo_pago >= float(d["valor_total"]) - 0.005 else 0
+        db.execute("UPDATE dividas SET valor_pago = ?, quitada = ? WHERE id = ?", (novo_pago, quitada, divida_id))
+    flash("Quitada! 🎉" if quitada else f"Abatido {money(valor)}.")
+    return redirect(url_for("dividas"))
+
+
+@app.route("/dividas/<int:divida_id>/delete", methods=["POST"])
+@login_required
+def delete_divida(divida_id):
+    user = current_user()
+    with get_db() as db:
+        db.execute("DELETE FROM dividas WHERE id = ? AND user_id = ?", (divida_id, user["id"]))
+    flash("Removida.")
+    return redirect(url_for("dividas"))
 
 
 @app.route("/reserva/usar-saldo-real", methods=["POST"])

@@ -249,6 +249,24 @@ def init_db():
 
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS dividas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'devo' CHECK(tipo IN ('devo', 'me_devem')),
+            descricao TEXT NOT NULL,
+            pessoa TEXT,
+            valor_total REAL NOT NULL DEFAULT 0.0,
+            valor_pago REAL NOT NULL DEFAULT 0.0,
+            vencimento TEXT,
+            quitada INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES usuarios (id) ON DELETE CASCADE
+        )
+        """
+    )
+
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS checkins (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -267,6 +285,7 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_compromissos_user_venc ON compromissos(user_id, vencimento)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_metas_user_ativo ON metas(user_id, ativo)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_capturas_user_status ON capturas(user_id, status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dividas_user_quitada ON dividas(user_id, quitada)")
 
     # Migrations for evolving copies
     _add_column_if_missing(conn, "usuarios", "perfil", "TEXT NOT NULL DEFAULT 'pf'")

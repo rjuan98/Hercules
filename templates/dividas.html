@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block title %}Dívidas · Hércules{% endblock %}
+{% block page_title %}Dívidas{% endblock %}
+{% block page_subtitle %}O que você deve e o que te devem — fora das contas do mês.{% endblock %}
+
+{% block content %}
+{% if d.tem %}
+<section class="metric-grid cols-2">
+    <article class="glass-card metric-card">
+        <p class="metric-label">Você deve</p>
+        <p class="metric-value" style="color:var(--danger);">{{ d.devo|money }}</p>
+        <p class="metric-footnote">Somando o que ainda falta pagar.</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Te devem</p>
+        <p class="metric-value" style="color:var(--success);">{{ d.me_devem|money }}</p>
+        <p class="metric-footnote">Dinheiro que você emprestou e não voltou.</p>
+    </article>
+</section>
+{% endif %}
+
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Anotar dívida</h2>
+        <p class="topbar-subtitle">Empréstimo, parcelamento, ou aquele dinheiro que você emprestou pra alguém.</p>
+    </div>
+    <form method="POST" class="form-grid cols-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="tipo">O que é</label>
+            <select id="tipo" name="tipo">
+                <option value="devo">Eu devo</option>
+                <option value="me_devem">Me devem</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="descricao">Descrição</label>
+            <input id="descricao" type="text" name="descricao" placeholder="Empréstimo do banco, celular parcelado..." required maxlength="120">
+        </div>
+        <div class="form-group">
+            <label for="pessoa">Com quem <span class="helper-text">(opcional)</span></label>
+            <input id="pessoa" type="text" name="pessoa" placeholder="Nubank, João..." maxlength="80">
+        </div>
+        <div class="form-group">
+            <label for="valor_total">Valor total</label>
+            <div class="money-input">
+                <span class="money-prefix">R$</span>
+                <input id="valor_total" type="text" name="valor_total" data-money placeholder="0,00" required inputmode="decimal">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="valor_pago">Já pago <span class="helper-text">(opcional)</span></label>
+            <div class="money-input">
+                <span class="money-prefix">R$</span>
+                <input id="valor_pago" type="text" name="valor_pago" data-money placeholder="0,00" inputmode="decimal">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="vencimento">Prazo <span class="helper-text">(opcional)</span></label>
+            <input id="vencimento" type="date" name="vencimento">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <button class="button button-primary" type="submit" style="width:100%;">Salvar</button>
+        </div>
+    </form>
+</section>
+
+<section style="margin-top:18px;">
+    <ul class="data-list">
+        {% for r in d.rows %}
+        {% set falta = [0, r['valor_total'] - r['valor_pago']]|max %}
+        {% set pct = (r['valor_pago'] / r['valor_total'] * 100) if r['valor_total'] else 0 %}
+        <li class="data-item {% if novo == r['id'] %}just-created{% endif %}" {% if r['quitada'] %}style="opacity:.65;"{% endif %}>
+            <div class="note-header">
+                <div>
+                    <p class="note-title">
+                        {{ r['descricao'] }}
+                        {% if novo == r['id'] %}<span class="just-created-tag">✓ salva agora</span>{% endif %}
+                    </p>
+                    <div class="note-meta">
+                        <span class="tx-tag {{ 'tx-tag-credito' if r['tipo'] == 'devo' else 'tx-tag-debito' }}">
+                            {% if r['tipo'] == 'devo' %}↑ Eu devo{% else %}↓ Me devem{% endif %}
+                        </span>
+                        {% if r['pessoa'] %}<span>{{ r['pessoa'] }}</span>{% endif %}
+                        {% if r['vencimento'] %}<span>até {{ r['vencimento']|format_date }}</span>{% endif %}
+                        {% if r['quitada'] %}<span>✓ quitada</span>{% endif %}
+                    </div>
+                </div>
+                <span class="badge {{ 'tx-badge-entrada' if r['tipo'] == 'me_devem' else 'tx-badge-saida' }}">
+                    {% if r['quitada'] %}{{ r['valor_total']|money }}{% else %}falta {{ falta|money }}{% endif %}
+                </span>
+            </div>
+
+            {% if not r['quitada'] and r['valor_pago'] > 0 %}
+            <div class="progress-track" style="margin-top:10px;">
+                <div class="progress-fill" style="width: {{ [pct, 100]|min }}%;"></div>
+            </div>
+            <p class="metric-footnote" style="margin-top:6px;">{{ r['valor_pago']|money }} de {{ r['valor_total']|money }} ({{ pct|round(0)|int }}%)</p>
+            {% endif %}
+
+            <div class="note-actions">
+                {% if not r['quitada'] %}
+                <form method="POST" action="{{ url_for('pagar_divida', divida_id=r['id']) }}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="money-input" style="width:130px;">
+                        <span class="money-prefix">R$</span>
+                        <input type="text" name="valor" data-money placeholder="0,00" inputmode="decimal"
+                               aria-label="Valor a abater">
+                    </div>
+                    <button type="submit" class="button button-outline">
+                        {% if r['tipo'] == 'devo' %}Registrar pagamento{% else %}Registrar recebimento{% endif %}
+                    </button>
+                </form>
+                {% endif %}
+                <form method="POST" action="{{ url_for('delete_divida', divida_id=r['id']) }}" data-confirm="Remover '{{ r['descricao'] }}'?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="button button-danger">Excluir</button>
+                </form>
+            </div>
+            <p class="helper-text" style="margin-top:6px;">Deixe o valor em branco para quitar o que falta de uma vez.</p>
+        </li>
+        {% else %}
+        <li class="empty-state">
+            <strong>Nenhuma dívida anotada.</strong>
+            <span>Empréstimo, parcelamento ou dinheiro que você emprestou — anote aqui pra não perder de vista.</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endblock %}

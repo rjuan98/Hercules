@@ -177,6 +177,22 @@
 
 {% include '_fatura_cartao.html' %}
 
+{% if dividas_resumo.devo or dividas_resumo.me_devem %}
+<section class="page-card" style="margin-top:14px;">
+    <div class="note-header">
+        <div>
+            <p class="metric-label" style="margin:0;">🤝 Dívidas</p>
+            <p class="metric-footnote" style="margin-top:6px;">
+                {% if dividas_resumo.devo %}Você deve <strong style="color:var(--danger);">{{ dividas_resumo.devo|money }}</strong>{% endif %}
+                {% if dividas_resumo.devo and dividas_resumo.me_devem %} · {% endif %}
+                {% if dividas_resumo.me_devem %}Te devem <strong style="color:var(--success);">{{ dividas_resumo.me_devem|money }}</strong>{% endif %}
+            </p>
+        </div>
+        <a href="{{ url_for('dividas') }}" style="color:var(--primary-deep); font-weight:800; font-size:0.9rem;">Ver</a>
+    </div>
+</section>
+{% endif %}
+
 {# ---- Mini-extrato: as últimas movimentações (o pulso, padrão de fintech) ---- #}
 <section class="page-card" style="margin-top:14px;">
     <div class="note-header" style="margin-bottom:8px;">
