@@ -734,10 +734,10 @@ def pluggy_fetch_items(api_key: str, item_ids: list[str], since: str) -> list[di
         if not conta_id or tipo_conta not in ("BANK", "CREDIT"):
             continue
         is_credit = tipo_conta == "CREDIT"
-        # /v2/transactions pagina por cursor (não por número de página): buscamos uma
-        # página grande (500) — cobre de sobra 90 dias de uso pessoal.
+        # /v2/transactions: filtro por dateFrom (yyyy-mm-dd), sem pageSize (padrão já é 500,
+        # o máximo) — cobre de sobra 90 dias de uso pessoal numa página só.
         data = _pluggy_get(api_key, "/v2/transactions",
-                           {"accountId": conta_id, "from": since, "pageSize": 500})
+                           {"accountId": conta_id, "dateFrom": since})
         for t in data.get("results", []):
             amount = t.get("amount")
             if amount is None or amount == 0:
@@ -3531,7 +3531,7 @@ def pluggy_testar():
             linhas.append(f"{nome} [{tipo}] — ignorada")
             continue
         try:
-            data = _pluggy_get(api_key, "/v2/transactions", {"accountId": c.get("id"), "from": since90, "pageSize": 100})
+            data = _pluggy_get(api_key, "/v2/transactions", {"accountId": c.get("id"), "dateFrom": since90})
             res = data.get("results", [])
             total = data.get("total", len(res))
             ultima = (res[0].get("date") or "")[:10] if res else "nenhuma"
