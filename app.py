@@ -734,34 +734,29 @@ def pluggy_fetch_items(api_key: str, item_ids: list[str], since: str) -> list[di
         if not conta_id or tipo_conta not in ("BANK", "CREDIT"):
             continue
         is_credit = tipo_conta == "CREDIT"
-        page = 1
-        while True:
-            data = _pluggy_get(api_key, "/v2/transactions",
-                               {"accountId": conta_id, "from": since, "page": page, "pageSize": 500})
-            resultados = data.get("results", [])
-            for t in resultados:
-                amount = t.get("amount")
-                if amount is None or amount == 0:
-                    continue
-                if is_credit:
-                    if amount <= 0:
-                        continue  # pagamento/estorno da fatura, não é compra
-                    tipo = "saida"
-                else:
-                    tipo = "entrada" if amount > 0 else "saida"
-                desc = t.get("description") or t.get("descriptionRaw") or "Movimentação"
-                items.append({
-                    "valor": abs(float(amount)),
-                    "tipo": tipo,
-                    "data": (t.get("date") or "")[:10],
-                    "descricao": sanitize_text(desc)[:120] or "Movimentação",
-                    "fitid": "PLG-" + str(t.get("id"))[:70],
-                    "no_credito": is_credit,
-                })
-            total_pages = data.get("totalPages") or 1
-            if page >= total_pages or not resultados:
-                break
-            page += 1
+        # /v2/transactions pagina por cursor (não por número de página): buscamos uma
+        # página grande (500) — cobre de sobra 90 dias de uso pessoal.
+        data = _pluggy_get(api_key, "/v2/transactions",
+                           {"accountId": conta_id, "from": since, "pageSize": 500})
+        for t in data.get("results", []):
+            amount = t.get("amount")
+            if amount is None or amount == 0:
+                continue
+            if is_credit:
+                if amount <= 0:
+                    continue  # pagamento/estorno da fatura, não é compra
+                tipo = "saida"
+            else:
+                tipo = "entrada" if amount > 0 else "saida"
+            desc = t.get("description") or t.get("descriptionRaw") or "Movimentação"
+            items.append({
+                "valor": abs(float(amount)),
+                "tipo": tipo,
+                "data": (t.get("date") or "")[:10],
+                "descricao": sanitize_text(desc)[:120] or "Movimentação",
+                "fitid": "PLG-" + str(t.get("id"))[:70],
+                "no_credito": is_credit,
+            })
     return items
 
 
