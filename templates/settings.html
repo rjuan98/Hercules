@@ -155,6 +155,18 @@
         </form>
         <a href="{{ url_for('pluggy_conectar') }}" class="button button-outline"><i data-lucide="repeat"></i> Reconectar</a>
     </div>
+    <details class="form-advanced" style="margin-top:12px;">
+        <summary>Saldo ou histórico bagunçado?</summary>
+        <p class="helper-text" style="margin:10px 0;">
+            Se você importou OFX/planilha antes, pode ter movimentação repetida. Isto apaga o histórico
+            antigo do Herc e deixa o <strong>banco como fonte única</strong> (suas regras e metas ficam).
+            Depois é só sincronizar.
+        </p>
+        <form method="POST" action="{{ url_for('pluggy_recomecar') }}" data-confirm="Apagar o histórico atual do Herc e recomeçar do banco? Suas regras e metas ficam; as movimentações antigas (inclusive de OFX/planilha) somem.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="button button-danger">Recomeçar limpo com o banco</button>
+        </form>
+    </details>
 
     {% else %}
     <div class="auth-note">

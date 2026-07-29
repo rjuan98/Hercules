@@ -721,12 +721,12 @@ def pluggy_accounts(api_key: str, item_ids: list[str]) -> list[dict]:
     return contas
 
 
-def pluggy_fetch_items(api_key: str, item_ids: list[str], since: str) -> list[dict[str, Any]]:
-    """Transações de todas as contas dos itens desde `since` (YYYY-MM-DD), no formato do import.
+def pluggy_fetch_items(api_key: str, contas: list[dict], since: str) -> list[dict[str, Any]]:
+    """Transações das contas informadas desde `since` (YYYY-MM-DD), no formato do import.
     Sinal do valor: em conta de banco, negativo = gasto; em cartão de crédito é INVERTIDO
     (positivo = compra/gasto, negativo = pagamento/estorno da fatura, que pulamos)."""
     items = []
-    for conta in pluggy_accounts(api_key, item_ids):
+    for conta in contas:
         conta_id = conta.get("id")
         tipo_conta = conta.get("type")
         # Só conta corrente/poupança e cartão viram transações. Investimento/empréstimo
@@ -1413,7 +1413,7 @@ def calc_transaction_totals(user_id: int):
 
     # --- Reserva: quanto separar por mês para cumprir a meta no prazo ---
     with get_db() as db:
-        user_row = db.execute("SELECT meta_mensal, cartao_orcamento FROM usuarios WHERE id = ?", (user_id,)).fetchone()
+        user_row = db.execute("SELECT meta_mensal, cartao_orcamento, saldo_banco FROM usuarios WHERE id = ?", (user_id,)).fetchone()
         month_reserve_saved = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
@@ -1421,6 +1421,12 @@ def calc_transaction_totals(user_id: int):
                AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
+
+    # Banco conectado (Pluggy): o saldo REAL dele é a fonte da verdade — não o acumulado
+    # de saldo inicial + movimentos (que conflita quando importamos histórico do banco).
+    saldo_banco = user_row["saldo_banco"] if (user_row and "saldo_banco" in user_row.keys()) else None
+    if saldo_banco is not None:
+        balance = float(saldo_banco)
 
     goal_missing = 0.0
     goal_months_left = None
@@ -3559,26 +3565,39 @@ def pluggy_sincronizar():
     # então não corremos o risco de a janela curta deixar gasto recente de fora.
     since = (date.today() - timedelta(days=90)).isoformat()
     try:
-        items = pluggy_fetch_items(pluggy_auth(), item_ids, since)
+        api_key = pluggy_auth()
+        contas = pluggy_accounts(api_key, item_ids)
+        items = pluggy_fetch_items(api_key, contas, since)
     except Exception as e:
         flash("Não consegui sincronizar: " + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))
-    if not items:
-        flash("Sincronizei, mas não vieram movimentações novas nesse período.")
-        return redirect(url_for("settings"))
-    stats = import_ofx_transactions(user["id"], items)
+    # Saldo REAL do banco (autoritativo): soma das contas correntes/poupança do banco.
+    saldo_banco = sum(float(c.get("balance") or 0) for c in contas if c.get("type") == "BANK")
     with get_db() as db:
-        db.execute("UPDATE usuarios SET last_ofx_import = ? WHERE id = ?",
-                   (date.today().isoformat(), user["id"]))
-    partes = [f"{stats['importadas']} novas"]
+        db.execute("UPDATE usuarios SET last_ofx_import = ?, saldo_banco = ? WHERE id = ?",
+                   (date.today().isoformat(), saldo_banco, user["id"]))
+    stats = import_ofx_transactions(user["id"], items)
+    partes = [f"saldo do banco {money(saldo_banco)}"]
+    if stats["importadas"]:
+        partes.append(f"{stats['importadas']} movimentações novas")
     if stats["reconciliadas"]:
-        partes.append(f"{stats['reconciliadas']} já anotadas (conferidas ✓)")
+        partes.append(f"{stats['reconciliadas']} conferidas")
     if stats["ja_importadas"]:
         partes.append(f"{stats['ja_importadas']} repetidas puladas")
-    if stats["antigas"]:
-        partes.append(f"{stats['antigas']} anteriores ao saldo inicial")
-    flash("Banco sincronizado pelo Open Finance: " + " · ".join(partes) + ".")
+    flash("Banco sincronizado: " + " · ".join(partes) + ".")
     return redirect(url_for("listar_transacoes"))
+
+
+@app.route("/pluggy/recomecar", methods=["POST"])
+@login_required
+def pluggy_recomecar():
+    """Zera o histórico do Herc pra o banco virar a fonte única e limpa. Mantém regras e metas."""
+    user = current_user()
+    with get_db() as db:
+        db.execute("DELETE FROM transacoes WHERE user_id = ?", (user["id"],))
+        db.execute("UPDATE usuarios SET saldo_banco = NULL, last_ofx_import = NULL WHERE id = ?", (user["id"],))
+    flash("Histórico limpo. Agora clique em Sincronizar pra puxar tudo do banco, sem duplicatas.")
+    return redirect(url_for("settings"))
 
 
 # ------------------------
