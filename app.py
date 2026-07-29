@@ -736,7 +736,7 @@ def pluggy_fetch_items(api_key: str, item_ids: list[str], since: str) -> list[di
         is_credit = tipo_conta == "CREDIT"
         page = 1
         while True:
-            data = _pluggy_get(api_key, "/transactions",
+            data = _pluggy_get(api_key, "/v2/transactions",
                                {"accountId": conta_id, "from": since, "page": page, "pageSize": 500})
             resultados = data.get("results", [])
             for t in resultados:
@@ -3536,7 +3536,7 @@ def pluggy_testar():
             linhas.append(f"{nome} [{tipo}] — ignorada")
             continue
         try:
-            data = _pluggy_get(api_key, "/transactions", {"accountId": c.get("id"), "from": since90, "pageSize": 100})
+            data = _pluggy_get(api_key, "/v2/transactions", {"accountId": c.get("id"), "from": since90, "pageSize": 100})
             res = data.get("results", [])
             total = data.get("total", len(res))
             ultima = (res[0].get("date") or "")[:10] if res else "nenhuma"
