@@ -668,7 +668,26 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
 # Open Finance via Pluggy: o banco entrega os gastos direto, sem subir arquivo
 # ------------------------
 def pluggy_configured() -> bool:
-    return bool(PLUGGY_CLIENT_ID and PLUGGY_CLIENT_SECRET and PLUGGY_ITEM_IDS and http_requests)
+    """App nível: consegue falar com a Pluggy. O item do banco é por usuário."""
+    return bool(PLUGGY_CLIENT_ID and PLUGGY_CLIENT_SECRET and http_requests)
+
+
+def pluggy_user_item_ids(user) -> list[str]:
+    """Item(ns) do banco conectados por ESTE usuário (via widget). Cai no env var antigo se vazio."""
+    item = user["pluggy_item_id"] if ("pluggy_item_id" in user.keys() and user["pluggy_item_id"]) else None
+    return [item] if item else PLUGGY_ITEM_IDS
+
+
+def pluggy_connect_token(api_key: str) -> str:
+    """Token pra inicializar o widget Pluggy Connect (amarrado à NOSSA aplicação)."""
+    resp = http_requests.post(
+        f"{PLUGGY_API}/connect_token",
+        json={},
+        headers={"X-API-KEY": api_key},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["accessToken"]
 
 
 def pluggy_auth() -> str:
@@ -693,21 +712,21 @@ def _pluggy_get(api_key: str, path: str, params: dict | None = None):
     return resp.json()
 
 
-def pluggy_accounts(api_key: str) -> list[dict]:
-    """Todas as contas conectadas (de todos os itens configurados no ambiente)."""
+def pluggy_accounts(api_key: str, item_ids: list[str]) -> list[dict]:
+    """Todas as contas dos itens informados."""
     contas = []
-    for item_id in PLUGGY_ITEM_IDS:
+    for item_id in item_ids:
         data = _pluggy_get(api_key, "/accounts", {"itemId": item_id})
         contas.extend(data.get("results", []))
     return contas
 
 
-def pluggy_fetch_items(api_key: str, since: str) -> list[dict[str, Any]]:
-    """Transações de todas as contas desde `since` (YYYY-MM-DD), no formato do import do Herc.
+def pluggy_fetch_items(api_key: str, item_ids: list[str], since: str) -> list[dict[str, Any]]:
+    """Transações de todas as contas dos itens desde `since` (YYYY-MM-DD), no formato do import.
     Sinal do valor: em conta de banco, negativo = gasto; em cartão de crédito é INVERTIDO
     (positivo = compra/gasto, negativo = pagamento/estorno da fatura, que pulamos)."""
     items = []
-    for conta in pluggy_accounts(api_key):
+    for conta in pluggy_accounts(api_key, item_ids):
         conta_id = conta.get("id")
         tipo_conta = conta.get("type")
         # Só conta corrente/poupança e cartão viram transações. Investimento/empréstimo
@@ -2051,6 +2070,7 @@ def home():
         goal=goal,
         note_pending=note_pending,
         pluggy_ativo=pluggy_configured(),
+        pluggy_tem_banco=bool(pluggy_user_item_ids(user)),
         sobra_guardar=sobra_guardar,
     )
 
@@ -2381,7 +2401,7 @@ def settings():
         pluggy_ativo=pluggy_configured(),
         pluggy_tem_id=bool(PLUGGY_CLIENT_ID),
         pluggy_tem_secret=bool(PLUGGY_CLIENT_SECRET),
-        pluggy_tem_item=bool(PLUGGY_ITEM_IDS),
+        pluggy_tem_banco=bool(pluggy_user_item_ids(user)),
     )
 
 
@@ -3442,6 +3462,36 @@ def _pluggy_erro_detalhe(e: Exception) -> str:
     return f"{type(e).__name__}: {e}"[:200]
 
 
+@app.route("/pluggy/conectar")
+@login_required
+def pluggy_conectar():
+    """Abre o widget Pluggy Connect (amarrado à NOSSA aplicação) pra conectar o banco."""
+    if not pluggy_configured():
+        flash("A conexão automática ainda não está ligada neste servidor.")
+        return redirect(url_for("settings"))
+    try:
+        token = pluggy_connect_token(pluggy_auth())
+    except Exception as e:
+        flash("Não consegui abrir a conexão com a Pluggy: " + _pluggy_erro_detalhe(e))
+        return redirect(url_for("settings"))
+    return render_template("pluggy_conectar.html", connect_token=token)
+
+
+@app.route("/pluggy/item", methods=["POST"])
+@login_required
+def pluggy_salvar_item():
+    """Guarda o item que o widget criou (dono é a nossa aplicação → contas visíveis)."""
+    user = current_user()
+    item_id = sanitize_text(request.form.get("item_id"))[:80]
+    if not item_id:
+        flash("A conexão não retornou um item. Tente de novo.")
+        return redirect(url_for("settings"))
+    with get_db() as db:
+        db.execute("UPDATE usuarios SET pluggy_item_id = ? WHERE id = ?", (item_id, user["id"]))
+    flash("Banco conectado! Agora é só clicar em Sincronizar. 🎉")
+    return redirect(url_for("settings"))
+
+
 @app.route("/pluggy/testar", methods=["POST"])
 @login_required
 def pluggy_testar():
@@ -3449,21 +3499,25 @@ def pluggy_testar():
     if not pluggy_configured():
         flash("A conexão automática ainda não está ligada neste servidor.")
         return redirect(url_for("settings"))
+    user = current_user()
+    item_ids = pluggy_user_item_ids(user)
+    if not item_ids:
+        flash("Conecte seu banco primeiro (botão “Conectar meu banco”).")
+        return redirect(url_for("settings"))
     try:
         api_key = pluggy_auth()
     except Exception as e:
         flash("Autenticação falhou (confira o Client ID/Secret no WSGI): " + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))
     try:
-        contas = pluggy_accounts(api_key)
+        contas = pluggy_accounts(api_key, item_ids)
     except Exception as e:
-        flash("Autentiquei OK, mas não acessei o item (o Item ID pode ser de outra aplicação): "
-              + _pluggy_erro_detalhe(e))
+        flash("Autentiquei OK, mas não acessei o item: " + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))
     if not contas:
-        # Sem contas: prova cada item configurado pra ver se as chaves enxergam o item
+        # Sem contas: prova cada item pra ver se as chaves enxergam o item
         detalhes = []
-        for item_id in PLUGGY_ITEM_IDS:
+        for item_id in item_ids:
             try:
                 it = _pluggy_get(api_key, f"/items/{item_id}")
                 conn = (it.get("connector") or {}).get("name", "?")
@@ -3502,11 +3556,15 @@ def pluggy_sincronizar():
     if not pluggy_configured():
         flash("A conexão automática ainda não está ligada neste servidor.")
         return redirect(url_for("settings"))
+    item_ids = pluggy_user_item_ids(user)
+    if not item_ids:
+        flash("Conecte seu banco primeiro (botão “Conectar meu banco”).")
+        return redirect(url_for("settings"))
     # Janela ampla e fixa (90 dias): o dedup por id da Pluggy cuida da sobreposição,
     # então não corremos o risco de a janela curta deixar gasto recente de fora.
     since = (date.today() - timedelta(days=90)).isoformat()
     try:
-        items = pluggy_fetch_items(pluggy_auth(), since)
+        items = pluggy_fetch_items(pluggy_auth(), item_ids, since)
     except Exception as e:
         flash("Não consegui sincronizar: " + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))

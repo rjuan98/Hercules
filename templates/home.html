@@ -85,7 +85,7 @@
     <h1 class="simple-line">Seu saldo é <strong>{{ stats['balance']|money }}</strong>.</h1>
     <p class="simple-line-2">Você gastou <strong>{{ today_spent|money }}</strong> hoje. Seguindo assim, termina o mês com cerca de <strong>{{ projected_end|money }}</strong>.</p>
     <div class="simple-actions">
-        {% if pluggy_ativo %}
+        {% if pluggy_tem_banco %}
         <form method="POST" action="{{ url_for('pluggy_sincronizar') }}" style="width:100%;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="button button-primary simple-big-btn" style="width:100%;"><i data-lucide="refresh-cw"></i> Atualizar com o banco</button>
@@ -110,16 +110,18 @@
                 · pode gastar hoje <strong style="color:var(--primary-deep);">{{ can_spend_today|money }}</strong>
             </p>
         </div>
-        {% if pluggy_ativo %}
+        {% if pluggy_tem_banco %}
         <form method="POST" action="{{ url_for('pluggy_sincronizar') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="button button-primary"><i data-lucide="refresh-cw"></i> Sincronizar</button>
         </form>
+        {% elif pluggy_ativo %}
+        <a href="{{ url_for('pluggy_conectar') }}" class="button button-primary"><i data-lucide="link"></i> Conectar banco</a>
         {% endif %}
     </div>
-    {% if pluggy_ativo %}
+    {% if pluggy_tem_banco %}
     <p class="helper-text" style="margin-top:10px;">
-        {% if dias_ofx is none %}Banco ainda não sincronizado — toque em Sincronizar pra puxar seus gastos.
+        {% if dias_ofx is none %}Banco conectado — toque em Sincronizar pra puxar seus gastos.
         {% elif dias_ofx == 0 %}Sincronizado com o banco hoje ✓
         {% else %}Última sincronização com o banco há {{ dias_ofx }} {{ 'dia' if dias_ofx == 1 else 'dias' }}.{% endif %}
     </p>

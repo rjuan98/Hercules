@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Conectar banco · Hércules{% endblock %}
+{% block page_title %}Conectar banco{% endblock %}
+{% block page_subtitle %}Conexão segura via Open Finance (Pluggy).{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:640px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:14px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Vou abrir a conexão segura da Pluggy.</strong><br>
+            Na lista, escolha <strong>Meu Pluggy</strong>, entre com a sua conta e autorize.
+            A partir daí eu puxo seus gastos sozinho — sem subir arquivo.
+        </div>
+    </div>
+    <p id="pluggy-status" class="helper-text">Abrindo a conexão…</p>
+    <div class="page-actions" style="justify-content:flex-start; margin-top:12px;">
+        <button type="button" id="pluggy-abrir" class="button button-primary">Abrir conexão</button>
+        <a href="{{ url_for('settings') }}" class="button button-outline">Voltar</a>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
+<script>
+window.addEventListener('DOMContentLoaded', function () {
+    var token = {{ connect_token|tojson }};
+    var csrf = {{ csrf_token()|tojson }};
+    var salvarUrl = {{ url_for('pluggy_salvar_item')|tojson }};
+    var settingsUrl = {{ url_for('settings')|tojson }};
+    var status = document.getElementById('pluggy-status');
+    var botao = document.getElementById('pluggy-abrir');
+
+    function salvarItem(itemId) {
+        status.textContent = 'Conectado! Salvando…';
+        var body = new URLSearchParams();
+        body.append('csrf_token', csrf);
+        body.append('item_id', itemId);
+        fetch(salvarUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+        }).then(function () { window.location = settingsUrl; })
+          .catch(function () { status.textContent = 'Conectou, mas falhou ao salvar. Volte e tente de novo.'; });
+    }
+
+    function abrir() {
+        if (typeof PluggyConnect === 'undefined') {
+            status.textContent = 'Não consegui carregar o conector da Pluggy. Recarregue a página.';
+            return;
+        }
+        try {
+            var pc = new PluggyConnect({
+                connectToken: token,
+                includeSandbox: false,
+                onSuccess: function (data) {
+                    var id = (data && data.item && data.item.id) || (data && data.itemId);
+                    if (id) { salvarItem(id); }
+                    else { status.textContent = 'Conexão concluída, mas sem id do item. Tente de novo.'; }
+                },
+                onError: function () {
+                    status.textContent = 'A conexão foi cancelada ou deu erro. Você pode tentar de novo.';
+                },
+            });
+            pc.init();
+            status.textContent = 'Conexão aberta — escolha o Meu Pluggy na janela.';
+        } catch (e) {
+            status.textContent = 'Erro ao abrir o conector: ' + e.message;
+        }
+    }
+
+    botao.addEventListener('click', abrir);
+    // tenta abrir sozinho; se o navegador segurar, o botão resolve
+    abrir();
+});
+</script>
+{% endblock %}
