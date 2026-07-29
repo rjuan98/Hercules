@@ -4,6 +4,28 @@
 {% block page_subtitle %}Reserva, viagem, casa e qualquer objetivo seu.{% endblock %}
 
 {% block content %}
+{% if stats['saldo_investido'] is not none %}
+{% for g in goals if 'reserva' in (g.row['nome'] or '')|lower and g.row['ativo'] %}
+{% if (g.row['valor_atual']|float - stats['saldo_investido'])|abs > 0.01 %}
+<section class="page-card suggestion-card" style="margin-bottom:18px;">
+    <div class="hercules-greeting" style="margin-bottom:12px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Sua reserva no banco está diferente.</strong><br>
+            Aqui está anotado <strong>{{ g.row['valor_atual']|money }}</strong>, mas no banco você tem
+            <strong>{{ stats['saldo_investido']|money }}</strong> investido.
+            Aporte ou resgate feito direto no banco eu não vejo como movimentação — mas posso usar o valor real.
+        </div>
+    </div>
+    <form method="POST" action="{{ url_for('reserva_usar_saldo_real') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="button button-primary">Usar o valor do banco ({{ stats['saldo_investido']|money }})</button>
+    </form>
+</section>
+{% endif %}
+{% endfor %}
+{% endif %}
+
 {% if reserva.mostrar %}
 <section class="page-card suggestion-card" style="margin-bottom:18px;">
     <div class="hercules-greeting" style="margin-bottom:12px;">

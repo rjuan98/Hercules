@@ -721,6 +721,19 @@ def pluggy_accounts(api_key: str, item_ids: list[str]) -> list[dict]:
     return contas
 
 
+def pluggy_investimentos(api_key: str, item_ids: list[str]) -> float:
+    """Total guardado em investimentos (renda fixa, fundos etc). Vem de /investments,
+    não de /accounts — o dinheiro guardado não é saldo em conta, é reserva."""
+    total = 0.0
+    for item_id in item_ids:
+        data = _pluggy_get(api_key, "/investments", {"itemId": item_id})
+        for inv in data.get("results", []):
+            if (inv.get("status") or "ACTIVE").upper() == "TOTAL_WITHDRAWAL":
+                continue  # já resgatado por inteiro
+            total += float(inv.get("balance") or 0)
+    return total
+
+
 def pluggy_fetch_items(api_key: str, contas: list[dict], since: str) -> list[dict[str, Any]]:
     """Transações das contas informadas desde `since` (YYYY-MM-DD), no formato do import.
     Sinal do valor: em conta de banco, negativo = gasto; em cartão de crédito é INVERTIDO
@@ -1413,7 +1426,7 @@ def calc_transaction_totals(user_id: int):
 
     # --- Reserva: quanto separar por mês para cumprir a meta no prazo ---
     with get_db() as db:
-        user_row = db.execute("SELECT meta_mensal, cartao_orcamento, saldo_banco FROM usuarios WHERE id = ?", (user_id,)).fetchone()
+        user_row = db.execute("SELECT meta_mensal, cartao_orcamento, saldo_banco, saldo_investido FROM usuarios WHERE id = ?", (user_id,)).fetchone()
         month_reserve_saved = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
@@ -1475,6 +1488,9 @@ def calc_transaction_totals(user_id: int):
         "month_expenses": float(month_expenses or 0),
         "balance": float(balance or 0),
         "fatura_credito_mes": float(fatura_credito_mes or 0),
+        "saldo_investido": (float(user_row["saldo_investido"])
+                            if (user_row and "saldo_investido" in user_row.keys() and user_row["saldo_investido"] is not None)
+                            else None),
         "cartao_orcamento": cartao_orcamento,
         "fatura_pct_orcamento": fatura_pct_orcamento,
         "credito_pct_renda": credito_pct_renda,
@@ -2466,6 +2482,30 @@ def metas():
     }
     novo = request.args.get("novo", type=int)
     return render_template("metas.html", user=user, goals=goals_view, stats=stats, novo=novo, reserva=reserva)
+
+
+@app.route("/reserva/usar-saldo-real", methods=["POST"])
+@login_required
+def reserva_usar_saldo_real():
+    """Corrige a reserva pelo valor REAL investido no banco (resgates/aportes que o Herc
+    não vê como transação de conta). O banco manda mais que o número digitado à mão."""
+    user = current_user()
+    real = user["saldo_investido"] if "saldo_investido" in user.keys() else None
+    if real is None:
+        flash("Ainda não sei quanto você tem investido. Sincronize o banco primeiro.")
+        return redirect(url_for("metas"))
+    with get_db() as db:
+        goal = db.execute(
+            """SELECT id FROM metas WHERE user_id = ? AND ativo = 1 AND LOWER(nome) LIKE '%reserva%'
+               ORDER BY created_at DESC LIMIT 1""",
+            (user["id"],),
+        ).fetchone()
+        if not goal:
+            flash("Você ainda não tem uma reserva.")
+            return redirect(url_for("metas"))
+        db.execute("UPDATE metas SET valor_atual = ? WHERE id = ?", (float(real), goal["id"]))
+    flash(f"Reserva atualizada pelo banco: {money(real)}.")
+    return redirect(url_for("metas"))
 
 
 @app.route("/reserva/guardar", methods=["POST"])
@@ -3573,11 +3613,22 @@ def pluggy_sincronizar():
         return redirect(url_for("settings"))
     # Saldo REAL do banco (autoritativo): soma das contas correntes/poupança do banco.
     saldo_banco = sum(float(c.get("balance") or 0) for c in contas if c.get("type") == "BANK")
+    # Guardado (investimentos): não é saldo em conta, é reserva — vem de /investments.
+    try:
+        saldo_investido = pluggy_investimentos(api_key, item_ids)
+    except Exception:
+        saldo_investido = None  # banco sem investimento ou sem permissão: não quebra o sync
     with get_db() as db:
-        db.execute("UPDATE usuarios SET last_ofx_import = ?, saldo_banco = ? WHERE id = ?",
-                   (date.today().isoformat(), saldo_banco, user["id"]))
+        if saldo_investido is None:
+            db.execute("UPDATE usuarios SET last_ofx_import = ?, saldo_banco = ? WHERE id = ?",
+                       (date.today().isoformat(), saldo_banco, user["id"]))
+        else:
+            db.execute("UPDATE usuarios SET last_ofx_import = ?, saldo_banco = ?, saldo_investido = ? WHERE id = ?",
+                       (date.today().isoformat(), saldo_banco, saldo_investido, user["id"]))
     stats = import_ofx_transactions(user["id"], items)
     partes = [f"saldo do banco {money(saldo_banco)}"]
+    if saldo_investido:
+        partes.append(f"guardado {money(saldo_investido)}")
     if stats["importadas"]:
         partes.append(f"{stats['importadas']} movimentações novas")
     if stats["reconciliadas"]:
