@@ -1063,6 +1063,42 @@ body {
     color: var(--danger);
     border-color: rgba(178, 58, 42, 0.3);
 }
+/* Crédito x débito bem distintos: o crédito ganha etiqueta própria (roxo, não
+   vermelho) porque ainda não saiu do saldo — é fatura pra pagar depois. */
+.tx-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    border: 1.5px solid transparent;
+}
+.tx-tag-credito {
+    background: rgba(126, 78, 122, 0.14);
+    color: #7E4E7A;
+    border-color: rgba(126, 78, 122, 0.35);
+}
+.tx-tag-debito {
+    background: rgba(46, 109, 140, 0.10);
+    color: var(--secondary-2);
+    border-color: rgba(46, 109, 140, 0.28);
+}
+
+/* Campo de dinheiro com prefixo R$ */
+.money-input { position: relative; }
+.money-prefix {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-weight: 800;
+    pointer-events: none;
+}
+.money-input input { padding-left: 46px; }
 
 /* ============================================================
    Herc "presente" no login

@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='12') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='13') }}">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='herc.svg', v='2') }}">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest', v='3') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='herc-192.png') }}">
@@ -218,6 +218,42 @@
                 if (pendingForm) pendingForm.submit();
                 pendingForm = null;
             });
+
+            // ---- Campos de dinheiro: formata ao sair do campo (aceita 500, 500,50, 1.234,56) ----
+            document.querySelectorAll('input[data-money]').forEach((inp) => {
+                inp.addEventListener('blur', () => {
+                    const raw = inp.value.trim();
+                    if (!raw) return;
+                    let n = raw.replace(/[^\d,.]/g, '');
+                    // com vírgula = padrão brasileiro (ponto é milhar); sem vírgula, ponto é decimal
+                    n = n.includes(',') ? n.replace(/\./g, '').replace(',', '.') : n;
+                    const v = parseFloat(n);
+                    if (isNaN(v)) return;
+                    inp.value = v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                });
+            });
+
+            // ---- Abrir/fechar o menu arrastando (prática dos apps novos) ----
+            if (sidebar) {
+                let startX = 0, startY = 0, tracking = false;
+                document.addEventListener('touchstart', (e) => {
+                    if (e.touches.length !== 1) return;
+                    startX = e.touches[0].clientX;
+                    startY = e.touches[0].clientY;
+                    // arrasta da borda esquerda pra abrir, ou de qualquer lugar pra fechar
+                    tracking = startX < 28 || sidebar.classList.contains('open');
+                }, { passive: true });
+                document.addEventListener('touchend', (e) => {
+                    if (!tracking) return;
+                    tracking = false;
+                    const dx = e.changedTouches[0].clientX - startX;
+                    const dy = Math.abs(e.changedTouches[0].clientY - startY);
+                    if (dy > 60) return; // foi rolagem vertical, não gesto lateral
+                    const aberto = sidebar.classList.contains('open');
+                    if (dx > 60 && !aberto) openDrawer();
+                    else if (dx < -60 && aberto) closeDrawer();
+                }, { passive: true });
+            }
 
             // ---- Destaque do item recém-criado ----
             const highlighted = document.querySelector('.just-created');

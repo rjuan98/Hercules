@@ -1,34 +1,10 @@
 {% extends 'base.html' %}
 {% block title %}Configurações · Hércules{% endblock %}
 {% block page_title %}Configurações{% endblock %}
-{% block page_subtitle %}Perfil, foco principal e nível de notificações.{% endblock %}
+{% block page_subtitle %}Sua conta, seu perfil e a conexão com o banco.{% endblock %}
 
 {% block content %}
-<section class="page-card hero-card">
-    <div class="hero-grid">
-        <div class="hero-copy">
-            <span class="hero-kicker"><i data-lucide="settings-2"></i> Preferências</span>
-            <div>
-                <h1 class="page-title" style="margin-bottom:10px;">Deixe o Hércules do seu jeito.</h1>
-                <p class="subtitle">Você pode mudar o perfil, o que vê primeiro e o quanto o app deve falar com você.</p>
-            </div>
-        </div>
-        <div class="hero-panel">
-            <article class="panel-card">
-                <p class="metric-label">Plano atual</p>
-                <p class="metric-value" style="font-size:1.7rem;">{{ plan_label }}</p>
-                <p class="metric-footnote">Freemium inicial com expansão futura.</p>
-            </article>
-            <article class="panel-card">
-                <p class="metric-label">Metas</p>
-                <p class="metric-value" style="font-size:1.7rem;">{{ goals_count }}</p>
-                <p class="metric-footnote">Compromissos: {{ commitments_count }}</p>
-            </article>
-        </div>
-    </div>
-</section>
-
-<section class="page-card" style="margin-top:18px;">
+<section class="page-card">
     <div class="topbar-copy" style="margin-bottom:14px;">
         <h2 class="topbar-title" style="font-size:1.25rem;">Sua conta</h2>
         <p class="topbar-subtitle">Nome, e-mail e senha de acesso.</p>
@@ -98,12 +74,22 @@
         </div>
         <div class="form-group">
             <label for="meta_mensal">Quanto quer guardar por mês</label>
-            <input id="meta_mensal" type="text" name="meta_mensal" value="{{ session.get('meta_mensal', 0) }}" placeholder="Ex.: 300" inputmode="decimal">
-            <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">Usado no cálculo do "pode gastar hoje" quando a meta não tem prazo.</p>
+            <div class="money-input">
+                <span class="money-prefix">R$</span>
+                <input id="meta_mensal" type="text" name="meta_mensal" data-money
+                       value="{{ '%.2f'|format(session.get('meta_mensal', 0)|float)|replace('.', ',') if session.get('meta_mensal') else '' }}"
+                       placeholder="0,00" inputmode="decimal">
+            </div>
+            <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">Deixe em branco se não quiser meta fixa. Entra no cálculo do "pode gastar hoje".</p>
         </div>
         <div class="form-group">
             <label for="cartao_orcamento">Teto de gasto no cartão (por mês)</label>
-            <input id="cartao_orcamento" type="text" name="cartao_orcamento" value="{{ user['cartao_orcamento'] or '' }}" placeholder="Ex.: 500" inputmode="decimal">
+            <div class="money-input">
+                <span class="money-prefix">R$</span>
+                <input id="cartao_orcamento" type="text" name="cartao_orcamento" data-money
+                       value="{{ '%.2f'|format(user['cartao_orcamento']|float)|replace('.', ',') if user['cartao_orcamento'] else '' }}"
+                       placeholder="0,00" inputmode="decimal">
+            </div>
             <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">O Herc mostra a fatura crescer e avisa quando chegar perto desse teto.</p>
         </div>
         <div class="form-group" style="grid-column:1 / -1;">

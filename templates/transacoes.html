@@ -65,9 +65,13 @@
                         {% if novo == tx['id'] %}<span class="just-created-tag">✓ registrado agora</span>{% endif %}
                     </p>
                     <div class="note-meta">
+                        {% if tx['tipo'] == 'saida' %}
+                        <span class="tx-tag {{ 'tx-tag-credito' if tx['no_credito'] else 'tx-tag-debito' }}">
+                            {% if tx['no_credito'] %}💳 Crédito{% else %}🏦 Débito{% endif %}
+                        </span>
+                        {% endif %}
                         <span>{{ tx['categoria'] or 'Outros' }}</span>
                         <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
-                        {% if tx['no_credito'] %}<span>💳 no crédito</span>{% endif %}
                     </div>
                 </div>
                 <span class="badge {{ 'tx-badge-entrada' if tx['tipo'] == 'entrada' else 'tx-badge-saida' }}">
