@@ -20,6 +20,22 @@
 </section>
 {% endif %}
 
+{% if insight %}
+<section class="page-card" style="margin-bottom:18px;">
+    <p class="metric-label" style="margin:0;">📅 Seus últimos 7 dias</p>
+    <p class="metric-value" style="font-size:1.6rem; margin-top:6px;">{{ insight.atual|money }}</p>
+    <p class="metric-footnote" style="margin-top:6px;">
+        Média de {{ insight.media_dia|money }} por dia.
+        {% if insight.tem_comparacao %}
+            {% if insight.delta > 0 %}Gastou <strong style="color:var(--danger);">{{ insight.delta|money }} a mais</strong> que na semana anterior.
+            {% elif insight.delta < 0 %}Gastou <strong style="color:var(--success);">{{ (-insight.delta)|money }} a menos</strong> que na semana anterior. 👏
+            {% else %}Mesmo ritmo da semana anterior.{% endif %}
+        {% endif %}
+        {% if insight.top_cat %}<br>Onde mais foi: <strong>{{ insight.top_cat }}</strong> ({{ insight.top_valor|money }}).{% endif %}
+    </p>
+</section>
+{% endif %}
+
 <section class="metric-grid cols-4">
     <article class="glass-card metric-card">
         <p class="metric-label">Saldo atual</p>

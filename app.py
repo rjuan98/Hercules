@@ -784,8 +784,8 @@ TRABALHOS = [
      "feito": "Cortou 3 cabeças: ensinou 3 regras ao Herc.",
      "como": "Ensine o Herc 3 vezes (ex.: 'Dennys é Doces') na tela inicial ou em Categorias."},
     {"key": "corca", "emoji": "🦌", "nome": "A Corça de Cerineia",
-     "feito": "Mais rápido que a flecha: um gasto anotado sem tocar no app.",
-     "como": "Configure a captura automática nas Configurações e faça uma compra."},
+     "feito": "Mais rápido que a flecha: seu banco entrega os gastos sozinho.",
+     "como": "Conecte seu banco pelo Open Finance nas Configurações."},
     {"key": "javali", "emoji": "🐗", "nome": "O Javali de Erimanto",
      "feito": "Capturou o javali: fechou um mês no azul.",
      "como": "Termine um mês com as entradas maiores que as saídas."},
@@ -793,14 +793,14 @@ TRABALHOS = [
      "feito": "Tudo limpo: nenhuma pendência, nenhuma conta vencida.",
      "como": "Resolva as capturas pendentes e não deixe contas vencerem."},
     {"key": "aves", "emoji": "🦅", "nome": "As Aves do Estínfale",
-     "feito": "Espantou as aves: 10 gastos capturados automaticamente.",
-     "como": "Deixe a captura automática trabalhar por você."},
+     "feito": "Espantou as aves: 10 movimentações entraram sem você digitar.",
+     "como": "Sincronize o banco e deixe o Herc trabalhar por você."},
     {"key": "touro", "emoji": "🐂", "nome": "O Touro de Creta",
-     "feito": "Domou o touro: 7 dias seguidos fechando o dia.",
-     "como": "Feche o dia na tela inicial por 7 dias seguidos."},
+     "feito": "Domou o touro: fechou um mês sem estourar o teto do cartão.",
+     "como": "Defina um teto de gasto no cartão e termine o mês dentro dele."},
     {"key": "eguas", "emoji": "🐎", "nome": "As Éguas de Diomedes",
-     "feito": "Domou as éguas selvagens: 30 dias seguidos com o Herc.",
-     "como": "Mantenha a sequência de check-ins por 30 dias."},
+     "feito": "Domou as éguas selvagens: um mês de estrada com o Herc.",
+     "como": "Use o Herc por 30 dias com suas movimentações em dia."},
     {"key": "cinto", "emoji": "🎗️", "nome": "O Cinto de Hipólita",
      "feito": "Conquistou o cinto: completou a primeira meta.",
      "como": "Crie uma meta e guarde até completar."},
@@ -846,8 +846,10 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
         ).fetchone()["n"]
         return n >= 3
     if key == "corca":
+        # Banco conectado pelo Open Finance: os gastos passam a entrar sozinhos
         return db.execute(
-            "SELECT 1 FROM transacoes WHERE user_id = ? AND fonte = 'notificacao' LIMIT 1", (user_id,)
+            "SELECT 1 FROM usuarios WHERE id = ? AND pluggy_item_id IS NOT NULL AND pluggy_item_id != ''",
+            (user_id,),
         ).fetchone() is not None
     if key == "javali":
         row = db.execute(
@@ -874,14 +876,34 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
         ).fetchone()
         return pend is None and vencida is None
     if key == "aves":
+        # Movimentações que entraram sem digitação (banco/extrato)
         n = db.execute(
-            "SELECT COUNT(*) AS n FROM transacoes WHERE user_id = ? AND fonte = 'notificacao'", (user_id,)
+            "SELECT COUNT(*) AS n FROM transacoes WHERE user_id = ? AND fonte = 'ofx'", (user_id,)
         ).fetchone()["n"]
         return n >= 10
     if key == "touro":
-        return checkin_streak(user_id) >= 7
+        # Fechou o mês passado dentro do teto de gasto do cartão que definiu
+        row = db.execute("SELECT cartao_orcamento FROM usuarios WHERE id = ?", (user_id,)).fetchone()
+        teto = float(row["cartao_orcamento"] or 0) if row else 0.0
+        if teto <= 0:
+            return False
+        fatura = db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
+                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+            (user_id, ini, fim),
+        ).fetchone()["t"]
+        return 0 < float(fatura) <= teto
     if key == "eguas":
-        return checkin_streak(user_id) >= 30
+        # Um mês de estrada: conta com 30+ dias e uso real (20+ movimentações)
+        row = db.execute(
+            "SELECT CAST(julianday('now') - julianday(created_at) AS INTEGER) AS dias FROM usuarios WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if not row or (row["dias"] or 0) < 30:
+            return False
+        n = db.execute("SELECT COUNT(*) AS n FROM transacoes WHERE user_id = ?", (user_id,)).fetchone()["n"]
+        return n >= 20
     if key == "cinto":
         return db.execute(
             "SELECT 1 FROM metas WHERE user_id = ? AND meta_valor > 0 AND valor_atual >= meta_valor LIMIT 1",
@@ -2093,6 +2115,43 @@ def home():
     )
 
 
+def insight_semanal(user_id: int) -> dict[str, Any] | None:
+    """Insight concreto da semana, comparando com a semana anterior do PRÓPRIO usuário
+    (não com média de mercado, que não diz nada pra quem está começando)."""
+    hoje = date.today()
+    ini_atual, fim_atual = (hoje - timedelta(days=6)).isoformat(), hoje.isoformat()
+    ini_ant, fim_ant = (hoje - timedelta(days=13)).isoformat(), (hoje - timedelta(days=7)).isoformat()
+    with get_db() as db:
+        def gasto(ini, fim):
+            return float(db.execute(
+                """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+                   WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+                     AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                (user_id, ini, fim),
+            ).fetchone()["t"])
+        atual = gasto(ini_atual, fim_atual)
+        anterior = gasto(ini_ant, fim_ant)
+        top = db.execute(
+            """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
+               FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)
+               GROUP BY cat ORDER BY t DESC LIMIT 1""",
+            (user_id, ini_atual, fim_atual),
+        ).fetchone()
+    if atual <= 0:
+        return None
+    return {
+        "atual": atual,
+        "anterior": anterior,
+        "delta": atual - anterior,
+        "tem_comparacao": anterior > 0,
+        "media_dia": atual / 7,
+        "top_cat": top["cat"] if top else None,
+        "top_valor": float(top["t"] or 0) if top else 0.0,
+    }
+
+
 # Prévia do IR — valores de REFERÊNCIA (mudam todo ano; confirmar no ano vigente).
 IR_LIMITE_DECLARACAO = 30000.0   # renda tributável anual a partir da qual costuma ser obrigatório declarar
 IR_LIMITE_EDUCACAO = 3561.50     # dedução de educação por pessoa/ano
@@ -2193,6 +2252,7 @@ def dashboard():
         labels=labels,
         values=values,
         retrato=retrato,
+        insight=insight_semanal(user["id"]),
         month=month_label(date.today().strftime("%Y-%m")),
     )
 

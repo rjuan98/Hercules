@@ -1,7 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}{% if mode == 'edit' %}Editar nota{% else %}Nova nota{% endif %} · Hércules{% endblock %}
 {% block page_title %}{% if mode == 'edit' %}Editar nota{% else %}Nova nota{% endif %}{% endblock %}
-{% block page_subtitle %}Cadastre ou revise sua nota fiscal.{% endblock %}
+{% set so_pessoal = session.get('perfil', 'pf') == 'pf' %}
+{% block page_subtitle %}{% if so_pessoal %}Guarde comprovantes — os de saúde e educação abatem seu imposto.{% else %}Cadastre ou revise sua nota fiscal.{% endif %}{% endblock %}
 
 {% block content %}
 <section class="page-card form-card" style="max-width: 900px; margin:0 auto;">
@@ -34,8 +35,14 @@
                 {% endfor %}
             </select>
         </div>
+        {% if so_pessoal %}
+        {# Pessoa física não precisa de campo fiscal na cara: fica em "avançado" #}
+        <details class="form-advanced" style="grid-column:1 / -1;">
+            <summary>Dados da nota fiscal (opcional)</summary>
+            <div class="form-grid cols-2" style="margin-top:12px;">
+        {% endif %}
         <div class="form-group">
-            <label for="cliente">Cliente / Emitente</label>
+            <label for="cliente">{% if so_pessoal %}Quem emitiu{% else %}Cliente / Emitente{% endif %}</label>
             <input id="cliente" type="text" name="cliente" value="{{ note['cliente'] if note else '' }}" placeholder="Nome">
         </div>
         <div class="form-group">
@@ -54,6 +61,10 @@
                 {% endfor %}
             </select>
         </div>
+        {% if so_pessoal %}
+            </div>
+        </details>
+        {% endif %}
         <div class="form-group" style="grid-column:1 / -1;">
             <label for="arquivo">Anexo</label>
             <input id="arquivo" type="file" name="arquivo" accept=".pdf,image/*" capture="environment">
