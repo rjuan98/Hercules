@@ -3462,13 +3462,26 @@ def pluggy_testar():
         return redirect(url_for("settings"))
     if not contas:
         flash("Conectei na Pluggy, mas não achei contas — confirme que o banco está conectado no Meu Pluggy.")
-    else:
-        nomes = ", ".join(
-            f"{c.get('name') or c.get('marketingName') or 'conta'} "
-            f"({'cartão' if c.get('type') == 'CREDIT' else 'conta'})"
-            for c in contas
-        )
-        flash(f"Conexão OK! Encontrei: {nomes}.")
+        return redirect(url_for("settings"))
+    # Diagnóstico: quantos lançamentos cada conta devolve em 90 dias e a data da última
+    since90 = (date.today() - timedelta(days=90)).isoformat()
+    linhas = []
+    for c in contas:
+        tipo = c.get("type")
+        nome = c.get("name") or c.get("marketingName") or "conta"
+        if tipo not in ("BANK", "CREDIT"):
+            linhas.append(f"{nome} [{tipo}] — ignorada")
+            continue
+        try:
+            data = _pluggy_get(api_key, "/transactions", {"accountId": c.get("id"), "from": since90, "pageSize": 100})
+            res = data.get("results", [])
+            total = data.get("total", len(res))
+            ultima = (res[0].get("date") or "")[:10] if res else "nenhuma"
+            rotulo = "cartão" if tipo == "CREDIT" else "conta"
+            linhas.append(f"{nome} ({rotulo}): {total} lançamentos em 90d, última {ultima}")
+        except Exception as e:
+            linhas.append(f"{nome}: erro ao ler lançamentos ({_pluggy_erro_detalhe(e)})")
+    flash("Conexão OK. " + " · ".join(linhas))
     return redirect(url_for("settings"))
 
 
@@ -3480,12 +3493,9 @@ def pluggy_sincronizar():
     if not pluggy_configured():
         flash("A conexão automática ainda não está ligada neste servidor.")
         return redirect(url_for("settings"))
-    last = user["last_ofx_import"] if "last_ofx_import" in user.keys() else None
-    try:
-        since = (date.fromisoformat(last) - timedelta(days=7)).isoformat() if last else \
-                (date.today() - timedelta(days=90)).isoformat()
-    except ValueError:
-        since = (date.today() - timedelta(days=90)).isoformat()
+    # Janela ampla e fixa (90 dias): o dedup por id da Pluggy cuida da sobreposição,
+    # então não corremos o risco de a janela curta deixar gasto recente de fora.
+    since = (date.today() - timedelta(days=90)).isoformat()
     try:
         items = pluggy_fetch_items(pluggy_auth(), since)
     except Exception as e:
