@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import sqlite3
+import time
 import unicodedata
 import uuid
 import zipfile
@@ -716,6 +717,41 @@ def _pluggy_get(api_key: str, path: str, params: dict | None = None):
     )
     resp.raise_for_status()
     return resp.json()
+
+
+def pluggy_refresh_items(api_key: str, item_ids: list[str], espera_max: int = 24) -> dict[str, Any]:
+    """Pede ao banco uma coleta NOVA (PATCH /items/{id}) e espera terminar.
+    Sem isso a Pluggy devolve a última coleta — e movimentações recentes não aparecem."""
+    for item_id in item_ids:
+        try:
+            http_requests.patch(
+                f"{PLUGGY_API}/items/{item_id}", json={},
+                headers={"X-API-KEY": api_key}, timeout=30,
+            ).raise_for_status()
+        except Exception:
+            pass  # segue com o que já existe: melhor sincronizar velho do que falhar
+
+    limite = time.time() + espera_max
+    pronto, erro_login, ultima = False, False, None
+    while time.time() < limite:
+        time.sleep(3)
+        atualizando = False
+        for item_id in item_ids:
+            try:
+                it = _pluggy_get(api_key, f"/items/{item_id}")
+            except Exception:
+                continue
+            status = (it.get("status") or "").upper()
+            exec_status = (it.get("executionStatus") or "").upper()
+            ultima = it.get("lastUpdatedAt") or ultima
+            if status == "UPDATING":
+                atualizando = True
+            if "LOGIN_ERROR" in exec_status or "INVALID_CREDENTIALS" in exec_status or status == "LOGIN_ERROR":
+                erro_login = True
+        if not atualizando:
+            pronto = True
+            break
+    return {"pronto": pronto, "erro_login": erro_login, "ultima_coleta": ultima}
 
 
 def pluggy_accounts(api_key: str, item_ids: list[str]) -> list[dict]:
@@ -3691,10 +3727,16 @@ def pluggy_sincronizar():
     since = (date.today() - timedelta(days=90)).isoformat()
     try:
         api_key = pluggy_auth()
+        # Primeiro pede ao banco os dados NOVOS; depois lê o que chegou
+        refresh = pluggy_refresh_items(api_key, item_ids)
         contas = pluggy_accounts(api_key, item_ids)
         items = pluggy_fetch_items(api_key, contas, since)
     except Exception as e:
         flash("Não consegui sincronizar: " + _pluggy_erro_detalhe(e))
+        return redirect(url_for("settings"))
+    if refresh["erro_login"]:
+        flash("O banco pediu autorização de novo (o acesso expirou ou a senha mudou). "
+              "Toque em “Reconectar” pra renovar.")
         return redirect(url_for("settings"))
     # Saldo REAL do banco (autoritativo): soma das contas correntes/poupança do banco.
     saldo_banco = sum(float(c.get("balance") or 0) for c in contas if c.get("type") == "BANK")
@@ -3720,6 +3762,12 @@ def pluggy_sincronizar():
         partes.append(f"{stats['reconciliadas']} conferidas")
     if stats["ja_importadas"]:
         partes.append(f"{stats['ja_importadas']} repetidas puladas")
+    # A data do lançamento mais recente mostra na hora se o banco entregou dado fresco
+    datas = [i["data"] for i in items if i.get("data")]
+    if datas:
+        partes.append(f"mais recente em {format_date(max(datas))}")
+    if not refresh["pronto"]:
+        partes.append("o banco ainda está enviando o resto — sincronize de novo em 1 min")
     flash("Banco sincronizado: " + " · ".join(partes) + ".")
     return redirect(url_for("listar_transacoes"))
 
