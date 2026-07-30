@@ -122,7 +122,20 @@
             <h2 class="topbar-title" style="font-size:1.25rem;">Saídas por categoria</h2>
             <p class="topbar-subtitle">Onde o dinheiro foi parar no mês.</p>
         </div>
-        <canvas id="dashChart" height="300"></canvas>
+        <canvas id="dashChart" height="240"></canvas>
+        {# Legenda com valor e % na cara — sem precisar clicar em cada fatia #}
+        {% set total_cat = values|sum %}
+        <ul class="chart-legend">
+            {% for label in labels %}
+            {% set valor = values[loop.index0] %}
+            <li>
+                <span class="chart-legend-dot" style="background: {{ chart_colors[loop.index0 % chart_colors|length] }};"></span>
+                <span class="chart-legend-nome">{{ label }}</span>
+                <span class="chart-legend-valor">{{ valor|money }}</span>
+                <span class="chart-legend-pct">{{ ((valor / total_cat * 100) if total_cat else 0)|round(0)|int }}%</span>
+            </li>
+            {% endfor %}
+        </ul>
     </article>
 
     <article class="page-card">
@@ -222,6 +235,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const labels = {{ labels|tojson }};
     const values = {{ values|tojson }};
     if (!labels.length) return;
+    const cores = {{ chart_colors|tojson }};
     new Chart(canvas, {
         type: 'doughnut',
         data: {
@@ -231,13 +245,21 @@ window.addEventListener('DOMContentLoaded', () => {
                 borderWidth: 2,
                 borderColor: '#FDF6E7',
                 hoverOffset: 10,
-                backgroundColor: ['#C96F3B', '#2E6D8C', '#3D5A2E', '#9C6A10', '#7E4E7A', '#5C8A73', '#B23A2A']
+                backgroundColor: cores
             }]
         },
         options: {
             maintainAspectRatio: false,
             plugins: {
-                legend: { position: 'bottom', labels: { color: getComputedStyle(document.body).getPropertyValue('--text').trim(), boxWidth: 14, padding: 16 } }
+                // A legenda de verdade é a lista em HTML abaixo (com valor e %),
+                // que não exige passar o dedo/clicar em cada fatia.
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => ' ' + ctx.label + ': ' +
+                            ctx.parsed.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                    }
+                }
             }
         }
     });

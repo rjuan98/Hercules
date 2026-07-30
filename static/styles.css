@@ -1087,6 +1087,48 @@ body {
     border-color: rgba(46, 109, 140, 0.28);
 }
 
+/* Legenda do gráfico: categoria, valor e % visíveis sem clicar em nada */
+.chart-legend {
+    list-style: none;
+    margin: 16px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}
+.chart-legend li {
+    display: grid;
+    grid-template-columns: 12px 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: 12px;
+    background: rgba(36, 28, 20, 0.035);
+}
+.chart-legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 4px;
+}
+.chart-legend-nome {
+    font-weight: 700;
+    font-size: 0.93rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.chart-legend-valor {
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.93rem;
+}
+.chart-legend-pct {
+    color: var(--muted);
+    font-weight: 800;
+    font-size: 0.82rem;
+    min-width: 38px;
+    text-align: right;
+}
+
 /* Campo de dinheiro com prefixo R$ */
 .money-input { position: relative; }
 .money-prefix {

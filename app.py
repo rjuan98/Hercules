@@ -135,6 +135,9 @@ TRANSACTION_TYPES = [
     ("entrada", "Entrada"),
 ]
 
+# Paleta do gráfico — definida aqui para a legenda (HTML) e a rosca (JS) baterem
+CHART_COLORS = ["#C96F3B", "#2E6D8C", "#3D5A2E", "#9C6A10", "#7E4E7A", "#5C8A73", "#B23A2A"]
+
 TRANSACTION_CATEGORIES = [
     "Alimentação",
     "Transporte",
@@ -2206,6 +2209,7 @@ def dashboard():
         labels=labels,
         values=values,
         retrato=retrato,
+        chart_colors=CHART_COLORS,
         insight=insight_semanal(user["id"]),
         month=month_label(date.today().strftime("%Y-%m")),
     )
