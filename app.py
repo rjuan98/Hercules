@@ -410,13 +410,6 @@ def register_capture(user_id: int, text: str, origem: str = "notificacao") -> di
     return {"status": "pendente"}
 
 
-def pending_captures(user_id: int):
-    with get_db() as db:
-        return db.execute(
-            "SELECT * FROM capturas WHERE user_id = ? AND status = 'pendente' ORDER BY datetime(created_at) DESC LIMIT 10",
-            (user_id,),
-        ).fetchall()
-
 
 # ------------------------
 # OFX: importação de extrato com reconciliação
@@ -1003,24 +996,6 @@ def tip_seen(user_id: int, key: str) -> bool:
         ).fetchone() is not None
 
 
-def checkin_streak(user_id: int) -> int:
-    """Dias consecutivos de check-in, contando a partir de hoje (ou ontem, se hoje ainda não fechou)."""
-    with get_db() as db:
-        dias = [r["dia"] for r in db.execute(
-            "SELECT dia FROM checkins WHERE user_id = ? ORDER BY dia DESC LIMIT 366", (user_id,)
-        ).fetchall()]
-    if not dias:
-        return 0
-    known = set(dias)
-    cursor = date.today()
-    if cursor.isoformat() not in known:
-        cursor -= timedelta(days=1)
-    streak = 0
-    while cursor.isoformat() in known:
-        streak += 1
-        cursor -= timedelta(days=1)
-    return streak
-
 
 def user_categories(user_id: int):
     with get_db() as db:
@@ -1392,20 +1367,6 @@ def _count_value(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
 
-
-def compute_recommended_focus(stats: dict[str, Any]) -> str:
-    overdue = _count_value(stats.get("overdue_commitments"))
-    due_soon = _count_value(stats.get("due_soon_commitments"))
-
-    if overdue > 0 or due_soon > 0:
-        return "everything_ok"
-    if stats.get("remaining_month", 0) < 0:
-        return "everything_ok"
-    if stats.get("month_expenses", 0) > stats.get("month_income", 0):
-        return "where_money_goes"
-    if stats.get("goal_progress", 0) < 50 and stats.get("goal_active", False):
-        return "goal"
-    return "spend_today"
 
 
 def calc_transaction_totals(user_id: int):
@@ -1863,7 +1824,7 @@ app.jinja_env.globals["date"] = date
 @app.before_request
 def csrf_protect():
     if request.method == "POST":
-        exempt = request.endpoint in {"logout", "api_captura", "api_token"}
+        exempt = request.endpoint in {"logout", "api_captura"}
         token = request.form.get("csrf_token", "")
         if not exempt and token != session.get("csrf_token"):
             flash("Token de segurança inválido. Atualize a página e tente novamente.")
@@ -2464,17 +2425,6 @@ def settings():
     )
 
 
-@app.route("/settings/regenerar-token", methods=["POST"])
-@login_required
-def regenerar_token():
-    user = current_user()
-    novo = secrets.token_urlsafe(24)
-    with get_db() as db:
-        db.execute("UPDATE usuarios SET capture_token = ? WHERE id = ?", (novo, user["id"]))
-    flash("Token novo gerado. Se você usa alguma integração manual, atualize com ele.")
-    return redirect(url_for("settings"))
-
-
 # ------------------------
 # Goals
 # ------------------------
@@ -2738,24 +2688,10 @@ def delete_goal(goal_id):
 
 
 # ------------------------
-# Captura automática (notificações do banco lidas pelo app Android do Herc)
+# Porta aberta para automações (Atalhos do iOS, Tasker, MacroDroid...).
+# O caminho principal hoje é o Open Finance; isto fica como alternativa manual:
+# POST /api/captura com token + texto ("gastei 12 na padaria") lança a movimentação.
 # ------------------------
-@app.route("/api/token", methods=["POST"])
-def api_token():
-    """Login do app companion via e-mail+senha (usuários que não usam Google)."""
-    payload = request.get_json(silent=True) or request.form
-    email = sanitize_text(payload.get("email")).lower()
-    senha = payload.get("senha") or payload.get("password") or ""
-    if not email or not senha:
-        return {"erro": "e-mail e senha são obrigatórios"}, 400
-    with get_db() as db:
-        user = db.execute("SELECT * FROM usuarios WHERE email = ?", (email,)).fetchone()
-    if not user or not check_password_hash(user["senha"], senha):
-        return {"erro": "e-mail ou senha inválidos"}, 401
-    capture_token = get_or_create_capture_token(user)
-    return {"ok": True, "token": capture_token, "nome": user["nome"]}, 200
-
-
 @app.route("/api/meu-token")
 @login_required
 def api_meu_token():
@@ -2782,56 +2718,6 @@ def api_captura():
         return {"erro": "texto vazio"}, 400
     result = register_capture(user["id"], texto, origem="notificacao")
     return result, 200
-
-
-@app.route("/registro-rapido", methods=["POST"])
-@login_required
-def registro_rapido():
-    user = current_user()
-    texto = request.form.get("texto", "")
-    if not sanitize_text(texto):
-        flash("Me conta o que aconteceu — ex.: gastei 12 na quentinha.")
-        return redirect(url_for("home"))
-    result = register_capture(user["id"], texto, origem="manual")
-    if result["status"] == "lancada":
-        rotulo = "Entrada" if result["tipo"] == "entrada" else "Saída"
-        flash(f"Anotei! {rotulo} de {money(result['valor'])} em {result['estabelecimento']} ({result['categoria']}).")
-    elif result["status"] == "duplicada":
-        flash("Esse eu já tinha anotado agorinha. 😉")
-    else:
-        flash("Não entendi direito — deixei nas pendências para você confirmar.")
-    return redirect(url_for("home"))
-
-
-@app.route("/checkin", methods=["POST"])
-@login_required
-def fechar_dia():
-    user = current_user()
-    today_iso = date.today().isoformat()
-    with get_db() as db:
-        db.execute(
-            "INSERT OR IGNORE INTO checkins (user_id, dia) VALUES (?, ?)",
-            (user["id"], today_iso),
-        )
-    streak = checkin_streak(user["id"])
-    if streak >= 2:
-        flash(f"Dia fechado! 🔥 {streak} dias seguidos em dia com o Herc.")
-    else:
-        flash("Dia fechado! Até amanhã. 🦁")
-    return redirect(url_for("home"))
-
-
-@app.route("/capturas/<int:captura_id>/descartar", methods=["POST"])
-@login_required
-def descartar_captura(captura_id):
-    user = current_user()
-    with get_db() as db:
-        db.execute(
-            "UPDATE capturas SET status = 'descartada' WHERE id = ? AND user_id = ?",
-            (captura_id, user["id"]),
-        )
-    flash("Captura descartada.")
-    return redirect(url_for("home"))
 
 
 @app.route("/trabalhos")
