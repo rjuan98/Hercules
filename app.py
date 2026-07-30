@@ -650,9 +650,15 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
                 )
                 stats["reconciliadas"] += 1
                 continue
-            categoria = categorize(user_id, item["descricao"]) if item["tipo"] == "saida" else "Outros"
-            if apply_rules(user_id, item["descricao"]):
-                categoria = apply_rules(user_id, item["descricao"])
+            # Uma consulta de regras por lançamento (antes eram três): a regra ensinada
+            # vence sempre; sem regra, só saída ganha categoria automática.
+            regra = apply_rules(user_id, item["descricao"])
+            if regra:
+                categoria = regra
+            elif item["tipo"] == "saida":
+                categoria = auto_category(item["descricao"])
+            else:
+                categoria = "Outros"
             db.execute(
                 """INSERT INTO transacoes
                    (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, fitid, no_credito)
@@ -1377,7 +1383,7 @@ def calc_transaction_totals(user_id: int):
         month_income = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
-               WHERE user_id = ? AND tipo = 'entrada'
+               WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
                AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
@@ -1982,14 +1988,8 @@ def home():
     if not user:
         return redirect(url_for("login"))
 
-    profile = user_profile(user)
     stats = calc_transaction_totals(user["id"])
-    focus = normalize_focus(user["home_focus"])
-    recommended = compute_recommended_focus(stats)
-    business = calculate_business_summary(user["id"]) if is_business_profile(profile) else None
-
     goal = stats["current_goal"]
-    current_month = month_label(date.today().strftime("%Y-%m"))
     note_pending = len([n for n in stats["notes"] if (n["status"] or "").lower() != "autorizada"])
     all_clear = (
         len(stats["overdue_commitments"]) == 0
@@ -1997,15 +1997,13 @@ def home():
         and note_pending == 0
         and stats["balance"] >= 0
     )
-    status_phrase = "Você está com tudo em dia" if all_clear else "Temos algumas coisas para resolver"
     status_emoji = "🟢" if all_clear else "🟡"
     can_spend_today = stats["available_today"]
-    next_commitment = stats["upcoming_commitments"][0] if stats["upcoming_commitments"] else None
 
     # Pergunta inteligente: gastos repetidos que o Hércules ainda não entende
     suggestions = pending_suggestions(user["id"])
 
-    # Modo simples: 3 frases (tudo em dia / gastou hoje / projeção do fim do mês)
+    # Modo simples: quanto saiu hoje e a projeção do fim do mês
     today_iso = date.today().isoformat()
     with get_db() as db:
         today_spent = db.execute(
@@ -2013,42 +2011,16 @@ def home():
                WHERE user_id = ? AND tipo = 'saida' AND date(COALESCE(data_transacao, created_at)) = date(?)""",
             (user["id"], today_iso),
         ).fetchone()["total"]
-        today_txs = db.execute(
-            """SELECT * FROM transacoes
-               WHERE user_id = ? AND date(COALESCE(data_transacao, created_at)) = date(?)
-                 AND fonte != 'ajuste'
-               ORDER BY id DESC LIMIT 8""",
-            (user["id"], today_iso),
-        ).fetchall()
-        checkin_done = db.execute(
-            "SELECT 1 FROM checkins WHERE user_id = ? AND dia = ?",
-            (user["id"], today_iso),
-        ).fetchone() is not None
         tx_count = db.execute(
             "SELECT COUNT(*) AS n FROM transacoes WHERE user_id = ?", (user["id"],)
         ).fetchone()["n"]
 
-    pendentes = []
-    for cap in pending_captures(user["id"]):
-        try:
-            dados = json.loads(cap["dados_extraidos"] or "{}")
-        except (TypeError, ValueError):
-            dados = {}
-        pendentes.append({
-            "id": cap["id"],
-            "conteudo": cap["conteudo"],
-            "valor": dados.get("valor") or "",
-            "tipo": dados.get("tipo") or "saida",
-        })
-    streak = checkin_streak(user["id"])
     onboarding = tx_count == 0
 
     # Uma dica do Herc por vez — a mais relevante primeiro
     herc_tip = None
     if not onboarding and not tip_seen(user["id"], "registro_rapido"):
         herc_tip = "registro_rapido"
-    # Texto compartilhado do WhatsApp (share_target do PWA) pré-preenche o registro rápido
-    shared_text = sanitize_text(request.args.get("texto") or request.args.get("title"))[:200]
     avg_daily_spend = stats["month_expenses"] / max(1, date.today().day)
     projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month() - 1))
     view_mode = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
@@ -2075,7 +2047,6 @@ def home():
 
     session["last_balance"] = money(stats["balance"])
     session["meta_mensal"] = user["meta_mensal"]
-    focus_labels = dict(HOME_FOCUS_CHOICES)
     return render_template(
         "home.html",
         suggestions=suggestions,
@@ -2083,31 +2054,17 @@ def home():
         today_spent=float(today_spent or 0),
         projected_end=float(projected_end),
         view_mode=view_mode,
-        today_txs=today_txs,
-        pendentes=pendentes,
-        checkin_done=checkin_done,
-        streak=streak,
         onboarding=onboarding,
-        shared_text=shared_text,
         herc_tip=herc_tip,
         herc_tip_text=HERC_TIPS.get(herc_tip),
         lembrar_ofx=lembrar_ofx,
         dias_ofx=dias_ofx,
         user=user,
-        profile=profile,
-        focus=focus,
-        focus_label=focus_labels,
-        recommended_focus=recommended,
         stats=stats,
-        business=business,
-        status_phrase=status_phrase,
         status_emoji=status_emoji,
         all_clear=all_clear,
         can_spend_today=can_spend_today,
-        next_commitment=next_commitment,
-        current_month=current_month,
         goal=goal,
-        note_pending=note_pending,
         pluggy_ativo=pluggy_configured(),
         pluggy_tem_banco=bool(pluggy_user_item_ids(user)),
         sobra_guardar=sobra_guardar,
@@ -2461,21 +2418,9 @@ def settings():
         flash("Preferências atualizadas.")
         return redirect(url_for("settings"))
 
-    goals_count = 0
-    commitments_count = 0
-    with get_db() as db:
-        goals_count = db.execute("SELECT COUNT(*) AS count FROM metas WHERE user_id = ?", (user["id"],)).fetchone()["count"]
-        commitments_count = db.execute("SELECT COUNT(*) AS count FROM compromissos WHERE user_id = ?", (user["id"],)).fetchone()["count"]
-    capture_token = get_or_create_capture_token(user)
-
     return render_template(
         "settings.html",
         user=user,
-        goals_count=goals_count,
-        commitments_count=commitments_count,
-        plan_label=PLAN_LABELS["free"],
-        capture_token=capture_token,
-        capture_url=url_for("api_captura", _external=True),
         pluggy_ativo=pluggy_configured(),
         pluggy_tem_id=bool(PLUGGY_CLIENT_ID),
         pluggy_tem_secret=bool(PLUGGY_CLIENT_SECRET),

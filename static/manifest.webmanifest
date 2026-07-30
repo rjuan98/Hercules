@@ -10,12 +10,10 @@
   "theme_color": "#F6E8CE",
   "lang": "pt-BR",
   "share_target": {
-    "action": "/",
+    "action": "/transacoes/nova",
     "method": "GET",
     "params": {
-      "title": "title",
-      "text": "texto",
-      "url": "url"
+      "text": "descricao"
     }
   },
   "icons": [
