@@ -3634,13 +3634,10 @@ def pluggy_sincronizar():
         return redirect(url_for("settings"))
     # Janela ampla e fixa (90 dias): o dedup por id da Pluggy cuida da sobreposição,
     # então não corremos o risco de a janela curta deixar gasto recente de fora.
-    since = (date.today() - timedelta(days=90)).isoformat()
     try:
-        api_key = pluggy_auth()
-        # Primeiro pede ao banco os dados NOVOS; depois lê o que chegou
-        refresh = pluggy_refresh_items(api_key, item_ids)
-        contas = pluggy_accounts(api_key, item_ids)
-        items = pluggy_fetch_items(api_key, contas, since)
+        # esperar=True: o botão manual aguarda a coleta, porque a pessoa quer o dado agora
+        stats, saldo_banco, saldo_investido, refresh, items = _sync_pluggy(
+            user, pluggy_auth(), item_ids, esperar=True)
     except Exception as e:
         flash("Não consegui sincronizar: " + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))
@@ -3648,21 +3645,6 @@ def pluggy_sincronizar():
         flash("O banco pediu autorização de novo (o acesso expirou ou a senha mudou). "
               "Toque em “Reconectar” pra renovar.")
         return redirect(url_for("settings"))
-    # Saldo REAL do banco (autoritativo): soma das contas correntes/poupança do banco.
-    saldo_banco = sum(float(c.get("balance") or 0) for c in contas if c.get("type") == "BANK")
-    # Guardado (investimentos): não é saldo em conta, é reserva — vem de /investments.
-    try:
-        saldo_investido = pluggy_investimentos(api_key, item_ids)
-    except Exception:
-        saldo_investido = None  # banco sem investimento ou sem permissão: não quebra o sync
-    with get_db() as db:
-        if saldo_investido is None:
-            db.execute("UPDATE usuarios SET last_ofx_import = ?, saldo_banco = ? WHERE id = ?",
-                       (date.today().isoformat(), saldo_banco, user["id"]))
-        else:
-            db.execute("UPDATE usuarios SET last_ofx_import = ?, saldo_banco = ?, saldo_investido = ? WHERE id = ?",
-                       (date.today().isoformat(), saldo_banco, saldo_investido, user["id"]))
-    stats = import_ofx_transactions(user["id"], items)
     partes = [f"saldo do banco {money(saldo_banco)}"]
     if saldo_investido:
         partes.append(f"guardado {money(saldo_investido)}")
@@ -3868,7 +3850,7 @@ def _sync_pluggy(user, api_key, item_ids, esperar: bool):
                    saldo_investido = ? WHERE id = ?""",
                 (hoje, agora, saldo_banco, saldo_investido, user["id"]))
     stats = import_ofx_transactions(user["id"], items)
-    return stats, saldo_banco, refresh, items
+    return stats, saldo_banco, saldo_investido, refresh, items
 
 
 @app.route("/pluggy/sync-auto", methods=["POST"])
@@ -3890,7 +3872,7 @@ def pluggy_sync_auto():
         except ValueError:
             pass
     try:
-        stats, saldo, _refresh, _items = _sync_pluggy(user, pluggy_auth(), item_ids, esperar=False)
+        stats, saldo, _inv, _refresh, _items = _sync_pluggy(user, pluggy_auth(), item_ids, esperar=False)
     except Exception:
         return {"ok": False, "motivo": "falhou"}, 200  # silencioso: não atrapalha o uso
     return {"ok": True, "novas": stats["importadas"], "saldo": saldo}, 200

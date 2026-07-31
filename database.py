@@ -301,8 +301,6 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_metas_user_ativo ON metas(user_id, ativo)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_capturas_user_status ON capturas(user_id, status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dividas_user_quitada ON dividas(user_id, quitada)")
-    # Import/sync consulta fitid uma vez por lançamento — sem índice vira varredura completa
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_user_fitid ON transacoes(user_id, fitid)")
 
     # Migrations for evolving copies
     _add_column_if_missing(conn, "usuarios", "perfil", "TEXT NOT NULL DEFAULT 'pf'")
@@ -340,6 +338,10 @@ def init_db():
     _add_column_if_missing(conn, "compromissos", "recorrente", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "compromissos", "frequencia", "TEXT NOT NULL DEFAULT 'mensal'")
     _add_column_if_missing(conn, "compromissos", "status", "TEXT NOT NULL DEFAULT 'pendente'")
+
+    # Índices que dependem de colunas criadas nas migrações acima (banco novo não tem
+    # essas colunas na CREATE TABLE original, então o índice só pode vir depois).
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_user_fitid ON transacoes(user_id, fitid)")
 
     conn.commit()
     conn.close()

@@ -1,0 +1,361 @@
+"""Bateria completa do Hércules.
+
+Roda contra um banco temporário e isolado — não toca nos seus dados.
+Use sempre que mexer no código:  python testes.py
+"""
+import os, sys, json, tempfile, traceback
+from datetime import date, datetime, timedelta
+
+TMP = tempfile.mkdtemp()
+os.environ["DATABASE_PATH"] = os.path.join(TMP, "teste.db")
+os.environ["UPLOAD_DIR"] = os.path.join(TMP, "uploads")
+os.environ["SECRET_KEY"] = "chave-de-teste"
+os.environ["PLUGGY_CLIENT_ID"] = "cid-teste"
+os.environ["PLUGGY_CLIENT_SECRET"] = "csec-teste"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import app as A
+from database import get_db
+
+OK, FALHAS = [], []
+
+def check(nome, cond, extra=""):
+    (OK if cond else FALHAS).append(nome)
+    print(("  ok  " if cond else "  XX  ") + nome + (f"   [{extra}]" if extra and not cond else ""))
+
+def secao(t):
+    print(f"\n=== {t} ===")
+
+def novo_cliente(email, senha="senha123", nome="Fulano", perfil="pf"):
+    c = A.app.test_client()
+    with c.session_transaction() as s:
+        s["csrf_token"] = "t"
+    c.post("/register", data={"csrf_token": "t", "nome": nome, "email": email,
+                              "senha": senha, "perfil": perfil, "view_mode": "completo"},
+           follow_redirects=True)
+    with c.session_transaction() as s:
+        s["csrf_token"] = "t"
+    c.post("/login", data={"csrf_token": "t", "email": email, "senha": senha}, follow_redirects=True)
+    with c.session_transaction() as s:
+        s["csrf_token"] = "t"
+    return c
+
+def uid_de(email):
+    with get_db() as db:
+        r = db.execute("SELECT id FROM usuarios WHERE email=?", (email,)).fetchone()
+        return r["id"] if r else None
+
+# ----------------------------------------------------------------------------
+secao("1. Helpers de valor e texto")
+check("parse_money 1.234,56 = 1234.56", A.parse_money("1.234,56") == 1234.56)
+check("parse_money 99.90 = 99.90 (ponto decimal)", A.parse_money("99.90") == 99.90)
+check("parse_money '500' = 500", A.parse_money("500") == 500.0)
+check("parse_money vazio = 0", A.parse_money("") == 0.0)
+check("parse_money lixo = 0", A.parse_money("abc") == 0.0)
+check("parse_money negativo", A.parse_money("-50,00") == -50.0)
+check("money formata BRL", A.money(1234.5) .replace("\xa0", " ") == "R$ 1.234,50")
+check("format_date ISO -> BR", A.format_date("2026-07-30") == "30/07/2026")
+check("format_date vazio", A.format_date(None) == "")
+check("sanitize_text normaliza espacos", A.sanitize_text("  a   b  ") == "a b")
+from markupsafe import escape
+check("saida escapa HTML (anti-XSS)", "&lt;script&gt;" in str(escape("<script>x</script>")))
+
+secao("2. Categorização automática")
+casos = [("UBER *TRIP", "Transporte"), ("mais.mobi RIOCARD", "Transporte"),
+         ("PASSAGEM ONIBUS", "Transporte"), ("Quentinha da Maria", "Alimentação"),
+         ("IFD*IFOOD", "Alimentação"), ("MC DONALDS", "Alimentação"),
+         ("CARREFOUR", "Mercado"), ("MERCADO LIVRE", "Varejo"),
+         ("DROGARIA PACHECO", "Saúde"), ("NETFLIX.COM", "Assinaturas"),
+         ("ENEL DISTRIBUICAO", "Moradia"), ("PIX ENVIADO JOAO", "Outros")]
+for texto, esperado in casos:
+    check(f"categoria: {texto} -> {esperado}", A.auto_category(texto) == esperado,
+          A.auto_category(texto))
+check("acento nao importa", A.auto_category("ÔNIBUS") == A.auto_category("onibus"))
+
+secao("3. Cadastro, login e sessão")
+c1 = novo_cliente("a@teste.com", nome="Ana")
+check("home abre logado", c1.get("/").status_code == 200)
+c_anon = A.app.test_client()
+check("deslogado vai pro login", c_anon.get("/", follow_redirects=False).status_code == 302)
+c_bad = A.app.test_client()
+with c_bad.session_transaction() as s: s["csrf_token"] = "t"
+r = c_bad.post("/login", data={"csrf_token": "t", "email": "a@teste.com", "senha": "errada"}, follow_redirects=True)
+check("senha errada nao entra", b"Entrar" in r.data or "entrar" in r.get_data(as_text=True).lower())
+r = c1.post("/register", data={"csrf_token": "t", "nome": "X", "email": "a@teste.com",
+                               "senha": "outra123", "perfil": "pf"}, follow_redirects=True)
+check("email duplicado barrado", "já está cadastrado" in r.get_data(as_text=True))
+
+secao("4. CSRF")
+r = c1.post("/transacoes/nova", data={"tipo": "saida", "valor": "10", "descricao": "sem csrf"},
+            follow_redirects=True)
+with get_db() as db:
+    n = db.execute("SELECT COUNT(*) AS n FROM transacoes WHERE descricao='sem csrf'").fetchone()["n"]
+check("POST sem csrf nao grava", n == 0)
+
+secao("5. Movimentações")
+uid1 = uid_de("a@teste.com")
+c1.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "entrada", "valor": "3.000,00",
+                                  "descricao": "Salario", "categoria": "Salário"})
+c1.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "250,50",
+                                  "descricao": "Mercado do mes"})
+c1.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "120,00",
+                                  "descricao": "Tenis novo", "no_credito": "1"})
+st = A.calc_transaction_totals(uid1)
+check("saldo exclui credito (3000-250,50)", abs(st["balance"] - 2749.50) < 0.01, st["balance"])
+check("fatura do cartao = 120", abs(st["fatura_credito_mes"] - 120) < 0.01, st["fatura_credito_mes"])
+check("renda do mes = 3000", abs(st["month_income"] - 3000) < 0.01, st["month_income"])
+check("% renda no cartao = 4%", st["credito_pct_renda"] is not None and round(st["credito_pct_renda"]) == 4, st["credito_pct_renda"])
+r = c1.get("/transacoes?q=Tenis")
+check("busca acha", "Tenis novo" in r.get_data(as_text=True))
+check("etiqueta credito na lista", "tx-tag-credito" in r.get_data(as_text=True))
+
+secao("6. Isolamento entre usuários (segurança)")
+c2 = novo_cliente("b@teste.com", nome="Bruno")
+uid2 = uid_de("b@teste.com")
+r = c2.get("/transacoes")
+check("usuario B nao ve dados de A", "Tenis novo" not in r.get_data(as_text=True))
+with get_db() as db:
+    tx_a = db.execute("SELECT id FROM transacoes WHERE user_id=? LIMIT 1", (uid1,)).fetchone()["id"]
+c2.post(f"/transacoes/{tx_a}/delete", data={"csrf_token": "t"})
+with get_db() as db:
+    ainda = db.execute("SELECT COUNT(*) AS n FROM transacoes WHERE id=?", (tx_a,)).fetchone()["n"]
+check("B NAO consegue apagar movimentacao de A", ainda == 1)
+# metas
+c1.post("/metas", data={"csrf_token": "t", "nome": "Reserva de emergência", "meta_valor": "5.000,00"})
+with get_db() as db:
+    meta_a = db.execute("SELECT id FROM metas WHERE user_id=?", (uid1,)).fetchone()["id"]
+c2.post(f"/metas/{meta_a}/delete", data={"csrf_token": "t"})
+with get_db() as db:
+    check("B NAO apaga meta de A",
+          db.execute("SELECT COUNT(*) AS n FROM metas WHERE id=?", (meta_a,)).fetchone()["n"] == 1)
+# dividas
+c1.post("/dividas", data={"csrf_token": "t", "tipo": "devo", "descricao": "Emprestimo A",
+                          "valor_total": "1.000,00"})
+with get_db() as db:
+    div_a = db.execute("SELECT id FROM dividas WHERE user_id=?", (uid1,)).fetchone()["id"]
+c2.post(f"/dividas/{div_a}/delete", data={"csrf_token": "t"})
+with get_db() as db:
+    check("B NAO apaga divida de A",
+          db.execute("SELECT COUNT(*) AS n FROM dividas WHERE id=?", (div_a,)).fetchone()["n"] == 1)
+c2.post(f"/dividas/{div_a}/pagar", data={"csrf_token": "t", "valor": "500"})
+with get_db() as db:
+    pago = db.execute("SELECT valor_pago FROM dividas WHERE id=?", (div_a,)).fetchone()["valor_pago"]
+check("B NAO paga divida de A", pago == 0, pago)
+
+secao("7. Regras aprendidas e recategorização")
+c1.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "15,00",
+                                  "descricao": "ZZOPACO PAG", "categoria": "Outros"})
+c1.post("/regras", data={"csrf_token": "t", "padrao_texto": "ZZOPACO",
+                         "categoria_nome": "Transporte", "voltar": "/transacoes"})
+with get_db() as db:
+    cat = db.execute("SELECT categoria FROM transacoes WHERE descricao LIKE 'ZZOPACO%'").fetchone()["categoria"]
+check("ensinar reclassifica o passado", cat == "Transporte", cat)
+check("regra vale pro futuro", A.categorize(uid1, "ZZOPACO OUTRA") == "Transporte")
+n = A.recategorize_outros(uid1)
+check("revisar Outros nao quebra", isinstance(n, int))
+
+secao("8. Import: OFX, PDF/texto, dedup e crédito")
+ofx = """<OFX><BANKMSGSRSV1><STMTRS><BANKTRANLIST>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>%s<TRNAMT>-45.90<FITID>OFX1<MEMO>PADARIA CENTRAL</STMTTRN>
+<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>%s<TRNAMT>200.00<FITID>OFX2<MEMO>PIX RECEBIDO</STMTTRN>
+</BANKTRANLIST></STMTRS></BANKMSGSRSV1></OFX>""" % (date.today().strftime("%Y%m%d"), date.today().strftime("%Y%m%d"))
+itens = A.parse_ofx(ofx)
+check("OFX le 2 lancamentos", len(itens) == 2, len(itens))
+check("OFX sinal: -45.90 = saida", itens[0]["tipo"] == "saida")
+check("OFX sinal: +200 = entrada", itens[1]["tipo"] == "entrada")
+s1 = A.import_ofx_transactions(uid1, itens)
+s2 = A.import_ofx_transactions(uid1, itens)
+check("OFX importa 2", s1["importadas"] == 2, s1)
+check("OFX reimport nao duplica", s2["importadas"] == 0 and s2["ja_importadas"] == 2, s2)
+fatura_txt = """Fatura Nubank
+Cartao de credito  Vencimento 10/08/2026
+%s NETFLIX R$ 39,90
+%s PADARIA R$ 12,50
+%s Pagamento recebido R$ 500,00
+Total R$ 52,40""" % ((date.today().strftime("%d/%m/%Y"),) * 3)
+itf = A.parse_bank_statement_text(fatura_txt)
+check("fatura: pula pagamento e total", len(itf) == 2, [i["descricao"] for i in itf])
+check("fatura: tudo no credito", all(i["no_credito"] for i in itf))
+check("texto: ids estaveis (reimport)",
+      [i["fitid"] for i in A.parse_bank_statement_text(fatura_txt)] == [i["fitid"] for i in itf])
+
+secao("9. Metas, reserva guiada e sobra")
+r = c1.get("/metas")
+check("tela de metas abre", r.status_code == 200)
+check("reserva ja existe -> nao sugere de novo", "montar sua reserva" not in r.get_data(as_text=True))
+with get_db() as db:
+    m = db.execute("SELECT id, valor_atual FROM metas WHERE user_id=? AND nome LIKE '%Reserva%'", (uid1,)).fetchone()
+c1.post("/reserva/guardar", data={"csrf_token": "t", "valor": "300,00"})
+with get_db() as db:
+    novo = db.execute("SELECT valor_atual FROM metas WHERE id=?", (m["id"],)).fetchone()["valor_atual"]
+check("guardar soma na reserva", abs(novo - 300) < 0.01, novo)
+c1.post("/reserva/guardar", data={"csrf_token": "t", "valor": "999.999"})
+with get_db() as db:
+    teto = db.execute("SELECT valor_atual, meta_valor FROM metas WHERE id=?", (m["id"],)).fetchone()
+check("nao passa da meta", teto["valor_atual"] <= teto["meta_valor"])
+
+secao("10. Dívidas: abatimento e quitação")
+with get_db() as db:
+    d = db.execute("SELECT id FROM dividas WHERE user_id=?", (uid1,)).fetchone()["id"]
+c1.post(f"/dividas/{d}/pagar", data={"csrf_token": "t", "valor": "400,00"})
+res = A.calc_dividas(uid1)
+check("abate parcial (1000-400=600)", abs(res["devo"] - 600) < 0.01, res["devo"])
+c1.post(f"/dividas/{d}/pagar", data={"csrf_token": "t", "valor": ""})
+res = A.calc_dividas(uid1)
+check("quitar em branco zera", res["devo"] == 0, res["devo"])
+with get_db() as db:
+    q = db.execute("SELECT quitada, valor_pago FROM dividas WHERE id=?", (d,)).fetchone()
+check("marcada como quitada", q["quitada"] == 1 and q["valor_pago"] == 1000)
+
+secao("11. Contas (compromissos)")
+venc = (date.today() + timedelta(days=3)).isoformat()
+c1.post("/compromissos", data={"csrf_token": "t", "descricao": "Internet", "valor": "99,90",
+                               "vencimento": venc, "tipo": "saida", "frequencia": "mensal"})
+st = A.calc_transaction_totals(uid1)
+check("conta proxima entra no resumo", len(st["due_soon_commitments"]) >= 1)
+with get_db() as db:
+    cid = db.execute("SELECT id FROM compromissos WHERE user_id=?", (uid1,)).fetchone()["id"]
+c1.post(f"/compromissos/{cid}/toggle", data={"csrf_token": "t"})
+with get_db() as db:
+    check("marcar como paga funciona",
+          db.execute("SELECT status FROM compromissos WHERE id=?", (cid,)).fetchone()["status"] == "pago")
+
+secao("12. Notas e Prévia do IR")
+c1.post("/notas/nova", data={"csrf_token": "t", "descricao": "Consulta medica", "valor": "300,00",
+                             "tipo": "saida", "categoria": "Saúde", "status": "Autorizada",
+                             "data_emissao": date.today().isoformat()})
+with get_db() as db:
+    check("nota gravada",
+          db.execute("SELECT COUNT(*) AS n FROM notas WHERE user_id=?", (uid1,)).fetchone()["n"] == 1)
+ir = A.calc_ir_preview(uid1, date.today().year)
+check("IR: renda considerada", ir["renda"] > 0, ir["renda"])
+check("IR: educacao capada", ir["educacao_dedutivel"] <= ir["educacao_limite"])
+check("IR: pagina abre", c1.get("/ir").status_code == 200)
+check("IR: tem aviso de estimativa", "não é o cálculo oficial" in c1.get("/ir").get_data(as_text=True).lower()
+      or "não substitui" in c1.get("/ir").get_data(as_text=True).lower())
+check("exportar IR responde", c1.get("/exportar-ir").status_code == 200)
+
+secao("13. Retrato do mês e insight semanal")
+ins = A.insight_semanal(uid1)
+check("insight calcula", ins is not None and ins["atual"] > 0)
+r = c1.get("/dashboard")
+check("Resumo abre", r.status_code == 200)
+check("Resumo tem Retrato", "Retrato de" in r.get_data(as_text=True))
+check("Resumo tem legenda do grafico com %", "chart-legend" in r.get_data(as_text=True))
+
+secao("14. Conquistas (12 Trabalhos)")
+r = c1.get("/trabalhos")
+check("pagina abre", r.status_code == 200)
+with get_db() as db:
+    for t in A.TRABALHOS:
+        try:
+            A._trabalho_conquistado(uid1, t["key"], db)
+        except Exception as e:
+            check(f"avaliador {t['key']}", False, repr(e))
+            break
+    else:
+        check("os 12 avaliadores rodam sem erro", True)
+check("nenhuma mencao a captura por notificacao", "captura automática" not in r.get_data(as_text=True).lower())
+
+secao("15. Pluggy (API simulada)")
+A.time.sleep = lambda s: None
+A.pluggy_auth = lambda: "key"
+class _R:
+    def raise_for_status(self): pass
+class _Req:
+    def patch(self, *a, **k): return _R()
+A.http_requests = _Req()
+hoje = date.today().isoformat()
+contas = [{"id": "bank", "type": "BANK", "name": "NuConta", "balance": 1500.0},
+          {"id": "card", "type": "CREDIT", "name": "gold", "balance": -300.0},
+          {"id": "inv", "type": "INVESTMENT", "name": "RF", "balance": 9999.0}]
+def _get(k, path, params=None):
+    if path.startswith("/items/"): return {"status": "UPDATED", "executionStatus": "SUCCESS"}
+    if path == "/accounts": return {"results": contas}
+    if path == "/v2/transactions":
+        if params["accountId"] == "bank":
+            return {"results": [{"id": "p1", "date": hoje + "T10:00:00Z", "description": "PIX PADARIA", "amount": -20.0},
+                                {"id": "p2", "date": hoje + "T09:00:00Z", "description": "SALARIO", "amount": 1000.0}]}
+        if params["accountId"] == "card":
+            return {"results": [{"id": "p3", "date": hoje + "T08:00:00Z", "description": "SPOTIFY", "amount": 21.90},
+                                {"id": "p4", "date": hoje + "T07:00:00Z", "description": "Pagamento fatura", "amount": -100.0}]}
+        return {"results": []}
+    if path == "/investments": return {"results": [{"balance": 4000.0}]}
+    return {}
+A._pluggy_get = _get
+itens = A.pluggy_fetch_items("key", contas, "2026-01-01")
+check("ignora conta de investimento", all(i["fitid"] != "PLG-inv" for i in itens))
+check("banco: negativo = saida", any(i["descricao"] == "PIX PADARIA" and i["tipo"] == "saida" for i in itens))
+check("banco: positivo = entrada", any(i["descricao"] == "SALARIO" and i["tipo"] == "entrada" for i in itens))
+check("cartao: positivo = compra no credito",
+      any(i["descricao"] == "SPOTIFY" and i["tipo"] == "saida" and i["no_credito"] for i in itens))
+check("cartao: pagamento da fatura pulado", not any("Pagamento fatura" in i["descricao"] for i in itens))
+with get_db() as db:
+    db.execute("UPDATE usuarios SET pluggy_item_id='item1' WHERE id=?", (uid1,))
+c1.post("/pluggy/sincronizar", data={"csrf_token": "t"})
+with get_db() as db:
+    u = db.execute("SELECT saldo_banco, saldo_investido, last_sync_at FROM usuarios WHERE id=?", (uid1,)).fetchone()
+check("saldo do banco = so BANK (1500)", abs((u["saldo_banco"] or 0) - 1500) < 0.01, u["saldo_banco"])
+check("guardado = investimento (4000)", abs((u["saldo_investido"] or 0) - 4000) < 0.01, u["saldo_investido"])
+st = A.calc_transaction_totals(uid1)
+check("saldo exibido = saldo real do banco", abs(st["balance"] - 1500) < 0.01, st["balance"])
+r = c1.post("/pluggy/sync-auto", data={"csrf_token": "t"}).get_json()
+check("sync-auto respeita o limite de 4h", r.get("pulou") is True, r)
+
+secao("16. Bloqueio por digital")
+check("webauthn disponivel", A.webauthn_disponivel())
+r = c1.post("/seguranca/passkey/registrar/opcoes")
+check("opcoes de registro geram desafio", r.status_code == 200 and "challenge" in r.get_data(as_text=True))
+check("exige verificacao (digital, nao so toque)",
+      json.loads(r.get_data(as_text=True))["authenticatorSelection"]["userVerification"] == "required")
+with get_db() as db:
+    db.execute("INSERT INTO passkeys (user_id,credential_id,public_key,sign_count) VALUES (?,?,?,0)",
+               (uid1, "fake-cred", b"\x00"))
+with c1.session_transaction() as s: s.pop("desbloqueado_em", None)
+check("com digital, tela redireciona pro bloqueio",
+      c1.get("/", follow_redirects=False).status_code == 302)
+check("POST bloqueado responde 401",
+      c1.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "1", "descricao": "x"}).status_code == 401)
+check("tela de bloqueio abre", c1.get("/bloqueado").status_code == 200)
+with c1.session_transaction() as s:
+    s["desbloqueado_em"] = (datetime.now() - timedelta(minutes=31)).isoformat(timespec="seconds")
+check("expira depois de 30 min parado", c1.get("/", follow_redirects=False).status_code == 302)
+with c1.session_transaction() as s:
+    s["desbloqueado_em"] = datetime.now().isoformat(timespec="seconds")
+check("desbloqueado navega normal", c1.get("/").status_code == 200)
+c1.post("/seguranca/passkey/remover", data={"csrf_token": "t"})
+check("remover bloqueio libera", c1.get("/").status_code == 200)
+
+secao("17. Todas as telas")
+c3 = novo_cliente("mei@teste.com", nome="Maria", perfil="mei")
+rotas = ["/", "/dashboard", "/transacoes", "/transacoes/nova", "/compromissos", "/categorias",
+         "/metas", "/dividas", "/ir", "/trabalhos", "/notas", "/notas/nova", "/importar",
+         "/settings", "/business-dashboard", "/mei", "/clientes", "/servicos"]
+for rota in rotas:
+    for nome_c, cli in (("pf", c1), ("mei", c3)):
+        code = cli.get(rota, follow_redirects=False).status_code
+        if code not in (200, 302):
+            check(f"{rota} ({nome_c})", False, code)
+            break
+    else:
+        check(f"{rota}", True)
+
+secao("18. Modo simples")
+c1.post("/settings", data={"csrf_token": "t", "form_kind": "preferences", "perfil": "pf",
+                           "view_mode": "simples", "meta_mensal": "300,00", "cartao_orcamento": "500,00"})
+r = c1.get("/")
+check("modo simples renderiza", r.status_code == 200 and "simple-home" in r.get_data(as_text=True))
+c1.post("/settings", data={"csrf_token": "t", "form_kind": "preferences", "perfil": "pf",
+                           "view_mode": "completo", "meta_mensal": "300,00", "cartao_orcamento": "500,00"})
+with get_db() as db:
+    u = db.execute("SELECT meta_mensal, cartao_orcamento FROM usuarios WHERE id=?", (uid1,)).fetchone()
+check("preferencias salvam (meta 300, teto 500)",
+      abs(u["meta_mensal"] - 300) < 0.01 and abs(u["cartao_orcamento"] - 500) < 0.01, dict(u))
+
+print("\n" + "=" * 62)
+print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
+if FALHAS:
+    print("\nFALHAS:")
+    for f in FALHAS:
+        print("  -", f)
+print("=" * 62)
