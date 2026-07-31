@@ -3445,6 +3445,50 @@ def nova_transacao():
     )
 
 
+@app.route("/transacoes/<int:tx_id>/editar", methods=["GET", "POST"])
+@login_required
+def editar_transacao(tx_id):
+    """Corrigir valor, data, descrição ou categoria — o banco às vezes traz nome ruim."""
+    user = current_user()
+    tx = transaction_for_user(tx_id, user["id"])
+    if not tx:
+        flash("Movimentação não encontrada.")
+        return redirect(url_for("listar_transacoes"))
+    if request.method == "POST":
+        tipo = sanitize_text(request.form.get("tipo"))
+        valor = parse_money(request.form.get("valor"))
+        descricao = sanitize_text(request.form.get("descricao"))
+        estabelecimento = sanitize_text(request.form.get("estabelecimento")) or descricao
+        categoria = sanitize_text(request.form.get("categoria")) or categorize(user["id"], estabelecimento, descricao)
+        data_transacao = request.form.get("data_transacao") or tx["data_transacao"]
+        no_credito = 1 if (tipo == "saida" and request.form.get("no_credito")) else 0
+        if tipo not in {"entrada", "saida"} or valor <= 0:
+            flash("Confira o tipo e o valor.")
+            return redirect(url_for("editar_transacao", tx_id=tx_id))
+        try:
+            date.fromisoformat(data_transacao)
+        except (ValueError, TypeError):
+            flash("Data inválida.")
+            return redirect(url_for("editar_transacao", tx_id=tx_id))
+        with get_db() as db:
+            db.execute(
+                """UPDATE transacoes SET tipo = ?, valor = ?, descricao = ?, estabelecimento = ?,
+                   categoria = ?, data_transacao = ?, no_credito = ? WHERE id = ? AND user_id = ?""",
+                (tipo, valor, descricao, estabelecimento, categoria, data_transacao,
+                 no_credito, tx_id, user["id"]),
+            )
+        flash("Movimentação atualizada.")
+        return redirect(url_for("listar_transacoes", novo=tx_id))
+    return render_template(
+        "nova_transacao.html",
+        user=user,
+        tx=tx,
+        categories=expense_category_names(user["id"]),
+        income_categories=INCOME_CATEGORIES,
+        types=TRANSACTION_TYPES,
+    )
+
+
 @app.route("/transacoes/<int:tx_id>/delete", methods=["POST"])
 @login_required
 def delete_transacao(tx_id):

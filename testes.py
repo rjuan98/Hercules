@@ -352,6 +352,43 @@ with get_db() as db:
 check("preferencias salvam (meta 300, teto 500)",
       abs(u["meta_mensal"] - 300) < 0.01 and abs(u["cartao_orcamento"] - 500) < 0.01, dict(u))
 
+secao("19. Primeiro acesso e estados vazios")
+c_novo = novo_cliente("novato@teste.com", nome="Novato")
+h = c_novo.get("/").get_data(as_text=True)
+check("primeiro acesso oferece conectar o banco", "Conectar meu banco" in h)
+check("nao repete o botao de conectar", h.count("Conectar meu banco") == 1, h.count("Conectar meu banco"))
+check("nao diz 'No azul' com saldo zero", "No azul" not in h)
+check("nao mostra cards vazios de conta/meta", "Próximas contas" not in h)
+check("nao mostra 'Nada registrado ainda'", "Nada registrado ainda" not in h)
+check("saldo manual continua disponivel", "Esse é meu saldo" in h)
+h2 = c_novo.get("/dashboard").get_data(as_text=True)
+check("Resumo vazio mostra convite, nao parede de zeros",
+      "Seu mês vai aparecer aqui" in h2 and h2.count("R$ 0,00") == 0, h2.count("R$ 0,00"))
+
+secao("20. Editar movimentação")
+c_novo.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "50,00",
+                                      "descricao": "PAG*OPACO"})
+with get_db() as db:
+    tid = db.execute("SELECT id FROM transacoes WHERE descricao='PAG*OPACO'").fetchone()["id"]
+h3 = c_novo.get(f"/transacoes/{tid}/editar").get_data(as_text=True)
+check("form de edicao vem preenchido", 'value="50,00"' in h3 and 'value="PAG*OPACO"' in h3)
+c_novo.post(f"/transacoes/{tid}/editar",
+            data={"csrf_token": "t", "tipo": "saida", "valor": "75,50", "descricao": "Mercado da esquina",
+                  "categoria": "Mercado", "data_transacao": "2026-07-20", "no_credito": "1"})
+with get_db() as db:
+    r = db.execute("SELECT * FROM transacoes WHERE id=?", (tid,)).fetchone()
+check("edicao salva valor/descricao/categoria/data/credito",
+      abs(r["valor"] - 75.5) < 0.01 and r["descricao"] == "Mercado da esquina"
+      and r["categoria"] == "Mercado" and r["data_transacao"] == "2026-07-20" and r["no_credito"] == 1,
+      dict(r))
+check("link de editar aparece na lista", "/editar" in c_novo.get("/transacoes").get_data(as_text=True))
+c_outro = novo_cliente("intruso@teste.com", nome="Intruso")
+c_outro.post(f"/transacoes/{tid}/editar", data={"csrf_token": "t", "tipo": "saida",
+                                                "valor": "1,00", "descricao": "HACKEADO"})
+with get_db() as db:
+    r2 = db.execute("SELECT descricao FROM transacoes WHERE id=?", (tid,)).fetchone()
+check("outro usuario NAO edita movimentacao alheia", r2["descricao"] == "Mercado da esquina", r2["descricao"])
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

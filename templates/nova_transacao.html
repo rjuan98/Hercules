@@ -1,13 +1,14 @@
 {% extends 'base.html' %}
-{% block title %}Registrar · Hércules{% endblock %}
-{% block page_title %}Registrar{% endblock %}
-{% block page_subtitle %}Entrou ou saiu dinheiro? Anota aqui em segundos.{% endblock %}
+{% set editando = tx is defined and tx %}
+{% block title %}{{ 'Editar' if editando else 'Registrar' }} · Hércules{% endblock %}
+{% block page_title %}{{ 'Editar movimentação' if editando else 'Registrar' }}{% endblock %}
+{% block page_subtitle %}{% if editando %}Corrija o que estiver errado.{% else %}Entrou ou saiu dinheiro? Anota aqui em segundos.{% endif %}{% endblock %}
 
 {% block content %}
 <section class="page-card form-card" style="max-width:760px; margin:0 auto;">
     <form method="POST" class="form-grid cols-2" id="txForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="tipo" id="tipoInput" value="saida">
+        <input type="hidden" name="tipo" id="tipoInput" value="{{ tx['tipo'] if editando else 'saida' }}">
         {% if request.args.get('captura_id') %}
         <input type="hidden" name="captura_id" value="{{ request.args.get('captura_id') }}">
         {% endif %}
@@ -22,16 +23,16 @@
 
         <div class="form-group">
             <label for="valor">Valor</label>
-            <input id="valor" type="text" name="valor" required placeholder="0,00" inputmode="decimal" value="{{ request.args.get('valor', '') }}">
+            <input id="valor" type="text" name="valor" required placeholder="0,00" inputmode="decimal" value="{{ ('%.2f'|format(tx['valor']|float))|replace('.', ',') if editando else request.args.get('valor', '') }}">
         </div>
         <div class="form-group">
             <label for="data_transacao">Data</label>
-            <input id="data_transacao" type="date" name="data_transacao" value="{{ date.today().isoformat() }}">
+            <input id="data_transacao" type="date" name="data_transacao" value="{{ (tx['data_transacao'] or date.today().isoformat()) if editando else date.today().isoformat() }}">
         </div>
 
         <div class="form-group" style="grid-column:1 / -1;">
             <label for="descricao">Descrição</label>
-            <input id="descricao" type="text" name="descricao" required placeholder="Ex.: mercado, uber, quentinha" value="{{ request.args.get('descricao', '') }}">
+            <input id="descricao" type="text" name="descricao" required placeholder="Ex.: mercado, uber, quentinha" value="{{ tx['descricao'] if editando else request.args.get('descricao', '') }}">
         </div>
 
         <div class="form-group">
@@ -39,28 +40,28 @@
             <select id="categoria" name="categoria">
                 <option value="" data-tipo="saida">🤖 Deixar o Hércules decidir</option>
                 {% for cat in categories %}
-                <option value="{{ cat }}" data-tipo="saida">{{ cat }}</option>
+                <option value="{{ cat }}" data-tipo="saida" {% if editando and tx['categoria'] == cat %}selected{% endif %}>{{ cat }}</option>
                 {% endfor %}
                 {% for cat in income_categories %}
-                <option value="{{ cat }}" data-tipo="entrada" hidden>{{ cat }}</option>
+                <option value="{{ cat }}" data-tipo="entrada" hidden {% if editando and tx['categoria'] == cat %}selected{% endif %}>{{ cat }}</option>
                 {% endfor %}
             </select>
         </div>
         <div class="form-group">
             <label for="estabelecimento">Local / origem <span class="helper-text">(opcional)</span></label>
-            <input id="estabelecimento" type="text" name="estabelecimento" placeholder="Onde foi ou de onde veio">
+            <input id="estabelecimento" type="text" name="estabelecimento" placeholder="Onde foi ou de onde veio" value="{{ tx['estabelecimento'] if editando else '' }}">
         </div>
 
         <div class="form-group" id="grupoCredito" style="grid-column:1 / -1;">
             <label style="display:flex; align-items:center; gap:10px; font-weight:600; cursor:pointer;">
-                <input type="checkbox" id="noCreditoInput" name="no_credito" value="1">
+                <input type="checkbox" id="noCreditoInput" name="no_credito" value="1" {% if editando and tx['no_credito'] %}checked{% endif %}>
                 Foi no cartão de crédito
             </label>
             <p class="helper-text" style="margin-top:2px;">Não desconta do saldo agora — vira fatura pra pagar depois.</p>
         </div>
 
         <div class="form-group" style="grid-column:1 / -1;">
-            <button type="submit" class="button button-primary" id="submitBtn" style="width:100%;">Salvar saída</button>
+            <button type="submit" class="button button-primary" id="submitBtn" style="width:100%;">{{ 'Salvar alterações' if editando else 'Salvar saída' }}</button>
         </div>
     </form>
 </section>
@@ -82,7 +83,10 @@ window.addEventListener('DOMContentLoaded', () => {
         tipoInput.value = tipo;
         btnSaida.classList.toggle('selected-saida', tipo === 'saida');
         btnEntrada.classList.toggle('selected-entrada', tipo === 'entrada');
-        submitBtn.textContent = tipo === 'entrada' ? 'Salvar entrada' : 'Salvar saída';
+        // Ao editar, o botão fala "Salvar alterações" e não muda com o tipo
+        if (!editando) {
+            submitBtn.textContent = tipo === 'entrada' ? 'Salvar entrada' : 'Salvar saída';
+        }
         descricao.placeholder = tipo === 'entrada' ? 'Ex.: salário, freela, venda' : 'Ex.: mercado, uber, quentinha';
         grupoCredito.style.display = tipo === 'saida' ? '' : 'none';
         if (tipo === 'entrada') noCreditoInput.checked = false;
@@ -103,7 +107,15 @@ window.addEventListener('DOMContentLoaded', () => {
 
     btnSaida.addEventListener('click', () => setTipo('saida'));
     btnEntrada.addEventListener('click', () => setTipo('entrada'));
-    setTipo({{ ("'entrada'" if request.args.get('tipo') == 'entrada' else "'saida'") }});
+    const editando = {{ 'true' if editando else 'false' }};
+    const catSalva = {{ (tx['categoria']|tojson) if editando else 'null' }};
+    const creditoSalvo = {{ 'true' if (editando and tx['no_credito']) else 'false' }};
+    setTipo({{ (tx['tipo']|tojson) if editando else ("'entrada'" if request.args.get('tipo') == 'entrada' else "'saida'") }});
+    if (editando) {
+        if (catSalva) categoria.value = catSalva;      // setTipo troca a categoria: repõe a salva
+        noCreditoInput.checked = creditoSalvo;
+        submitBtn.textContent = 'Salvar alterações';
+    }
 });
 </script>
 {% endblock %}

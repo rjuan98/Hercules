@@ -11,20 +11,47 @@
     <div class="hercules-greeting" style="margin-bottom:14px;">
         <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
         <div class="hercules-bubble">
-            <strong>Vamos começar do jeito certo!</strong><br>
+            <strong>Bem-vindo! Vamos começar? 🦁</strong><br>
+            {% if pluggy_ativo and not pluggy_tem_banco %}
+            O jeito mais fácil é <strong>conectar seu banco</strong>: eu puxo seus gastos sozinho,
+            todo dia, e você não precisa anotar nada.
+            {% else %}
             Me conta <strong>quanto você tem na conta hoje</strong> (pode ser aproximado).
             A partir daí eu cuido do resto — e você não precisa registrar o passado.
+            {% endif %}
         </div>
     </div>
+
+    {% if pluggy_ativo and not pluggy_tem_banco %}
+    <a href="{{ url_for('pluggy_conectar') }}" class="button button-primary" style="width:100%;">
+        <i data-lucide="link"></i> Conectar meu banco
+    </a>
+    <details class="form-advanced" style="margin-top:14px;">
+        <summary>Prefiro começar sem conectar</summary>
+        <p class="helper-text" style="margin:10px 0;">Sem problema — me diga quanto você tem hoje e anote os gastos quando quiser.</p>
+        <form method="POST" action="{{ url_for('saldo_inicial') }}" class="suggestion-actions">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="money-input" style="flex:1;">
+                <span class="money-prefix">R$</span>
+                <input type="text" name="valor" data-money placeholder="0,00" required inputmode="decimal">
+            </div>
+            <button type="submit" class="button button-outline">Esse é meu saldo</button>
+        </form>
+    </details>
+    {% else %}
     <form method="POST" action="{{ url_for('saldo_inicial') }}" class="suggestion-actions">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="text" name="valor" placeholder="Ex.: 1500,00" required inputmode="decimal" style="flex:1;">
+        <div class="money-input" style="flex:1;">
+            <span class="money-prefix">R$</span>
+            <input type="text" name="valor" data-money placeholder="0,00" required inputmode="decimal">
+        </div>
         <button type="submit" class="button button-primary">Esse é meu saldo</button>
     </form>
     <p class="helper-text" style="margin-top:10px;">
         Depois, se quiser, cadastre suas contas do mês (aluguel, luz...) em
         <a href="{{ url_for('compromissos') }}" style="color:var(--primary-deep); font-weight:800;">Contas</a>.
     </p>
+    {% endif %}
 </section>
 
 {% elif lembrar_ofx and not pluggy_ativo %}
@@ -106,8 +133,9 @@
             <p class="metric-label">Saldo atual · olá, {{ (user['nome'] or 'você').split(' ')[0] }}</p>
             <p class="balance-big">{{ stats['balance']|money }}</p>
             <p class="metric-footnote">
-                {{ status_emoji }} {% if stats['balance'] >= 0 %}No azul{% else %}Atenção: no vermelho{% endif %}
-                · pode gastar hoje <strong style="color:var(--primary-deep);">{{ can_spend_today|money }}</strong>
+                {% if onboarding %}Assim que entrar movimentação, seu saldo aparece aqui.
+                {% else %}{{ status_emoji }} {% if stats['balance'] >= 0 %}No azul{% else %}Atenção: no vermelho{% endif %}
+                · pode gastar hoje <strong style="color:var(--primary-deep);">{{ can_spend_today|money }}</strong>{% endif %}
             </p>
             {% if stats['saldo_investido'] %}
             <p class="metric-footnote" style="margin-top:4px;">
@@ -121,7 +149,8 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="button button-primary"><i data-lucide="refresh-cw"></i> Sincronizar</button>
         </form>
-        {% elif pluggy_ativo %}
+        {% elif pluggy_ativo and not onboarding %}
+        {# no primeiro acesso o convite acima já tem esse botão — não repete #}
         <a href="{{ url_for('pluggy_conectar') }}" class="button button-primary"><i data-lucide="link"></i> Conectar banco</a>
         {% endif %}
     </div>
@@ -151,6 +180,8 @@
 </section>
 {% endif %}
 
+{# Conta nova: mostra só o convite acima, sem encher a tela de zeros #}
+{% if not onboarding %}
 {# ---- Segundo plano: contas próximas (concreto) e a meta ---- #}
 <section class="metric-grid cols-2" style="margin-top:14px;">
     <article class="glass-card metric-card">
@@ -223,6 +254,7 @@
         {% endfor %}
     </ul>
 </section>
+{% endif %}{# fim do "não é conta nova" #}
 {% endif %}{# fim do modo completo #}
 {% endblock %}
 

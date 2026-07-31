@@ -78,6 +78,14 @@
                     {{ '+' if tx['tipo'] == 'entrada' else '−' }} {{ tx['valor']|money }}
                 </span>
             </div>
+            <div class="note-actions" style="margin-top:8px;">
+                <a href="{{ url_for('editar_transacao', tx_id=tx['id']) }}" class="button button-outline"><i data-lucide="pencil"></i> Editar</a>
+                <form method="POST" action="{{ url_for('delete_transacao', tx_id=tx['id']) }}"
+                      data-confirm="Excluir “{{ tx['descricao'] or tx['estabelecimento'] or 'esta movimentação' }}”?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="button button-danger">Excluir</button>
+                </form>
+            </div>
             {% if tx['tipo'] == 'saida' %}
             <details class="form-advanced" style="margin-top:8px;">
                 <summary>{% if (tx['categoria'] or 'Outros') == 'Outros' %}Que gasto é esse? Ensinar{% else %}Categoria errada? Corrigir{% endif %}</summary>
