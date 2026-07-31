@@ -246,20 +246,6 @@ button { cursor: pointer; }
     padding: 28px;
 }
 
-.flash-stack {
-    display: grid;
-    gap: 12px;
-    margin-bottom: 18px;
-}
-.flash-card {
-    padding: 16px 18px;
-    border-radius: 20px;
-    background: var(--surface);
-    border: 1.5px solid rgba(201, 111, 59, 0.4);
-    color: var(--text);
-    box-shadow: var(--shadow-md);
-}
-
 .auth-page .app-shell {
     grid-template-columns: 1fr;
     min-height: 100svh;
@@ -463,18 +449,6 @@ button { cursor: pointer; }
     font-variant-numeric: tabular-nums;
     color: var(--primary-deep);
 }
-.progress-ring {
-    width: 150px;
-    height: 150px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    margin: 6px auto 0;
-    background:
-        radial-gradient(circle at center, var(--surface) 58%, transparent 59%),
-        conic-gradient(var(--primary) calc(var(--progress, 0) * 1%), var(--surface-soft) 0);
-    box-shadow: inset 0 0 0 1.5px var(--border);
-}
 .progress-ring strong {
     font-size: 1.7rem;
     letter-spacing: -0.02em;
@@ -592,17 +566,6 @@ input[type="checkbox"]:focus-visible {
 .button-outline:hover { background: rgba(36, 28, 20, 0.06); }
 .button:hover, .button-primary:hover, .button-outline:hover, .button-secondary:hover, .button-danger:hover {
     transform: translateY(-1px);
-}
-
-.plan-option {
-    display: grid;
-    gap: 12px;
-    grid-template-columns: auto 1fr;
-    align-items: start;
-    padding: 18px;
-    border-radius: 22px;
-    border: 1.5px solid var(--border);
-    background: var(--surface-soft);
 }
 .plan-option input {
     width: 18px;
@@ -1304,22 +1267,10 @@ body.mode-simple .toast { font-size: 1.05rem; }
    Registro relâmpago e check-in do dia
    ============================================================ */
 .quick-log { padding: 16px 18px; }
-.quick-log-form {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-}
 .quick-log-form input[type="text"] {
     flex: 1;
     min-width: 120px;
     font-size: 1rem;
-}
-.quick-log-mic {
-    display: inline-flex !important;
-    width: 48px;
-    height: 48px;
-    border-radius: 999px;
-    flex-shrink: 0;
 }
 .quick-log-mic.gravando {
     background: var(--danger-soft);
@@ -1330,14 +1281,6 @@ body.mode-simple .toast { font-size: 1.05rem; }
 @keyframes micPulse {
     0%, 100% { box-shadow: 0 0 0 0 rgba(178, 58, 42, 0.3); }
     50% { box-shadow: 0 0 0 8px rgba(178, 58, 42, 0); }
-}
-
-.checkin-list {
-    list-style: none;
-    margin: 0 0 6px;
-    padding: 0;
-    display: grid;
-    gap: 8px;
 }
 .checkin-list li {
     display: flex;
@@ -1350,24 +1293,6 @@ body.mode-simple .toast { font-size: 1.05rem; }
     font-size: 0.95rem;
 }
 .checkin-desc em { font-style: normal; color: var(--muted); font-size: 0.86rem; }
-.checkin-in { color: var(--success); font-weight: 800; white-space: nowrap; }
-.checkin-out { color: var(--danger); font-weight: 800; white-space: nowrap; }
-.checkin-done {
-    margin: 14px 0 0;
-    text-align: center;
-    font-weight: 800;
-    color: var(--success);
-}
-
-.pendente-item {
-    margin-top: 10px;
-    padding: 12px 14px;
-    border-radius: 14px;
-    background: var(--warning-soft);
-    border: 1.5px solid rgba(156, 106, 16, 0.35);
-}
-.pendente-texto { margin: 0 0 10px; font-size: 0.92rem; }
-.pendente-acoes { display: flex; gap: 10px; flex-wrap: wrap; }
 .pendente-acoes form { margin: 0; }
 
 @media (max-width: 520px) {

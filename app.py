@@ -115,20 +115,7 @@ PROFILE_CHOICES = [
     ("hibrido", "Híbrido (PF + negócio)"),
 ]
 
-HOME_FOCUS_CHOICES = [
-    ("saldo", "Saldo atual"),
-    ("spend_today", "Quanto posso gastar hoje"),
-    ("everything_ok", "Tudo em dia"),
-    ("month_end", "Quanto sobra no fim do mês"),
-    ("where_money_goes", "Onde estou gastando"),
-    ("goal", "Meta principal"),
-]
 
-NOTIFICATION_CHOICES = [
-    ("silencioso", "Silencioso"),
-    ("equilibrado", "Equilibrado"),
-    ("detalhista", "Detalhista"),
-]
 
 TRANSACTION_TYPES = [
     ("saida", "Saída"),
@@ -175,10 +162,6 @@ NOTE_CATEGORIES = [
     "Outros",
 ]
 
-PLAN_LABELS = {
-    "free": "Gratuito",
-    "plus": "Plus",
-}
 
 # Teto anual de faturamento do MEI (Lei Complementar). Ultrapassar exige
 # atenção (desenquadramento); o termômetro do Painel MEI usa este valor.
@@ -251,16 +234,6 @@ def normalize_profile(value: str | None) -> str:
     return "pf"
 
 
-def normalize_focus(value: str | None) -> str:
-    value = (value or "saldo").strip()
-    valid = {k for k, _ in HOME_FOCUS_CHOICES}
-    return value if value in valid else "saldo"
-
-
-def normalize_notification_mode(value: str | None) -> str:
-    value = (value or "equilibrado").strip().lower()
-    valid = {k for k, _ in NOTIFICATION_CHOICES}
-    return value if value in valid else "equilibrado"
 
 
 def allowed_file(filename: str) -> bool:
@@ -1813,13 +1786,10 @@ app.jinja_env.filters["format_date"] = format_date
 app.jinja_env.filters["month_label"] = month_label
 app.jinja_env.globals["csrf_token"] = generate_csrf_token
 app.jinja_env.globals["profile_choices"] = PROFILE_CHOICES
-app.jinja_env.globals["focus_choices"] = HOME_FOCUS_CHOICES
-app.jinja_env.globals["notification_choices"] = NOTIFICATION_CHOICES
 app.jinja_env.globals["transaction_types"] = TRANSACTION_TYPES
 app.jinja_env.globals["note_categories"] = NOTE_CATEGORIES
 app.jinja_env.globals["transaction_categories"] = TRANSACTION_CATEGORIES
 app.jinja_env.globals["income_categories"] = INCOME_CATEGORIES
-app.jinja_env.globals["plan_labels"] = PLAN_LABELS
 
 app.jinja_env.globals["date"] = date
 
@@ -1895,8 +1865,6 @@ def _start_session(user) -> None:
     session["user_id"] = user["id"]
     session["nome"] = user["nome"]
     session["perfil"] = user["perfil"]
-    session["home_focus"] = user["home_focus"]
-    session["notification_mode"] = user["notification_mode"]
     session["meta_mensal"] = user["meta_mensal"]
     session["view_mode"] = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
 
@@ -2398,8 +2366,6 @@ def settings():
             return redirect(url_for("settings"))
 
         perfil = normalize_profile(request.form.get("perfil"))
-        home_focus = normalize_focus(request.form.get("home_focus"))
-        notification_mode = normalize_notification_mode(request.form.get("notification_mode"))
         meta_mensal = parse_money(request.form.get("meta_mensal"))
         cartao_orcamento = parse_money(request.form.get("cartao_orcamento"))
         view_mode = request.form.get("view_mode", "completo")
@@ -2407,13 +2373,11 @@ def settings():
             view_mode = "completo"
         with get_db() as db:
             db.execute(
-                """UPDATE usuarios SET perfil = ?, home_focus = ?, notification_mode = ?, meta_mensal = ?,
+                """UPDATE usuarios SET perfil = ?, meta_mensal = ?,
                    cartao_orcamento = ?, view_mode = ? WHERE id = ?""",
-                (perfil, home_focus, notification_mode, meta_mensal, cartao_orcamento, view_mode, user["id"]),
+                (perfil, meta_mensal, cartao_orcamento, view_mode, user["id"]),
             )
         session["perfil"] = perfil
-        session["home_focus"] = home_focus
-        session["notification_mode"] = notification_mode
         session["meta_mensal"] = meta_mensal
         session["view_mode"] = view_mode
         flash("Preferências atualizadas.")
