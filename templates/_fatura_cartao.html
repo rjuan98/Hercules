@@ -32,3 +32,33 @@
     {% endif %}
 </section>
 {% endif %}
+
+{# ---- Parcelas: o que já está comprometido nas próximas faturas ---- #}
+{% if parcelas and parcelas.tem %}
+<section class="page-card" style="margin-top:14px;">
+    <div class="note-header" style="margin-bottom:4px;">
+        <p class="metric-label" style="margin:0;">📅 Já comprometido nas próximas faturas</p>
+    </div>
+    <p class="metric-value" style="font-size:1.5rem;">{{ parcelas.total|money }}</p>
+    <p class="metric-footnote" style="margin-top:6px;">
+        Em parcelas que ainda vão cair — a última daqui a {{ parcelas.meses }}
+        {{ 'mês' if parcelas.meses == 1 else 'meses' }}.
+        Isso <strong>não</strong> aparece na fatura de hoje, mas já é dinheiro seu.
+    </p>
+    <ul class="data-list" style="margin-top:12px;">
+        {% for p in parcelas.itens[:4] %}
+        <li class="data-item" style="padding:10px 14px;">
+            <div class="note-header">
+                <div>
+                    <p class="note-title" style="font-size:0.95rem;">{{ p.descricao }}</p>
+                    <div class="note-meta">
+                        <span>{{ p.ultima }}/{{ p.total }} pagas · faltam {{ p.restantes }}×{{ p.valor|money }}</span>
+                    </div>
+                </div>
+                <span class="badge tx-badge-saida">{{ p.falta|money }}</span>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}

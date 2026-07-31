@@ -315,6 +315,9 @@ def init_db():
     _add_column_if_missing(conn, "transacoes", "extra_json", "TEXT")
     _add_column_if_missing(conn, "transacoes", "fitid", "TEXT")
     _add_column_if_missing(conn, "transacoes", "no_credito", "INTEGER NOT NULL DEFAULT 0")
+    # Parcelamento: "3 de 12" — o que ainda vai cair nas próximas faturas
+    _add_column_if_missing(conn, "transacoes", "parcela_num", "INTEGER")
+    _add_column_if_missing(conn, "transacoes", "parcela_total", "INTEGER")
 
     _add_column_if_missing(conn, "usuarios", "view_mode", "TEXT NOT NULL DEFAULT 'completo'")
     _add_column_if_missing(conn, "usuarios", "capture_token", "TEXT")

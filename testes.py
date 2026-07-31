@@ -389,6 +389,30 @@ with get_db() as db:
     r2 = db.execute("SELECT descricao FROM transacoes WHERE id=?", (tid,)).fetchone()
 check("outro usuario NAO edita movimentacao alheia", r2["descricao"] == "Mercado da esquina", r2["descricao"])
 
+secao("21. Parcelas (compromisso das próximas faturas)")
+check("le PARC 3/12", A.detectar_parcela("AMAZON PARC 3/12") == (3, 12))
+check("le PARCELA 1 DE 10", A.detectar_parcela("MAGALU PARCELA 1 DE 10") == (1, 10))
+check("data 12/03 NAO vira parcela", A.detectar_parcela("SUPERMERCADO 12/03") == (None, None))
+check("texto sem parcela", A.detectar_parcela("UBER TRIP") == (None, None))
+c_p = novo_cliente("parcela@teste.com", nome="Par")
+uid_p = uid_de("parcela@teste.com")
+A.import_ofx_transactions(uid_p, [
+    {"valor": 200.0, "tipo": "saida", "data": "2026-05-10", "descricao": "NOTEBOOK PARC 1/12", "fitid": "pa", "no_credito": True},
+    {"valor": 200.0, "tipo": "saida", "data": "2026-06-10", "descricao": "NOTEBOOK PARC 2/12", "fitid": "pb", "no_credito": True},
+    {"valor": 200.0, "tipo": "saida", "data": "2026-07-10", "descricao": "NOTEBOOK PARC 3/12", "fitid": "pc", "no_credito": True},
+    {"valor": 150.0, "tipo": "saida", "data": "2026-07-11", "descricao": "SOFA PARCELA 2 DE 6", "fitid": "pd", "no_credito": True},
+    {"valor": 50.0, "tipo": "saida", "data": "2026-07-12", "descricao": "FONE PARC 12/12", "fitid": "pe", "no_credito": True},
+])
+pf = A.calc_parcelas_futuras(uid_p)
+check("nao conta a mesma compra 3x (2400, nao 6000)", abs(pf["total"] - 2400) < 0.01, pf["total"])
+check("agrupa por compra (2 itens)", len(pf["itens"]) == 2, len(pf["itens"]))
+check("compra quitada (12/12) sai da conta",
+      not any("FONE" in i["descricao"] for i in pf["itens"]))
+check("horizonte = maior numero de parcelas restantes", pf["meses"] == 9, pf["meses"])
+h_p = c_p.get("/").get_data(as_text=True)
+check("card de parcelas na Início", "Já comprometido nas próximas faturas" in h_p)
+check("etiqueta de parcela na lista", "tx-tag-parcela" in c_p.get("/transacoes").get_data(as_text=True))
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

@@ -1044,6 +1044,11 @@ body {
     color: #7E4E7A;
     border-color: rgba(126, 78, 122, 0.35);
 }
+.tx-tag-parcela {
+    background: rgba(156, 106, 16, 0.12);
+    color: var(--warning);
+    border-color: rgba(156, 106, 16, 0.32);
+}
 .tx-tag-debito {
     background: rgba(46, 109, 140, 0.10);
     color: var(--secondary-2);

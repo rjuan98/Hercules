@@ -586,6 +586,65 @@ def parse_bank_statement_text(text: str, forcar_credito: bool = False) -> list[d
     return items
 
 
+# "PARC 3/12", "PARCELA 3 DE 12", "3/12" — só com a palavra parcela por perto, senão
+# uma data como "3/12" viraria parcelamento.
+_PARCELA_RE = re.compile(
+    r"(?:parc(?:ela)?\.?\s*|\b)(\d{1,2})\s*(?:/|\s+de\s+)\s*(\d{1,2})\b", re.IGNORECASE)
+
+
+def detectar_parcela(texto: str) -> tuple[int | None, int | None]:
+    """Lê '3/12' de uma descrição de compra parcelada. Devolve (parcela, total)."""
+    t = (texto or "")
+    if not re.search(r"parc", t, re.IGNORECASE):
+        return None, None
+    m = _PARCELA_RE.search(t)
+    if not m:
+        return None, None
+    num, total = int(m.group(1)), int(m.group(2))
+    if 1 <= num <= total <= 99 and total > 1:
+        return num, total
+    return None, None
+
+
+def _chave_compra(descricao: str) -> str:
+    """Nome da compra sem o número da parcela — 'NOTEBOOK PARC 1/12' e 'PARC 2/12'
+    são a MESMA compra. Sem isso, importar 3 meses de fatura contaria 3 vezes."""
+    base = re.sub(r"parc(?:ela)?\.?\s*\d{1,2}\s*(?:/|\s+de\s+)\s*\d{1,2}", " ", descricao or "", flags=re.IGNORECASE)
+    base = re.sub(r"\b\d{1,2}\s*/\s*\d{1,2}\b", " ", base)
+    return re.sub(r"\s+", " ", base).strip().lower()
+
+
+def calc_parcelas_futuras(user_id: int) -> dict[str, Any]:
+    """Quanto das PRÓXIMAS faturas já está comprometido por parcelamento.
+    Agrupa por compra e conta só a parcela mais recente de cada uma."""
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT descricao, valor, parcela_num, parcela_total FROM transacoes
+               WHERE user_id = ? AND no_credito = 1
+                 AND parcela_total > 1 AND parcela_num IS NOT NULL""",
+            (user_id,),
+        ).fetchall()
+    compras: dict[tuple, dict] = {}
+    for r in rows:
+        chave = (_chave_compra(r["descricao"]), int(r["parcela_total"]), round(float(r["valor"]), 2))
+        atual = compras.get(chave)
+        if not atual or int(r["parcela_num"]) > atual["ultima"]:
+            compras[chave] = {"descricao": r["descricao"], "valor": float(r["valor"]),
+                              "ultima": int(r["parcela_num"]), "total": int(r["parcela_total"])}
+    total, meses, itens = 0.0, 0, []
+    for c in compras.values():
+        restantes = c["total"] - c["ultima"]
+        if restantes <= 0:
+            continue
+        c["restantes"] = restantes
+        c["falta"] = restantes * c["valor"]
+        total += c["falta"]
+        meses = max(meses, restantes)
+        itens.append(c)
+    itens.sort(key=lambda i: i["falta"], reverse=True)
+    return {"total": total, "meses": meses, "itens": itens, "tem": bool(itens)}
+
+
 def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_credito: bool = False) -> dict[str, int]:
     """Importa com reconciliação: FITID já visto = pula; valor+data já registrado
     (captura/manual) = casa e marca; anterior ao saldo inicial = pula (protege o saldo)."""
@@ -640,12 +699,17 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
                 categoria = auto_category(item["descricao"])
             else:
                 categoria = "Outros"
+            p_num = item.get("parcela_num")
+            p_total = item.get("parcela_total")
+            if not p_total:  # extrato que só escreve "PARC 3/12" na descrição
+                p_num, p_total = detectar_parcela(item["descricao"])
             db.execute(
                 """INSERT INTO transacoes
-                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, fitid, no_credito)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'ofx', 95, ?, ?)""",
+                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao,
+                    fonte, confidence, fitid, no_credito, parcela_num, parcela_total)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'ofx', 95, ?, ?, ?, ?)""",
                 (user_id, item["tipo"], item["valor"], item["descricao"], item["descricao"],
-                 categoria, item["data"], item["fitid"], no_credito),
+                 categoria, item["data"], item["fitid"], no_credito, p_num, p_total),
             )
             stats["importadas"] += 1
     return stats
@@ -784,6 +848,11 @@ def pluggy_fetch_items(api_key: str, contas: list[dict], since: str) -> list[dic
             else:
                 tipo = "entrada" if amount > 0 else "saida"
             desc = t.get("description") or t.get("descriptionRaw") or "Movimentação"
+            # Parcelamento: a Pluggy manda "3 de 12" no metadado do cartão
+            meta = t.get("creditCardMetadata") or {}
+            p_num, p_total = meta.get("installmentNumber"), meta.get("totalInstallments")
+            if not p_total:  # alguns bancos só escrevem na descrição
+                p_num, p_total = detectar_parcela(desc)
             items.append({
                 "valor": abs(float(amount)),
                 "tipo": tipo,
@@ -791,6 +860,8 @@ def pluggy_fetch_items(api_key: str, contas: list[dict], since: str) -> list[dic
                 "descricao": sanitize_text(desc)[:120] or "Movimentação",
                 "fitid": "PLG-" + str(t.get("id"))[:70],
                 "no_credito": is_credit,
+                "parcela_num": p_num,
+                "parcela_total": p_total,
             })
     return items
 
@@ -2091,6 +2162,7 @@ def home():
         pluggy_tem_banco=bool(pluggy_user_item_ids(user)),
         sobra_guardar=sobra_guardar,
         dividas_resumo=calc_dividas(user["id"]),
+        parcelas=calc_parcelas_futuras(user["id"]),
     )
 
 
@@ -2232,6 +2304,7 @@ def dashboard():
         values=values,
         retrato=retrato,
         chart_colors=CHART_COLORS,
+        parcelas=calc_parcelas_futuras(user["id"]),
         insight=insight_semanal(user["id"]),
         month=month_label(date.today().strftime("%Y-%m")),
     )
