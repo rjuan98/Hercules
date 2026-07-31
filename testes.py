@@ -413,6 +413,40 @@ h_p = c_p.get("/").get_data(as_text=True)
 check("card de parcelas na Início", "Já comprometido nas próximas faturas" in h_p)
 check("etiqueta de parcela na lista", "tx-tag-parcela" in c_p.get("/transacoes").get_data(as_text=True))
 
+secao("22. Fatura por ciclo de fechamento")
+check("ciclo: antes do fechamento",
+      A.ciclo_fatura(date(2026, 7, 10), 25) == (date(2026, 6, 26), date(2026, 7, 25)))
+check("ciclo: no dia do fechamento (ainda na fatura que fecha)",
+      A.ciclo_fatura(date(2026, 7, 25), 25) == (date(2026, 6, 26), date(2026, 7, 25)))
+check("ciclo: dia seguinte ja e' a proxima fatura",
+      A.ciclo_fatura(date(2026, 7, 26), 25) == (date(2026, 7, 26), date(2026, 8, 25)))
+check("ciclo: fechamento dia 31 em fevereiro vira 28",
+      A.ciclo_fatura(date(2026, 2, 15), 31)[1] == date(2026, 2, 28))
+check("ciclo: virada de ano",
+      A.ciclo_fatura(date(2027, 1, 5), 25) == (date(2026, 12, 26), date(2027, 1, 25)))
+c_c = novo_cliente("ciclo@teste.com", nome="Ciclo")
+uid_c = uid_de("ciclo@teste.com")
+ini_c, fim_c = A.ciclo_fatura(date.today(), 25)
+dentro = date.fromordinal(ini_c.toordinal() + (fim_c - ini_c).days // 2)
+passada = date.fromordinal(ini_c.toordinal() - 3)
+with get_db() as db:
+    ins = ("INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,confidence,"
+           "data_transacao,no_credito) VALUES (?,?,?,?,?,?,?,?,1)")
+    db.execute(ins, (uid_c, "saida", 100.0, "DENTRO ciclo", "Outros", "ofx", 95, dentro.isoformat()))
+    db.execute(ins, (uid_c, "saida", 999.0, "FATURA PASSADA", "Outros", "ofx", 95, passada.isoformat()))
+    db.execute("UPDATE usuarios SET cartao_fechamento=25, cartao_vencimento=5 WHERE id=?", (uid_c,))
+st_c = A.calc_transaction_totals(uid_c)
+check("fatura conta so o ciclo aberto (100, nao 1099)",
+      abs(st_c["fatura_credito_mes"] - 100) < 0.01, st_c["fatura_credito_mes"])
+check("marca que esta por ciclo", st_c["fatura_por_ciclo"] is True)
+check("informa quando fecha e vence",
+      st_c["fatura_fecha_em"] == fim_c and st_c["fatura_vence_dia"] == 5)
+check("card mostra 'Fatura aberta'", "Fatura aberta" in c_c.get("/").get_data(as_text=True))
+with get_db() as db:
+    db.execute("UPDATE usuarios SET cartao_fechamento=NULL WHERE id=?", (uid_c,))
+check("sem fechamento configurado volta pro mes do calendario",
+      A.calc_transaction_totals(uid_c)["fatura_por_ciclo"] is False)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

@@ -606,6 +606,23 @@ def detectar_parcela(texto: str) -> tuple[int | None, int | None]:
     return None, None
 
 
+def _dia_do_mes(ano: int, mes: int, dia: int) -> date:
+    """Dia 31 em fevereiro vira o último dia do mês (o banco fecha no último dia)."""
+    return date(ano, mes, min(dia, calendar.monthrange(ano, mes)[1]))
+
+
+def ciclo_fatura(hoje: date, dia_fechamento: int) -> tuple[date, date]:
+    """Início e fim da fatura ABERTA. Fatura não segue o calendário: fecha no dia X,
+    então uma compra do dia 28 pode cair na fatura do mês seguinte."""
+    fecha_este_mes = _dia_do_mes(hoje.year, hoje.month, dia_fechamento)
+    if hoje <= fecha_este_mes:
+        mes_ant = hoje.replace(day=1) - timedelta(days=1)
+        inicio = _dia_do_mes(mes_ant.year, mes_ant.month, dia_fechamento) + timedelta(days=1)
+        return inicio, fecha_este_mes
+    prox = (hoje.replace(day=1) + timedelta(days=32)).replace(day=1)
+    return fecha_este_mes + timedelta(days=1), _dia_do_mes(prox.year, prox.month, dia_fechamento)
+
+
 def _chave_compra(descricao: str) -> str:
     """Nome da compra sem o número da parcela — 'NOTEBOOK PARC 1/12' e 'PARC 2/12'
     são a MESMA compra. Sem isso, importar 3 meses de fatura contaria 3 vezes."""
@@ -1456,12 +1473,22 @@ def calc_transaction_totals(user_id: int):
                FROM transacoes WHERE user_id = ? AND no_credito = 0""",
             (user_id,),
         ).fetchone()["total"]
+        # Fatura: se a pessoa (ou o banco) informou o dia de fechamento, conta pelo CICLO
+        # real do cartão; senão, cai no mês do calendário.
+        cartao = db.execute(
+            "SELECT cartao_fechamento, cartao_vencimento FROM usuarios WHERE id = ?", (user_id,)
+        ).fetchone()
+        dia_fecha = (cartao["cartao_fechamento"] if cartao and "cartao_fechamento" in cartao.keys() else None)
+        if dia_fecha:
+            fat_ini, fat_fim = ciclo_fatura(date.today(), int(dia_fecha))
+        else:
+            fat_ini, fat_fim = month_start, month_end
         fatura_credito_mes = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
                AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
-            (user_id, month_start.isoformat(), month_end.isoformat()),
+            (user_id, fat_ini.isoformat(), fat_fim.isoformat()),
         ).fetchone()["total"]
         monthly_by_category = db.execute(
             """SELECT COALESCE(categoria, 'Outros') AS categoria,
@@ -1571,6 +1598,11 @@ def calc_transaction_totals(user_id: int):
         "month_expenses": float(month_expenses or 0),
         "balance": float(balance or 0),
         "fatura_credito_mes": float(fatura_credito_mes or 0),
+        "fatura_por_ciclo": bool(dia_fecha),
+        "fatura_fecha_em": fat_fim if dia_fecha else None,
+        "fatura_dias_p_fechar": (fat_fim - date.today()).days if dia_fecha else None,
+        "fatura_vence_dia": (cartao["cartao_vencimento"]
+                             if (cartao and "cartao_vencimento" in cartao.keys()) else None),
         "saldo_investido": (float(user_row["saldo_investido"])
                             if (user_row and "saldo_investido" in user_row.keys() and user_row["saldo_investido"] is not None)
                             else None),
@@ -2495,14 +2527,24 @@ def settings():
         perfil = normalize_profile(request.form.get("perfil"))
         meta_mensal = parse_money(request.form.get("meta_mensal"))
         cartao_orcamento = parse_money(request.form.get("cartao_orcamento"))
+
+        def _dia_ou_none(campo):
+            try:
+                d = int(request.form.get(campo) or 0)
+            except ValueError:
+                return None
+            return d if 1 <= d <= 31 else None
+        cartao_fechamento = _dia_ou_none("cartao_fechamento")
+        cartao_vencimento = _dia_ou_none("cartao_vencimento")
         view_mode = request.form.get("view_mode", "completo")
         if view_mode not in {"simples", "completo"}:
             view_mode = "completo"
         with get_db() as db:
             db.execute(
-                """UPDATE usuarios SET perfil = ?, meta_mensal = ?,
-                   cartao_orcamento = ?, view_mode = ? WHERE id = ?""",
-                (perfil, meta_mensal, cartao_orcamento, view_mode, user["id"]),
+                """UPDATE usuarios SET perfil = ?, meta_mensal = ?, cartao_orcamento = ?,
+                   cartao_fechamento = ?, cartao_vencimento = ?, view_mode = ? WHERE id = ?""",
+                (perfil, meta_mensal, cartao_orcamento, cartao_fechamento,
+                 cartao_vencimento, view_mode, user["id"]),
             )
         session["perfil"] = perfil
         session["meta_mensal"] = meta_mensal
@@ -3954,6 +3996,21 @@ def _sync_pluggy(user, api_key, item_ids, esperar: bool):
         saldo_investido = pluggy_investimentos(api_key, item_ids)
     except Exception:
         saldo_investido = None  # banco sem investimento: não quebra o sync
+    # O próprio banco diz quando a fatura fecha e vence — melhor que perguntar
+    for c in contas:
+        if c.get("type") != "CREDIT":
+            continue
+        cd = c.get("creditData") or {}
+        fecha, vence = cd.get("balanceCloseDate"), cd.get("balanceDueDate")
+        if fecha or vence:
+            with get_db() as db:
+                if fecha:
+                    db.execute("UPDATE usuarios SET cartao_fechamento = ? WHERE id = ?",
+                               (int(str(fecha)[8:10]), user["id"]))
+                if vence:
+                    db.execute("UPDATE usuarios SET cartao_vencimento = ? WHERE id = ?",
+                               (int(str(vence)[8:10]), user["id"]))
+            break
     agora = datetime.now().isoformat(timespec="seconds")
     hoje = date.today().isoformat()
     with get_db() as db:

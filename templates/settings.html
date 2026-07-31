@@ -92,6 +92,20 @@
             </div>
             <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">O Herc mostra a fatura crescer e avisa quando chegar perto desse teto.</p>
         </div>
+        <div class="form-group">
+            <label for="cartao_fechamento">Dia que a fatura fecha</label>
+            <input id="cartao_fechamento" type="number" min="1" max="31" name="cartao_fechamento"
+                   value="{{ user['cartao_fechamento'] or '' }}" placeholder="Ex.: 25" inputmode="numeric">
+            <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">
+                Assim a fatura bate com a do banco (compra depois do fechamento cai na próxima).
+                Se você conectou o banco, o Herc preenche sozinho.
+            </p>
+        </div>
+        <div class="form-group">
+            <label for="cartao_vencimento">Dia do vencimento <span class="helper-text">(opcional)</span></label>
+            <input id="cartao_vencimento" type="number" min="1" max="31" name="cartao_vencimento"
+                   value="{{ user['cartao_vencimento'] or '' }}" placeholder="Ex.: 5" inputmode="numeric">
+        </div>
         <div class="form-group" style="grid-column:1 / -1;">
             <button class="button button-primary" type="submit">Salvar preferências</button>
         </div>

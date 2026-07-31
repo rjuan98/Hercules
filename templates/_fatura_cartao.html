@@ -3,12 +3,21 @@
 {% if stats['fatura_credito_mes'] > 0 %}
 <section class="page-card" style="margin-top:14px;">
     <div class="note-header" style="margin-bottom:4px;">
-        <p class="metric-label" style="margin:0;">💳 Fatura do cartão (este mês)</p>
+        <p class="metric-label" style="margin:0;">
+            {% if stats['fatura_por_ciclo'] %}💳 Fatura aberta{% else %}💳 Fatura do cartão (este mês){% endif %}
+        </p>
         {% if not stats['cartao_orcamento'] %}
         <a href="{{ url_for('settings') }}" style="color:var(--primary-deep); font-weight:800; font-size:0.85rem;">Definir um teto</a>
         {% endif %}
     </div>
     <p class="metric-value" style="font-size:1.7rem;">{{ stats['fatura_credito_mes']|money }}</p>
+    {% if stats['fatura_por_ciclo'] %}
+    <p class="metric-footnote" style="margin-top:4px;">
+        {% set d = stats['fatura_dias_p_fechar'] %}
+        {% if d == 0 %}Fecha hoje ({{ stats['fatura_fecha_em']|format_date }}){% elif d == 1 %}Fecha amanhã{% else %}Fecha em {{ d }} dias ({{ stats['fatura_fecha_em']|format_date }}){% endif %}
+        {% if stats['fatura_vence_dia'] %} · vence dia {{ stats['fatura_vence_dia'] }}{% endif %}
+    </p>
+    {% endif %}
 
     {% if stats['cartao_orcamento'] %}
     {% set pct = stats['fatura_pct_orcamento'] %}
