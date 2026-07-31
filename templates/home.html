@@ -225,3 +225,24 @@
 </section>
 {% endif %}{# fim do modo completo #}
 {% endblock %}
+
+{% block scripts %}
+{% if pluggy_tem_banco %}
+<script>
+// Atualiza com o banco em segundo plano ao abrir o app (no máximo a cada 4h).
+// Não trava a tela: se vier movimentação nova, recarrega uma vez pra mostrar.
+window.addEventListener('DOMContentLoaded', () => {
+    const body = new URLSearchParams();
+    body.append('csrf_token', {{ csrf_token()|tojson }});
+    fetch({{ url_for('pluggy_sync_auto')|tojson }}, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+    })
+    .then((r) => r.json())
+    .then((d) => { if (d && d.ok && d.novas > 0) window.location.reload(); })
+    .catch(() => {});
+});
+</script>
+{% endif %}
+{% endblock %}

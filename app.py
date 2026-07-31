@@ -3662,6 +3662,62 @@ def pluggy_sincronizar():
     return redirect(url_for("listar_transacoes"))
 
 
+# De quantas em quantas horas o app se atualiza sozinho ao ser aberto
+SYNC_AUTO_HORAS = 4
+
+
+def _sync_pluggy(user, api_key, item_ids, esperar: bool):
+    """Núcleo compartilhado entre o botão (espera a coleta) e o automático (não espera).
+    Devolve (stats, saldo_banco, refresh) ou levanta exceção."""
+    refresh = pluggy_refresh_items(api_key, item_ids, espera_max=24 if esperar else 0)
+    contas = pluggy_accounts(api_key, item_ids)
+    items = pluggy_fetch_items(api_key, contas, (date.today() - timedelta(days=90)).isoformat())
+    saldo_banco = sum(float(c.get("balance") or 0) for c in contas if c.get("type") == "BANK")
+    try:
+        saldo_investido = pluggy_investimentos(api_key, item_ids)
+    except Exception:
+        saldo_investido = None  # banco sem investimento: não quebra o sync
+    agora = datetime.now().isoformat(timespec="seconds")
+    hoje = date.today().isoformat()
+    with get_db() as db:
+        if saldo_investido is None:
+            db.execute(
+                "UPDATE usuarios SET last_ofx_import = ?, last_sync_at = ?, saldo_banco = ? WHERE id = ?",
+                (hoje, agora, saldo_banco, user["id"]))
+        else:
+            db.execute(
+                """UPDATE usuarios SET last_ofx_import = ?, last_sync_at = ?, saldo_banco = ?,
+                   saldo_investido = ? WHERE id = ?""",
+                (hoje, agora, saldo_banco, saldo_investido, user["id"]))
+    stats = import_ofx_transactions(user["id"], items)
+    return stats, saldo_banco, refresh, items
+
+
+@app.route("/pluggy/sync-auto", methods=["POST"])
+@login_required
+def pluggy_sync_auto():
+    """Atualização silenciosa ao abrir o app. Não espera a coleta do banco terminar
+    (senão a tela travaria); pede a coleta agora e importa o que já chegou — na próxima
+    abertura, o que foi pedido agora já está lá. Só roda a cada SYNC_AUTO_HORAS."""
+    user = current_user()
+    item_ids = pluggy_user_item_ids(user)
+    if not pluggy_configured() or not item_ids:
+        return {"ok": False, "motivo": "sem_banco"}, 200
+
+    ultima = user["last_sync_at"] if "last_sync_at" in user.keys() else None
+    if ultima:
+        try:
+            if datetime.now() - datetime.fromisoformat(ultima) < timedelta(hours=SYNC_AUTO_HORAS):
+                return {"ok": True, "pulou": True, "novas": 0}, 200
+        except ValueError:
+            pass
+    try:
+        stats, saldo, _refresh, _items = _sync_pluggy(user, pluggy_auth(), item_ids, esperar=False)
+    except Exception:
+        return {"ok": False, "motivo": "falhou"}, 200  # silencioso: não atrapalha o uso
+    return {"ok": True, "novas": stats["importadas"], "saldo": saldo}, 200
+
+
 @app.route("/pluggy/recomecar", methods=["POST"])
 @login_required
 def pluggy_recomecar():
