@@ -165,4 +165,85 @@
     {% endif %}
 </section>
 
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Bloqueio por digital 🔒</h2>
+        <p class="topbar-subtitle">Pede sua digital (ou rosto) pra abrir o Hércules — protege seus dados se alguém pegar seu celular destravado.</p>
+    </div>
+
+    {% if not webauthn_ok %}
+    <div class="auth-note">Ainda não disponível neste servidor (falta a biblioteca <code>webauthn</code>).</div>
+    {% elif passkey_ativa %}
+    <div class="auth-note" style="border-color:rgba(61,90,46,0.35); background:rgba(61,90,46,0.10);">
+        <strong>✓ Bloqueio ativo.</strong> O app tranca sozinho depois de 30 minutos parado.
+    </div>
+    <form method="POST" action="{{ url_for('passkey_remover') }}" style="margin-top:14px;"
+          data-confirm="Desativar o bloqueio por digital? Qualquer um com seu celular destravado vai conseguir abrir o Hércules.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="button button-danger">Desativar bloqueio</button>
+    </form>
+    {% else %}
+    <div class="auth-note">Sua digital fica no aparelho — o Hércules guarda só a chave pública, nunca a digital em si.</div>
+    <button type="button" id="btnAtivarDigital" class="button button-primary" style="margin-top:14px;">
+        <i data-lucide="fingerprint"></i> Ativar bloqueio por digital
+    </button>
+    <p class="helper-text" id="statusDigital" style="margin-top:10px;"></p>
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+{% if webauthn_ok and not passkey_ativa %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('btnAtivarDigital');
+    const status = document.getElementById('statusDigital');
+    if (!btn) return;
+
+    const b64urlParaBytes = (s) => {
+        s = s.replace(/-/g, '+').replace(/_/g, '/');
+        const bin = atob(s + '==='.slice((s.length + 3) % 4));
+        return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    };
+    const bytesParaB64url = (buf) =>
+        btoa(String.fromCharCode(...new Uint8Array(buf)))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+    btn.addEventListener('click', async () => {
+        if (!window.PublicKeyCredential) {
+            status.textContent = 'Este navegador não trabalha com digital.';
+            return;
+        }
+        status.textContent = 'Confirme com sua digital…';
+        try {
+            const opts = await (await fetch('{{ url_for("passkey_registrar_opcoes") }}', { method: 'POST' })).json();
+            opts.challenge = b64urlParaBytes(opts.challenge);
+            opts.user.id = b64urlParaBytes(opts.user.id);
+            (opts.excludeCredentials || []).forEach((c) => { c.id = b64urlParaBytes(c.id); });
+
+            const cred = await navigator.credentials.create({ publicKey: opts });
+            const corpo = {
+                id: cred.id,
+                rawId: bytesParaB64url(cred.rawId),
+                type: cred.type,
+                response: {
+                    clientDataJSON: bytesParaB64url(cred.response.clientDataJSON),
+                    attestationObject: bytesParaB64url(cred.response.attestationObject),
+                },
+            };
+            const r = await fetch('{{ url_for("passkey_registrar") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(corpo),
+            });
+            const d = await r.json();
+            if (d.ok) { window.location.reload(); }
+            else { status.textContent = d.erro || 'Não consegui ativar.'; }
+        } catch (e) {
+            status.textContent = 'Não deu certo (' + (e.name || 'erro') + '). Tente de novo.';
+        }
+    });
+});
+</script>
+{% endif %}
 {% endblock %}

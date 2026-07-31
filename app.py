@@ -52,6 +52,17 @@ try:
 except ImportError:  # optional (necessário para importar extrato em PDF)
     PdfReader = None
 
+try:  # optional (necessário para o bloqueio por digital/rosto)
+    import webauthn as _webauthn
+    from webauthn.helpers.structs import (
+        AuthenticatorSelectionCriteria,
+        PublicKeyCredentialDescriptor,
+        ResidentKeyRequirement,
+        UserVerificationRequirement,
+    )
+except ImportError:
+    _webauthn = None
+
 # Leitura de notas com IA: liga sozinha quando a chave existir no ambiente
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
@@ -1797,11 +1808,53 @@ app.jinja_env.globals["date"] = date
 @app.before_request
 def csrf_protect():
     if request.method == "POST":
-        exempt = request.endpoint in {"logout", "api_captura"}
+        exempt = request.endpoint in {"logout", "api_captura",
+                                      "passkey_registrar", "passkey_entrar",
+                                      "passkey_registrar_opcoes", "passkey_entrar_opcoes"}
         token = request.form.get("csrf_token", "")
         if not exempt and token != session.get("csrf_token"):
             flash("Token de segurança inválido. Atualize a página e tente novamente.")
             return redirect(request.referrer or url_for("home" if "user_id" in session else "login"))
+
+
+# Depois de quantos minutos parado o app pede a digital de novo
+DESBLOQUEIO_MINUTOS = 30
+
+
+def _marcar_desbloqueado():
+    session["desbloqueado_em"] = datetime.now().isoformat(timespec="seconds")
+
+
+def _desbloqueio_valido() -> bool:
+    """Janela deslizante: usando o app não incomoda; parado, tranca sozinho.
+    (Não pode ser um 'true' eterno — o cookie dura 90 dias e a proteção sumiria.)"""
+    marca = session.get("desbloqueado_em")
+    if not marca:
+        return False
+    try:
+        return datetime.now() - datetime.fromisoformat(marca) < timedelta(minutes=DESBLOQUEIO_MINUTOS)
+    except ValueError:
+        return False
+
+
+@app.before_request
+def exigir_desbloqueio():
+    """Com digital cadastrada, o app pede o dedo antes de mostrar qualquer dado —
+    protege quem pega o celular já destravado."""
+    if "user_id" not in session:
+        return None
+    livres = {"logout", "app_bloqueado", "static", "passkey_entrar", "passkey_entrar_opcoes",
+              "passkey_remover", "api_captura", "android_asset_links"}
+    if request.endpoint in livres:
+        return None
+    if not app_tem_bloqueio(session["user_id"]):
+        return None
+    if _desbloqueio_valido():
+        _marcar_desbloqueado()  # renova enquanto estiver usando
+        return None
+    if request.method != "GET":
+        return {"erro": "app bloqueado"}, 401
+    return redirect(url_for("app_bloqueado"))
 
 
 # ------------------------
@@ -1867,6 +1920,7 @@ def _start_session(user) -> None:
     session["perfil"] = user["perfil"]
     session["meta_mensal"] = user["meta_mensal"]
     session["view_mode"] = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
+    _marcar_desbloqueado()  # acabou de provar quem é (senha/Google): não pede a digital agora
 
 
 @app.route("/login/google")
@@ -2390,6 +2444,8 @@ def settings():
         pluggy_tem_id=bool(PLUGGY_CLIENT_ID),
         pluggy_tem_secret=bool(PLUGGY_CLIENT_SECRET),
         pluggy_tem_banco=bool(pluggy_user_item_ids(user)),
+        webauthn_ok=webauthn_disponivel(),
+        passkey_ativa=app_tem_bloqueio(user["id"]),
     )
 
 
@@ -3624,6 +3680,164 @@ def pluggy_sincronizar():
         partes.append("o banco ainda está enviando o resto — sincronize de novo em 1 min")
     flash("Banco sincronizado: " + " · ".join(partes) + ".")
     return redirect(url_for("listar_transacoes"))
+
+
+# ------------------------
+# Bloqueio por digital/rosto (WebAuthn) — o aparelho guarda a chave, o servidor
+# só guarda a chave PÚBLICA. Nenhuma digital passa pela internet.
+# ------------------------
+def webauthn_disponivel() -> bool:
+    return _webauthn is not None
+
+
+def _rp_id() -> str:
+    """Domínio da credencial (sem porta) — precisa bater com o site."""
+    return (request.host or "").split(":")[0]
+
+
+def _origem() -> str:
+    return request.host_url.rstrip("/")
+
+
+def user_passkeys(user_id: int):
+    with get_db() as db:
+        return db.execute(
+            "SELECT * FROM passkeys WHERE user_id = ? ORDER BY id DESC", (user_id,)
+        ).fetchall()
+
+
+def app_tem_bloqueio(user_id: int) -> bool:
+    return bool(user_passkeys(user_id))
+
+
+@app.route("/seguranca/passkey/registrar/opcoes", methods=["POST"])
+@login_required
+def passkey_registrar_opcoes():
+    if not webauthn_disponivel():
+        return {"erro": "Bloqueio por digital não está ativo neste servidor."}, 503
+    user = current_user()
+    opcoes = _webauthn.generate_registration_options(
+        rp_id=_rp_id(),
+        rp_name="Hércules",
+        user_id=str(user["id"]).encode(),
+        user_name=user["email"],
+        user_display_name=user["nome"],
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.PREFERRED,
+            user_verification=UserVerificationRequirement.REQUIRED,  # exige digital/rosto/PIN
+        ),
+        exclude_credentials=[
+            PublicKeyCredentialDescriptor(id=base64.urlsafe_b64decode(p["credential_id"] + "=="))
+            for p in user_passkeys(user["id"])
+        ],
+    )
+    session["webauthn_desafio"] = base64.b64encode(opcoes.challenge).decode()
+    return Response(_webauthn.options_to_json(opcoes), mimetype="application/json")
+
+
+@app.route("/seguranca/passkey/registrar", methods=["POST"])
+@login_required
+def passkey_registrar():
+    if not webauthn_disponivel():
+        return {"erro": "indisponível"}, 503
+    user = current_user()
+    desafio = session.pop("webauthn_desafio", None)
+    if not desafio:
+        return {"erro": "Sessão expirou. Tente de novo."}, 400
+    try:
+        v = _webauthn.verify_registration_response(
+            credential=request.get_data(as_text=True),
+            expected_challenge=base64.b64decode(desafio),
+            expected_origin=_origem(),
+            expected_rp_id=_rp_id(),
+        )
+    except Exception as e:
+        return {"erro": f"Não consegui registrar: {type(e).__name__}"}, 400
+    cred_id = base64.urlsafe_b64encode(v.credential_id).decode().rstrip("=")
+    with get_db() as db:
+        db.execute(
+            """INSERT OR REPLACE INTO passkeys (user_id, credential_id, public_key, sign_count, apelido)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user["id"], cred_id, v.credential_public_key, v.sign_count, "Este aparelho"),
+        )
+    _marcar_desbloqueado()
+    return {"ok": True}, 200
+
+
+@app.route("/seguranca/passkey/entrar/opcoes", methods=["POST"])
+@login_required
+def passkey_entrar_opcoes():
+    if not webauthn_disponivel():
+        return {"erro": "indisponível"}, 503
+    user = current_user()
+    opcoes = _webauthn.generate_authentication_options(
+        rp_id=_rp_id(),
+        allow_credentials=[
+            PublicKeyCredentialDescriptor(id=base64.urlsafe_b64decode(p["credential_id"] + "=="))
+            for p in user_passkeys(user["id"])
+        ],
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
+    session["webauthn_desafio"] = base64.b64encode(opcoes.challenge).decode()
+    return Response(_webauthn.options_to_json(opcoes), mimetype="application/json")
+
+
+@app.route("/seguranca/passkey/entrar", methods=["POST"])
+@login_required
+def passkey_entrar():
+    if not webauthn_disponivel():
+        return {"erro": "indisponível"}, 503
+    user = current_user()
+    desafio = session.pop("webauthn_desafio", None)
+    if not desafio:
+        return {"erro": "Sessão expirou. Tente de novo."}, 400
+    corpo = request.get_data(as_text=True)
+    try:
+        cred_id = json.loads(corpo).get("id", "")
+    except ValueError:
+        return {"erro": "resposta inválida"}, 400
+    with get_db() as db:
+        pk = db.execute(
+            "SELECT * FROM passkeys WHERE user_id = ? AND credential_id = ?",
+            (user["id"], cred_id),
+        ).fetchone()
+    if not pk:
+        return {"erro": "Esse aparelho não está cadastrado."}, 400
+    try:
+        v = _webauthn.verify_authentication_response(
+            credential=corpo,
+            expected_challenge=base64.b64decode(desafio),
+            expected_origin=_origem(),
+            expected_rp_id=_rp_id(),
+            credential_public_key=pk["public_key"],
+            credential_current_sign_count=pk["sign_count"],
+            require_user_verification=True,
+        )
+    except Exception as e:
+        return {"erro": f"Não reconheci: {type(e).__name__}"}, 400
+    with get_db() as db:
+        db.execute("UPDATE passkeys SET sign_count = ? WHERE id = ?", (v.new_sign_count, pk["id"]))
+    _marcar_desbloqueado()
+    return {"ok": True}, 200
+
+
+@app.route("/seguranca/passkey/remover", methods=["POST"])
+@login_required
+def passkey_remover():
+    user = current_user()
+    with get_db() as db:
+        db.execute("DELETE FROM passkeys WHERE user_id = ?", (user["id"],))
+    _marcar_desbloqueado()
+    flash("Bloqueio por digital desativado.")
+    return redirect(url_for("settings"))
+
+
+@app.route("/bloqueado")
+@login_required
+def app_bloqueado():
+    if not app_tem_bloqueio(session["user_id"]):
+        return redirect(url_for("home"))
+    return render_template("bloqueado.html")
 
 
 # De quantas em quantas horas o app se atualiza sozinho ao ser aberto

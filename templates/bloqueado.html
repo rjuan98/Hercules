@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Bloqueado · Hércules{% endblock %}
+{% block page_title %}Hércules{% endblock %}
+{% block page_subtitle %}Seu dinheiro, só pra você.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:460px; margin:8vh auto 0; text-align:center;">
+    <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="auth-mark" style="margin:0 auto;">
+    <h1 class="page-title" style="margin:14px 0 6px;">Tô guardando pra você 🦁</h1>
+    <p class="subtitle" style="margin:0 auto;">Use sua digital pra abrir.</p>
+
+    <button type="button" id="btnDesbloquear" class="button button-primary" style="width:100%; margin-top:20px;">
+        <i data-lucide="fingerprint"></i> Desbloquear
+    </button>
+    <p class="helper-text" id="statusDesbloqueio" style="margin-top:12px;"></p>
+
+    <p class="footer-note" style="margin-top:18px;">
+        Não é você? <a href="{{ url_for('logout') }}" style="color:var(--primary-deep); font-weight:800;">Sair da conta</a>
+    </p>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('btnDesbloquear');
+    const status = document.getElementById('statusDesbloqueio');
+
+    const b64urlParaBytes = (s) => {
+        s = s.replace(/-/g, '+').replace(/_/g, '/');
+        const bin = atob(s + '==='.slice((s.length + 3) % 4));
+        return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    };
+    const bytesParaB64url = (buf) =>
+        btoa(String.fromCharCode(...new Uint8Array(buf)))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+    async function desbloquear() {
+        if (!window.PublicKeyCredential) {
+            status.textContent = 'Este navegador não trabalha com digital.';
+            return;
+        }
+        status.textContent = 'Aguardando sua digital…';
+        try {
+            const opts = await (await fetch('{{ url_for("passkey_entrar_opcoes") }}', { method: 'POST' })).json();
+            opts.challenge = b64urlParaBytes(opts.challenge);
+            (opts.allowCredentials || []).forEach((c) => { c.id = b64urlParaBytes(c.id); });
+
+            const cred = await navigator.credentials.get({ publicKey: opts });
+            const corpo = {
+                id: cred.id,
+                rawId: bytesParaB64url(cred.rawId),
+                type: cred.type,
+                response: {
+                    clientDataJSON: bytesParaB64url(cred.response.clientDataJSON),
+                    authenticatorData: bytesParaB64url(cred.response.authenticatorData),
+                    signature: bytesParaB64url(cred.response.signature),
+                    userHandle: cred.response.userHandle ? bytesParaB64url(cred.response.userHandle) : null,
+                },
+            };
+            const r = await fetch('{{ url_for("passkey_entrar") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(corpo),
+            });
+            const d = await r.json();
+            if (d.ok) { window.location = '{{ url_for("home") }}'; }
+            else { status.textContent = d.erro || 'Não consegui abrir. Tente de novo.'; }
+        } catch (e) {
+            status.textContent = 'Não deu certo (' + (e.name || 'erro') + '). Toque em Desbloquear pra tentar de novo.';
+        }
+    }
+
+    btn.addEventListener('click', desbloquear);
+    desbloquear(); // já tenta ao abrir
+});
+</script>
+{% endblock %}
