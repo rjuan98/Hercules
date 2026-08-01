@@ -3634,6 +3634,7 @@ def nova_transacao():
     return render_template(
         "nova_transacao.html",
         user=user,
+        banco_conectado=bool(pluggy_user_item_ids(user)),
         categories=expense_category_names(user["id"]),
         income_categories=INCOME_CATEGORIES,
         types=TRANSACTION_TYPES,
@@ -3678,6 +3679,7 @@ def editar_transacao(tx_id):
         "nova_transacao.html",
         user=user,
         tx=tx,
+        banco_conectado=bool(pluggy_user_item_ids(user)),
         categories=expense_category_names(user["id"]),
         income_categories=INCOME_CATEGORIES,
         types=TRANSACTION_TYPES,

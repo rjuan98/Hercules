@@ -144,6 +144,18 @@
     <div class="auth-note" style="border-color:rgba(61,90,46,0.35); background:rgba(61,90,46,0.10);">
         <strong>✓ Banco conectado.</strong> Puxe seus gastos quando quiser.
     </div>
+    <p class="helper-text" style="margin-top:10px;">
+        <strong>Última leitura do banco:</strong>
+        {% if user['saldo_banco'] is not none %}
+            conta {{ user['saldo_banco']|money }}
+            {% if user['saldo_investido'] %} · guardado (caixinhas/investimentos) {{ user['saldo_investido']|money }}{% endif %}
+            {% if user['last_sync_at'] %} · em {{ user['last_sync_at'].replace('T', ' ')[:16] }}{% endif %}
+            <br>É esse valor que aparece como seu saldo. Se não bate com o app do banco,
+            me avise — pode ser dinheiro em caixinha, que o banco informa separado.
+        {% else %}
+            ainda não recebi o saldo. Toque em <strong>Sincronizar agora</strong>.
+        {% endif %}
+    </p>
     <div class="page-actions" style="justify-content:flex-start; margin-top:14px;">
         <form method="POST" action="{{ url_for('pluggy_sincronizar') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

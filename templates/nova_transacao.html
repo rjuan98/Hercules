@@ -5,6 +5,15 @@
 {% block page_subtitle %}{% if editando %}Corrija o que estiver errado.{% else %}Entrou ou saiu dinheiro? Anota aqui em segundos.{% endif %}{% endblock %}
 
 {% block content %}
+{% if banco_conectado and not editando %}
+<section class="page-card" style="max-width:760px; margin:0 auto 14px;">
+    <p class="helper-text" style="margin:0;">
+        💡 Seu <strong>saldo vem do banco</strong> — o que você anotar aqui <strong>não</strong> muda o saldo.
+        Use pra registrar o que o banco não vê (dinheiro em espécie, um acerto com alguém)
+        ou pra corrigir uma categoria. O que passa na conta entra sozinho ao sincronizar.
+    </p>
+</section>
+{% endif %}
 <section class="page-card form-card" style="max-width:760px; margin:0 auto;">
     <form method="POST" class="form-grid cols-2" id="txForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
