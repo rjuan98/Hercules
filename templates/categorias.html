@@ -42,73 +42,68 @@
     </div>
 </section>
 
-<section style="margin-top:18px;">
-    <div class="topbar-copy" style="margin-bottom:10px;">
-        <h2 class="topbar-title" style="font-size:1.15rem;">Suas categorias — {{ month }}</h2>
+<section class="page-card" style="margin-top:18px;">
+    <div class="note-header" style="margin-bottom:6px;">
+        <div class="topbar-copy">
+            <h2 class="topbar-title" style="font-size:1.15rem;">Orçamento de {{ month }}</h2>
+            <p class="topbar-subtitle">Defina um limite por categoria e acompanhe o quanto já foi.</p>
+        </div>
+        {% if total_orcado > 0 %}
+        <span class="badge {% if total_gasto_com_limite > total_orcado %}badge-danger{% endif %}">
+            {{ total_gasto_com_limite|money }} de {{ total_orcado|money }}
+        </span>
+        {% endif %}
     </div>
-    <ul class="data-list">
-        {% for item in customs %}
-        {% set cat = item.row %}
-        <li class="data-item" style="padding:18px;">
+
+    <ul class="data-list" style="margin-top:10px;">
+        {% for o in orcamento %}
+        <li class="data-item" style="padding:14px 16px;">
             <div class="note-header">
                 <div>
-                    <p class="note-title">{{ cat['icone'] or '🏷️' }} {{ cat['nome'] }}</p>
+                    <p class="note-title">{{ o.icone }} {{ o.nome }}</p>
                     <div class="note-meta">
-                        <span>Gasto no mês: <strong>{{ item.gasto|money }}</strong></span>
-                        {% if item.limite > 0 %}<span>Limite: {{ item.limite|money }}</span>{% endif %}
+                        <span>Gastou <strong>{{ o.gasto|money }}</strong></span>
+                        {% if o.limite > 0 %}
+                        <span>de {{ o.limite|money }}</span>
+                        <span>{% if o.resta >= 0 %}restam {{ o.resta|money }}{% else %}passou {{ (-o.resta)|money }}{% endif %}</span>
+                        {% endif %}
                     </div>
                 </div>
-                {% if item.pct is not none %}
-                <span class="badge {% if item.pct >= 100 %}badge-danger{% elif item.pct >= 80 %}badge-warn{% endif %}">{{ item.pct|round(0)|int }}%</span>
+                {% if o.pct is not none %}
+                <span class="badge {% if o.pct >= 100 %}badge-danger{% elif o.pct >= 80 %}badge-warn{% endif %}">{{ o.pct|round(0)|int }}%</span>
                 {% endif %}
             </div>
-            {% if item.pct is not none %}
+
+            {% if o.pct is not none %}
             <div class="progress-track" style="margin-top:10px;">
-                <div class="progress-fill {% if item.pct >= 100 %}fill-danger{% elif item.pct >= 80 %}fill-warn{% endif %}" style="width: {{ item.pct }}%;"></div>
+                <div class="progress-fill {% if o.pct >= 100 %}fill-danger{% elif o.pct >= 80 %}fill-warn{% endif %}"
+                     style="width: {{ [o.pct, 100]|min }}%;"></div>
             </div>
-            {% if item.pct >= 100 %}
-            <p class="helper-text" style="margin-top:8px; color:var(--danger);">Limite estourado — {{ (item.gasto - item.limite)|money }} acima.</p>
-            {% elif item.pct >= 80 %}
-            <p class="helper-text" style="margin-top:8px; color:var(--warning);">Quase no limite — restam {{ (item.limite - item.gasto)|money }}.</p>
             {% endif %}
-            {% endif %}
-            <div class="note-actions" style="margin-top:12px;">
-                <details class="form-advanced" style="flex:1;">
-                    <summary>Editar limite</summary>
-                    <form method="POST" class="form-grid" style="grid-template-columns:1fr auto; gap:10px;">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="nome" value="{{ cat['nome'] }}">
-                        <input type="text" name="limite_mensal" value="{{ cat['limite_mensal'] or '' }}" placeholder="Limite por mês" inputmode="decimal">
-                        <button type="submit" class="button button-outline">Salvar</button>
-                    </form>
-                </details>
-                <form method="POST" action="{{ url_for('delete_categoria', cat_id=cat['id']) }}" data-confirm="Excluir a categoria '{{ cat['nome'] }}'? As movimentações continuam existindo.">
+
+            <div class="note-actions" style="margin-top:10px;">
+                <form method="POST" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="nome" value="{{ o.nome }}">
+                    <div class="money-input" style="width:150px;">
+                        <span class="money-prefix">R$</span>
+                        <input type="text" name="limite_mensal" data-money
+                               value="{{ ('%.2f'|format(o.limite))|replace('.', ',') if o.limite > 0 else '' }}"
+                               placeholder="sem limite" inputmode="decimal" aria-label="Limite de {{ o.nome }}">
+                    </div>
+                    <button type="submit" class="button button-outline">{% if o.limite > 0 %}Atualizar{% else %}Definir limite{% endif %}</button>
+                </form>
+                {% if o.propria %}
+                <form method="POST" action="{{ url_for('delete_categoria', cat_id=o.id) }}" data-confirm="Excluir a categoria '{{ o.nome }}'? As movimentações continuam existindo.">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="button button-danger">Excluir</button>
                 </form>
+                {% endif %}
             </div>
-        </li>
-        {% else %}
-        <li class="empty-state">
-            <strong>Nenhuma categoria sua ainda.</strong>
-            <span>Crie uma acima — ou responda as perguntas do Hércules na tela inicial, que ele cria por você.</span>
         </li>
         {% endfor %}
     </ul>
 </section>
-
-{% if fixed %}
-<section style="margin-top:18px;">
-    <div class="topbar-copy" style="margin-bottom:10px;">
-        <h2 class="topbar-title" style="font-size:1.15rem;">Categorias padrão com gasto no mês</h2>
-    </div>
-    <div class="chip-row">
-        {% for f in fixed %}
-        <span class="chip">{{ f.nome }} · {{ f.gasto|money }}</span>
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
 
 <section class="page-card" style="margin-top:18px;">
     <div class="topbar-copy" style="margin-bottom:14px;">

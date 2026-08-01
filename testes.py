@@ -518,6 +518,51 @@ h_g2 = c_g.get("/dashboard").get_data(as_text=True)
 check("com gasto, grafico tem caixa de altura propria", "chart-box" in h_g2)
 check("legenda com valor e %", "chart-legend" in h_g2)
 
+secao("26. Assinaturas detectadas")
+c_a = novo_cliente("assina@teste.com", nome="Ass")
+uid_a = uid_de("assina@teste.com")
+with get_db() as db:
+    ins = ("INSERT INTO transacoes (user_id,tipo,valor,descricao,estabelecimento,categoria,fonte,"
+           "confidence,data_transacao,no_credito) VALUES (?,?,?,?,?,?,?,?,?,0)")
+    def _add(desc, val, meses, cat="Outros"):
+        d = (date.today() - timedelta(days=30 * meses)).isoformat()
+        db.execute(ins, (uid_a, "saida", val, desc, desc, cat, "ofx", 95, d))
+    for m in range(4):
+        _add(f"NETFLIX.COM {m}", 39.90, m, "Assinaturas")
+    for m, v in enumerate([99.90, 99.90, 109.90]):
+        _add("SMARTFIT ACADEMIA", v, m, "Saúde")
+    for m, v in enumerate([320.0, 85.0, 512.0, 150.0]):
+        _add("CARREFOUR", v, m, "Mercado")
+    for m in range(2):
+        _add("SPOTIFY", 21.90, m, "Assinaturas")
+ass = A.detectar_assinaturas(uid_a)
+nomes_ass = [a["nome"].lower() for a in ass["itens"]]
+check("acha assinatura de valor fixo (Netflix)", any("netflix" in n for n in nomes_ass))
+check("acha mesmo com reajuste pequeno (academia)", any("smartfit" in n for n in nomes_ass))
+check("NAO confunde compra variavel (mercado)", not any("carrefour" in n for n in nomes_ass))
+check("NAO conta com so 2 meses (Spotify)", not any("spotify" in n for n in nomes_ass))
+check("soma mensal e anual", abs(ass["total_mes"] - 139.80) < 0.01
+      and abs(ass["total_ano"] - 1677.60) < 0.01, (ass["total_mes"], ass["total_ano"]))
+check("card aparece no Resumo", "O que se repete todo mês" in c_a.get("/dashboard").get_data(as_text=True))
+
+secao("27. Orçamento por categoria")
+c_o = novo_cliente("orc@teste.com", nome="Orc")
+uid_o = uid_de("orc@teste.com")
+c_o.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "300,00",
+                                   "descricao": "Mercado do mes", "categoria": "Mercado"})
+h_o = c_o.get("/categorias").get_data(as_text=True)
+check("categoria PADRAO aparece no orçamento", "Mercado" in h_o and "Orçamento de" in h_o)
+check("mostra o gasto do mes", "R$ 300,00" in h_o)
+# define limite numa categoria padrao (antes so dava nas criadas pelo usuario)
+c_o.post("/categorias", data={"csrf_token": "t", "nome": "Mercado", "limite_mensal": "500,00"})
+h_o2 = c_o.get("/categorias").get_data(as_text=True)
+check("da pra pôr limite em categoria padrão", "de R$ 500,00" in h_o2, )
+check("mostra quanto resta", "restam R$ 200,00" in h_o2)
+check("barra de progresso aparece", "progress-fill" in h_o2)
+c_o.post("/categorias", data={"csrf_token": "t", "nome": "Mercado", "limite_mensal": "200,00"})
+h_o3 = c_o.get("/categorias").get_data(as_text=True)
+check("estourou o limite avisa", "passou R$ 100,00" in h_o3 and "fill-danger" in h_o3)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

@@ -2251,6 +2251,47 @@ def home():
     )
 
 
+def detectar_assinaturas(user_id: int, meses: int = 5) -> dict[str, Any]:
+    """Acha o que se repete todo mês (Netflix, academia, seguro...). Critério: mesmo
+    lugar, valor parecido, em 3+ meses diferentes. É o gasto que passa despercebido
+    justamente por ser silencioso."""
+    desde = (date.today() - timedelta(days=31 * meses)).isoformat()
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT descricao, estabelecimento, valor, categoria,
+                      strftime('%Y-%m', COALESCE(data_transacao, created_at)) AS mes
+               FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+                 AND date(COALESCE(data_transacao, created_at)) >= date(?)""",
+            (user_id, desde),
+        ).fetchall()
+
+    grupos: dict[str, dict] = {}
+    for r in rows:
+        nome = r["estabelecimento"] or r["descricao"] or ""
+        chave = _normalizar_regra(padrao_sugerido(nome))
+        if not chave:
+            continue
+        g = grupos.setdefault(chave, {"nome": padrao_sugerido(nome), "valores": [],
+                                      "meses": set(), "categoria": r["categoria"]})
+        g["valores"].append(float(r["valor"]))
+        g["meses"].add(r["mes"])
+
+    achadas = []
+    for g in grupos.values():
+        if len(g["meses"]) < 3:
+            continue
+        vmin, vmax = min(g["valores"]), max(g["valores"])
+        if vmin <= 0 or vmax / vmin > 1.25:   # valor tem que ser estável (reajuste pequeno ok)
+            continue
+        tipico = sorted(g["valores"])[len(g["valores"]) // 2]
+        achadas.append({"nome": g["nome"], "valor": tipico, "meses": len(g["meses"]),
+                        "categoria": g["categoria"] or "Outros"})
+    achadas.sort(key=lambda a: a["valor"], reverse=True)
+    total = sum(a["valor"] for a in achadas)
+    return {"itens": achadas, "total_mes": total, "total_ano": total * 12, "tem": bool(achadas)}
+
+
 def insight_semanal(user_id: int) -> dict[str, Any] | None:
     """Insight concreto da semana, comparando com a semana anterior do PRÓPRIO usuário
     (não com média de mercado, que não diz nada pra quem está começando)."""
@@ -2407,6 +2448,7 @@ def dashboard():
         chart_colors=CHART_COLORS,
         parcelas=calc_parcelas_futuras(user["id"]),
         insight=insight_semanal(user["id"]),
+        assinaturas=detectar_assinaturas(user["id"]),
         month=month_label(date.today().strftime("%Y-%m")),
     )
 
@@ -3014,19 +3056,33 @@ def categorias():
                 flash(f"Categoria {nome} criada.")
         return redirect(url_for("categorias"))
 
+    # Orçamento do mês: TODAS as categorias (as suas e as padrão) num lugar só,
+    # com gasto e limite. Antes só as criadas por você aceitavam limite.
     spending = category_month_spending(user["id"])
+    salvas = {c["nome"].lower(): c for c in user_categories(user["id"])}
+    orcamento = []
+    for nome in expense_category_names(user["id"]):
+        if nome == "Outros":
+            continue
+        row = salvas.get(nome.lower())
+        limite = float(row["limite_mensal"] or 0) if row else 0.0
+        gasto = spending.get(nome, 0.0)
+        orcamento.append({
+            "nome": nome,
+            "icone": (row["icone"] if row else None) or "🏷️",
+            "id": row["id"] if row else None,
+            "propria": bool(row),
+            "gasto": gasto,
+            "limite": limite,
+            "resta": (limite - gasto) if limite > 0 else None,
+            "pct": (gasto / limite * 100.0) if limite > 0 else None,
+        })
+    # Quem tem limite primeiro; depois quem mais gastou
+    orcamento.sort(key=lambda o: (o["limite"] <= 0, -o["gasto"]))
+    total_orcado = sum(o["limite"] for o in orcamento)
+    total_gasto_com_limite = sum(o["gasto"] for o in orcamento if o["limite"] > 0)
     customs = []
-    for cat in user_categories(user["id"]):
-        gasto = spending.get(cat["nome"], 0.0)
-        limite = float(cat["limite_mensal"] or 0)
-        pct = min(100.0, (gasto / limite) * 100.0) if limite > 0 else None
-        customs.append({"row": cat, "gasto": gasto, "limite": limite, "pct": pct})
-
-    fixed = [
-        {"nome": nome, "gasto": spending.get(nome, 0.0)}
-        for nome in TRANSACTION_CATEGORIES
-        if spending.get(nome, 0.0) > 0
-    ]
+    fixed = []
     rules = [r for r in user_rules(user["id"]) if r["categoria_nome"] != IGNORE_RULE]
     return render_template(
         "categorias.html",
@@ -3034,6 +3090,9 @@ def categorias():
         customs=customs,
         fixed=fixed,
         rules=rules,
+        orcamento=orcamento,
+        total_orcado=total_orcado,
+        total_gasto_com_limite=total_gasto_com_limite,
         month=month_label(date.today().strftime("%Y-%m")),
     )
 
