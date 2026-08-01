@@ -60,7 +60,12 @@
     <article class="glass-card metric-card">
         <p class="metric-label">Entradas do mês</p>
         <p class="metric-value" style="color:var(--success);">{{ stats['month_income']|money }}</p>
-        <p class="metric-footnote">{{ month }}</p>
+        <p class="metric-footnote">
+            {% if retrato.ultima_entrada %}
+            Sua última entrada ({{ retrato.ultima_entrada.valor|money }}) caiu em
+            {{ retrato.ultima_entrada.quando|format_date }} — ainda no mês passado.
+            {% else %}{{ month }}{% endif %}
+        </p>
     </article>
     <article class="glass-card metric-card">
         <p class="metric-label">Saídas do mês</p>
@@ -137,7 +142,13 @@
             <h2 class="topbar-title" style="font-size:1.25rem;">Saídas por categoria</h2>
             <p class="topbar-subtitle">Onde o dinheiro foi parar no mês.</p>
         </div>
-        <canvas id="dashChart" height="240"></canvas>
+        {% if not labels %}
+        <div class="empty-state" style="padding:24px 12px;">
+            <strong>Nenhum gasto neste mês ainda.</strong>
+            <span>Assim que houver saída, mostro aqui pra onde o dinheiro foi.</span>
+        </div>
+        {% else %}
+        <div class="chart-box"><canvas id="dashChart"></canvas></div>
         {# Legenda com valor e % na cara — sem precisar clicar em cada fatia #}
         {% set total_cat = values|sum %}
         <ul class="chart-legend">
@@ -151,6 +162,7 @@
             </li>
             {% endfor %}
         </ul>
+        {% endif %}
     </article>
 
     <article class="page-card">

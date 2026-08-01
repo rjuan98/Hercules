@@ -1044,6 +1044,17 @@ body {
     color: #7E4E7A;
     border-color: rgba(126, 78, 122, 0.35);
 }
+/* O Herc girando enquanto fala com o banco */
+.sync-herc {
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: rgba(253, 246, 231, 0.9);
+}
+.sync-herc.girando { animation: herc-gira 0.9s linear infinite; }
+@keyframes herc-gira { to { transform: rotate(360deg); } }
+#btnSync[disabled] { opacity: 0.75; cursor: progress; }
+
 .tx-tag-parcela {
     background: rgba(156, 106, 16, 0.12);
     color: var(--warning);
@@ -1054,6 +1065,19 @@ body {
     color: var(--secondary-2);
     border-color: rgba(46, 109, 140, 0.28);
 }
+
+/* Caixa do gráfico com altura própria — sem isso a rosca fica achatada
+   dentro da grade (o Chart.js precisa de um pai com altura definida) */
+.chart-box {
+    position: relative;
+    height: 260px;
+    width: 100%;
+    overflow: hidden;   /* trava a altura: sem isso a rosca estica e fica feia */
+}
+/* O Chart.js cuida do tamanho do canvas sozinho (maintainAspectRatio:false) —
+   basta o pai ter altura. Forçar o canvas no CSS faz ele limpar e redesenhar
+   em laço, e o gráfico fica em branco. */
+.chart-box canvas { display: block; }
 
 /* Legenda do gráfico: categoria, valor e % visíveis sem clicar em nada */
 .chart-legend {

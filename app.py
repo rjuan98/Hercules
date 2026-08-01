@@ -1095,17 +1095,46 @@ def user_rules(user_id: int):
         ).fetchall()
 
 
+def _normalizar_regra(texto: str) -> str:
+    """Deixa 'IFD*IFOOD', 'ifd ifood' e 'IFD-IFOOD' com a mesma cara, dos DOIS lados
+    da comparação — senão a regra ensinada não casa com o texto do extrato."""
+    t = _strip_accents((texto or "").lower())
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", t)).strip()
+
+
 def apply_rules(user_id: int, *texts: str | None) -> str | None:
-    """Regra aprendida vence tudo: se o padrão aparece no texto, devolve a categoria."""
-    haystack = " ".join(t for t in texts if t).lower()
+    """Regra aprendida vence tudo. Compara normalizado (sem acento, caixa ou símbolo)."""
+    haystack = _normalizar_regra(" ".join(t for t in texts if t))
     if not haystack:
         return None
     for rule in user_rules(user_id):
         if rule["categoria_nome"] == IGNORE_RULE:
             continue
-        if rule["padrao_texto"].lower() in haystack:
+        padrao = _normalizar_regra(rule["padrao_texto"])
+        if padrao and padrao in haystack:
             return rule["categoria_nome"]
     return None
+
+
+# Lixo que o extrato gruda no nome do lugar e atrapalha o "ensinar"
+_RUIDO_PADRAO = re.compile(
+    r"(\d{1,2}\s*/\s*\d{1,4}"                    # 12/07, 3/12
+    r"|\bparc(?:ela)?\.?\b|\bparcela\b"
+    r"|\b\d{2}[/-]\d{2}(?:[/-]\d{2,4})?\b"        # datas
+    r"|\bltda\b|\bme\b|\bs\.?a\.?\b|\beireli\b|\bcia\b"
+    r"|\*+|\bn[o°º]?\s*\d+\b|\b\d{4,}\b)",        # códigos e números longos
+    re.IGNORECASE)
+
+
+def padrao_sugerido(texto: str) -> str:
+    """Sugere o TRECHO QUE SE REPETE do nome do lugar. Sem isso o usuário ensina
+    'HOPS BAR 12/07' — que nunca mais vai aparecer igual — e acha que não aprendeu."""
+    base = _RUIDO_PADRAO.sub(" ", texto or "")
+    base = re.sub(r"[^\wÀ-ÿ\s.&-]", " ", base)     # tira símbolos soltos, mantém letras
+    palavras = [p for p in re.split(r"\s+", base.strip()) if len(p) > 1]
+    if not palavras:
+        return sanitize_text(texto)[:40]
+    return " ".join(palavras[:2])[:40]
 
 
 def categorize(user_id: int, *texts: str | None) -> str:
@@ -1136,16 +1165,25 @@ def pending_suggestions(user_id: int, limit: int = 2):
 
 
 def reclassify_transactions(user_id: int, pattern: str, categoria: str) -> int:
-    """Aplica uma regra nova ao passado. Devolve quantas movimentações mudaram."""
-    like = f"%{pattern}%"
+    """Aplica uma regra nova ao passado. Compara normalizado (o LIKE do banco não
+    ignora acento nem símbolo, então 'IFD*IFOOD' escapava)."""
+    alvo = _normalizar_regra(pattern)
+    if not alvo:
+        return 0
+    mudadas = 0
     with get_db() as db:
-        cur = db.execute(
-            """UPDATE transacoes SET categoria = ?
-               WHERE user_id = ? AND (descricao LIKE ? OR estabelecimento LIKE ?)
-                 AND COALESCE(categoria, '') != ?""",
-            (categoria, user_id, like, like, categoria),
-        )
-        return cur.rowcount
+        rows = db.execute(
+            "SELECT id, descricao, estabelecimento, categoria FROM transacoes WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        for r in rows:
+            if r["categoria"] == categoria:
+                continue
+            texto = _normalizar_regra(f"{r['descricao'] or ''} {r['estabelecimento'] or ''}")
+            if alvo in texto:
+                db.execute("UPDATE transacoes SET categoria = ? WHERE id = ?", (categoria, r["id"]))
+                mudadas += 1
+    return mudadas
 
 
 def category_month_spending(user_id: int) -> dict[str, float]:
@@ -1483,13 +1521,25 @@ def calc_transaction_totals(user_id: int):
             fat_ini, fat_fim = ciclo_fatura(date.today(), int(dia_fecha))
         else:
             fat_ini, fat_fim = month_start, month_end
-        fatura_credito_mes = db.execute(
-            """SELECT COALESCE(SUM(valor), 0) AS total
-               FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
-               AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
-            (user_id, fat_ini.isoformat(), fat_fim.isoformat()),
-        ).fetchone()["total"]
+
+        def _soma_credito(ini, fim):
+            return float(db.execute(
+                """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
+                   WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
+                   AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                (user_id, ini.isoformat(), fim.isoformat()),
+            ).fetchone()["total"])
+
+        fatura_credito_mes = _soma_credito(fat_ini, fat_fim)
+        # A fatura que FECHOU ainda precisa ser paga — some logo depois do fechamento
+        # e a pessoa acha que sumiu dinheiro. Mostramos as duas.
+        fatura_fechada = None
+        if dia_fecha:
+            fim_ant = fat_ini - timedelta(days=1)
+            ini_ant = ciclo_fatura(fim_ant, int(dia_fecha))[0]
+            valor_ant = _soma_credito(ini_ant, fim_ant)
+            if valor_ant > 0:
+                fatura_fechada = {"valor": valor_ant, "fechou_em": fim_ant}
         monthly_by_category = db.execute(
             """SELECT COALESCE(categoria, 'Outros') AS categoria,
                       SUM(CASE WHEN tipo = 'saida' THEN valor ELSE 0 END) AS total
@@ -1599,6 +1649,8 @@ def calc_transaction_totals(user_id: int):
         "balance": float(balance or 0),
         "fatura_credito_mes": float(fatura_credito_mes or 0),
         "fatura_por_ciclo": bool(dia_fecha),
+        "fatura_fechada": fatura_fechada,
+        "fatura_periodo": (fat_ini, fat_fim) if dia_fecha else None,
         "fatura_fecha_em": fat_fim if dia_fecha else None,
         "fatura_dias_p_fechar": (fat_fim - date.today()).days if dia_fecha else None,
         "fatura_vence_dia": (cartao["cartao_vencimento"]
@@ -1896,6 +1948,7 @@ def calculate_business_summary(user_id: int):
 # Jinja
 # ------------------------
 app.jinja_env.filters["money"] = money
+app.jinja_env.globals["padrao_sugerido"] = padrao_sugerido
 app.jinja_env.filters["format_date"] = format_date
 app.jinja_env.filters["month_label"] = month_label
 app.jinja_env.globals["csrf_token"] = generate_csrf_token
@@ -2316,7 +2369,23 @@ def dashboard():
             (user["id"], prev_start, prev_end),
         ).fetchone()["t"]
     exp = float(stats["month_expenses"])
+    # Quem recebe no fim do mês vê "entradas: R$ 0" no dia 1º e acha que sumiu.
+    # Buscamos a última entrada pra poder avisar que ela caiu no mês passado.
+    ultima_entrada = None
+    if float(stats["month_income"]) <= 0:
+        with get_db() as db:
+            r = db.execute(
+                """SELECT valor, COALESCE(data_transacao, created_at) AS quando
+                   FROM transacoes
+                   WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
+                     AND date(COALESCE(data_transacao, created_at)) >= date(?)
+                   ORDER BY date(quando) DESC LIMIT 1""",
+                (user["id"], (date.today() - timedelta(days=10)).isoformat()),
+            ).fetchone()
+            if r:
+                ultima_entrada = {"valor": float(r["valor"]), "quando": str(r["quando"])[:10]}
     retrato = {
+        "ultima_entrada": ultima_entrada,
         "tem_dados": exp > 0 or float(stats["month_income"]) > 0,
         "income": float(stats["month_income"]),
         "expenses": exp,
@@ -3041,10 +3110,21 @@ def criar_regra():
                 "INSERT INTO categorias (user_id, nome, limite_mensal) VALUES (?, ?, 0)",
                 (user["id"], categoria),
             )
-        db.execute(
-            "INSERT INTO regras_categorizacao (user_id, padrao_texto, categoria_nome, created_at) VALUES (?, ?, ?, datetime('now'))",
-            (user["id"], padrao, categoria),
-        )
+        # Ensinar de novo o mesmo lugar ATUALIZA a regra em vez de empilhar duplicatas
+        antiga = None
+        for r in db.execute("SELECT id, padrao_texto FROM regras_categorizacao WHERE user_id = ?",
+                            (user["id"],)).fetchall():
+            if _normalizar_regra(r["padrao_texto"]) == _normalizar_regra(padrao):
+                antiga = r["id"]
+                break
+        if antiga:
+            db.execute("UPDATE regras_categorizacao SET categoria_nome = ? WHERE id = ?",
+                       (categoria, antiga))
+        else:
+            db.execute(
+                "INSERT INTO regras_categorizacao (user_id, padrao_texto, categoria_nome, created_at) VALUES (?, ?, ?, datetime('now'))",
+                (user["id"], padrao, categoria),
+            )
     changed = reclassify_transactions(user["id"], padrao, categoria)
     if changed:
         flash(f"Aprendi! '{padrao}' agora é {categoria} — {changed} movimentações reclassificadas.")
@@ -3784,11 +3864,17 @@ def pluggy_testar():
 def pluggy_sincronizar():
     """Puxa os gastos do banco via Open Finance e importa (mesmo pipeline do OFX)."""
     user = current_user()
+    # Chamada da tela inicial (fetch): responde JSON e a pessoa fica onde está
+    ajax = request.headers.get("X-Requested-With") == "fetch"
     if not pluggy_configured():
+        if ajax:
+            return {"ok": False, "msg": "A conexão automática não está ligada neste servidor."}, 200
         flash("A conexão automática ainda não está ligada neste servidor.")
         return redirect(url_for("settings"))
     item_ids = pluggy_user_item_ids(user)
     if not item_ids:
+        if ajax:
+            return {"ok": False, "msg": "Conecte seu banco primeiro."}, 200
         flash("Conecte seu banco primeiro (botão “Conectar meu banco”).")
         return redirect(url_for("settings"))
     # Janela ampla e fixa (90 dias): o dedup por id da Pluggy cuida da sobreposição,
@@ -3798,11 +3884,17 @@ def pluggy_sincronizar():
         stats, saldo_banco, saldo_investido, refresh, items = _sync_pluggy(
             user, pluggy_auth(), item_ids, esperar=True)
     except Exception as e:
-        flash("Não consegui sincronizar: " + _pluggy_erro_detalhe(e))
+        detalhe = _pluggy_erro_detalhe(e)
+        if ajax:
+            return {"ok": False, "msg": "Não consegui sincronizar: " + detalhe}, 200
+        flash("Não consegui sincronizar: " + detalhe)
         return redirect(url_for("settings"))
     if refresh["erro_login"]:
-        flash("O banco pediu autorização de novo (o acesso expirou ou a senha mudou). "
-              "Toque em “Reconectar” pra renovar.")
+        msg = ("O banco pediu autorização de novo (o acesso expirou ou a senha mudou). "
+               "Toque em “Reconectar” pra renovar.")
+        if ajax:
+            return {"ok": False, "msg": msg}, 200
+        flash(msg)
         return redirect(url_for("settings"))
     partes = [f"saldo do banco {money(saldo_banco)}"]
     if saldo_investido:
@@ -3819,7 +3911,11 @@ def pluggy_sincronizar():
         partes.append(f"mais recente em {format_date(max(datas))}")
     if not refresh["pronto"]:
         partes.append("o banco ainda está enviando o resto — sincronize de novo em 1 min")
-    flash("Banco sincronizado: " + " · ".join(partes) + ".")
+    msg = "Banco sincronizado: " + " · ".join(partes) + "."
+    if ajax:
+        return {"ok": True, "msg": msg, "novas": stats["importadas"],
+                "pronto": refresh["pronto"]}, 200
+    flash(msg)
     return redirect(url_for("listar_transacoes"))
 
 
@@ -3981,8 +4077,8 @@ def app_bloqueado():
     return render_template("bloqueado.html")
 
 
-# De quantas em quantas horas o app se atualiza sozinho ao ser aberto
-SYNC_AUTO_HORAS = 4
+# De quantos em quantos minutos o app se atualiza sozinho ao ser aberto
+SYNC_AUTO_MINUTOS = 30
 
 
 def _sync_pluggy(user, api_key, item_ids, esperar: bool):
@@ -4032,7 +4128,7 @@ def _sync_pluggy(user, api_key, item_ids, esperar: bool):
 def pluggy_sync_auto():
     """Atualização silenciosa ao abrir o app. Não espera a coleta do banco terminar
     (senão a tela travaria); pede a coleta agora e importa o que já chegou — na próxima
-    abertura, o que foi pedido agora já está lá. Só roda a cada SYNC_AUTO_HORAS."""
+    abertura, o que foi pedido agora já está lá. Só roda a cada SYNC_AUTO_MINUTOS."""
     user = current_user()
     item_ids = pluggy_user_item_ids(user)
     if not pluggy_configured() or not item_ids:
@@ -4041,7 +4137,7 @@ def pluggy_sync_auto():
     ultima = user["last_sync_at"] if "last_sync_at" in user.keys() else None
     if ultima:
         try:
-            if datetime.now() - datetime.fromisoformat(ultima) < timedelta(hours=SYNC_AUTO_HORAS):
+            if datetime.now() - datetime.fromisoformat(ultima) < timedelta(minutes=SYNC_AUTO_MINUTOS):
                 return {"ok": True, "pulou": True, "novas": 0}, 200
         except ValueError:
             pass

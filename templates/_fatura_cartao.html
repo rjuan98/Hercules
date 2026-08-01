@@ -14,9 +14,16 @@
     {% if stats['fatura_por_ciclo'] %}
     <p class="metric-footnote" style="margin-top:4px;">
         {% set d = stats['fatura_dias_p_fechar'] %}
-        {% if d == 0 %}Fecha hoje ({{ stats['fatura_fecha_em']|format_date }}){% elif d == 1 %}Fecha amanhã{% else %}Fecha em {{ d }} dias ({{ stats['fatura_fecha_em']|format_date }}){% endif %}
-        {% if stats['fatura_vence_dia'] %} · vence dia {{ stats['fatura_vence_dia'] }}{% endif %}
+        Compras de {{ stats['fatura_periodo'][0]|format_date }} até
+        {% if d == 0 %}hoje — fecha hoje{% elif d == 1 %}amanhã — fecha amanhã{% else %}{{ stats['fatura_fecha_em']|format_date }} — fecha em {{ d }} dias{% endif %}.
     </p>
+    {% if stats['fatura_fechada'] %}
+    <div class="auth-note" style="margin-top:10px;">
+        <strong>A pagar: {{ stats['fatura_fechada'].valor|money }}</strong> — fatura que fechou em
+        {{ stats['fatura_fechada'].fechou_em|format_date }}{% if stats['fatura_vence_dia'] %},
+        vence dia {{ stats['fatura_vence_dia'] }}{% endif %}.
+    </div>
+    {% endif %}
     {% endif %}
 
     {% if stats['cartao_orcamento'] %}

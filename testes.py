@@ -447,6 +447,77 @@ with get_db() as db:
 check("sem fechamento configurado volta pro mes do calendario",
       A.calc_transaction_totals(uid_c)["fatura_por_ciclo"] is False)
 
+secao("23. Regra aprendida pega as variações (o caso do 'hops')")
+check("sugere o trecho que se repete", A.padrao_sugerido("HOPS BAR 05/07") == "HOPS BAR",
+      A.padrao_sugerido("HOPS BAR 05/07"))
+check("tira LTDA/codigo", A.padrao_sugerido("HOPS CHOPERIA LTDA") == "HOPS CHOPERIA")
+c_h = novo_cliente("hops@teste.com", nome="Hops")
+uid_h = uid_de("hops@teste.com")
+A.import_ofx_transactions(uid_h, [
+    {"valor": 30.0, "tipo": "saida", "data": "2026-07-05", "descricao": "HOPS BAR 05/07", "fitid": "h1", "no_credito": False},
+    {"valor": 45.0, "tipo": "saida", "data": "2026-07-19", "descricao": "HOPS BAR 19/07", "fitid": "h2", "no_credito": False},
+    {"valor": 22.0, "tipo": "saida", "data": "2026-07-28", "descricao": "HOPS*BAR LTDA", "fitid": "h3", "no_credito": False},
+])
+c_h.post("/regras", data={"csrf_token": "t", "padrao_texto": "HOPS BAR",
+                          "categoria_nome": "Bebidas", "voltar": "/transacoes"})
+with get_db() as db:
+    cats = [r["categoria"] for r in db.execute(
+        "SELECT categoria FROM transacoes WHERE user_id=? AND descricao LIKE 'HOPS%'", (uid_h,)).fetchall()]
+check("ensinar 1x corrige TODAS as variacoes passadas", cats == ["Bebidas"] * 3, cats)
+A.import_ofx_transactions(uid_h, [{"valor": 18.0, "tipo": "saida", "data": "2026-08-02",
+                                   "descricao": "HOPS  Bar  02/08", "fitid": "h4", "no_credito": False}])
+with get_db() as db:
+    nova = db.execute("SELECT categoria FROM transacoes WHERE fitid='h4'").fetchone()["categoria"]
+check("compra futura ja entra na categoria certa", nova == "Bebidas", nova)
+c_h.post("/regras", data={"csrf_token": "t", "padrao_texto": "hops bar",
+                          "categoria_nome": "Lazer", "voltar": "/"})
+with get_db() as db:
+    rs = db.execute("SELECT padrao_texto, categoria_nome FROM regras_categorizacao WHERE user_id=?",
+                    (uid_h,)).fetchall()
+check("ensinar de novo ATUALIZA em vez de duplicar",
+      len(rs) == 1 and rs[0]["categoria_nome"] == "Lazer", [dict(r) for r in rs])
+
+secao("24. Fatura fechada (a pagar) aparece junto da aberta")
+c_f = novo_cliente("fatura@teste.com", nome="Fat")
+uid_f = uid_de("fatura@teste.com")
+hoje = date.today()
+ini_f, fim_f = A.ciclo_fatura(hoje, 25)
+fechou_em = ini_f - timedelta(days=1)
+dentro_ant = fechou_em - timedelta(days=5)
+with get_db() as db:
+    ins = ("INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,confidence,"
+           "data_transacao,no_credito) VALUES (?,?,?,?,?,?,?,?,1)")
+    db.execute(ins, (uid_f, "saida", 64.0, "compra nova", "Outros", "ofx", 95,
+                     min(hoje, fim_f).isoformat()))
+    db.execute(ins, (uid_f, "saida", 200.0, "compras da fatura fechada", "Outros", "ofx", 95,
+                     dentro_ant.isoformat()))
+    db.execute("UPDATE usuarios SET cartao_fechamento=25, cartao_vencimento=5 WHERE id=?", (uid_f,))
+st_f = A.calc_transaction_totals(uid_f)
+check("fatura aberta = so o ciclo novo", abs(st_f["fatura_credito_mes"] - 64) < 0.01,
+      st_f["fatura_credito_mes"])
+check("fatura FECHADA (a pagar) aparece separada",
+      st_f["fatura_fechada"] and abs(st_f["fatura_fechada"]["valor"] - 200) < 0.01,
+      st_f["fatura_fechada"])
+check("card mostra 'A pagar'", "A pagar" in c_f.get("/").get_data(as_text=True))
+
+secao("25. Gráfico e entradas no vira-mês")
+c_g = novo_cliente("graf@teste.com", nome="Graf")
+h_g = c_g.get("/dashboard").get_data(as_text=True)
+check("sem gastos, grafico mostra estado vazio (nao quadro em branco)",
+      "Nenhum gasto neste mês ainda" in h_g or "Seu mês vai aparecer aqui" in h_g)
+uid_g = uid_de("graf@teste.com")
+with get_db() as db:
+    db.execute("INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,confidence,"
+               "data_transacao,no_credito) VALUES (?,?,?,?,?,?,?,?,0)",
+               (uid_g, "entrada", 3000.0, "Salario", "Salário", "ofx", 95,
+                (date.today() - timedelta(days=2)).isoformat()))
+    db.execute("INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,confidence,"
+               "data_transacao,no_credito) VALUES (?,?,?,?,?,?,?,?,0)",
+               (uid_g, "saida", 80.0, "Mercado", "Mercado", "ofx", 95, date.today().isoformat()))
+h_g2 = c_g.get("/dashboard").get_data(as_text=True)
+check("com gasto, grafico tem caixa de altura propria", "chart-box" in h_g2)
+check("legenda com valor e %", "chart-legend" in h_g2)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

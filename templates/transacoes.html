@@ -95,7 +95,7 @@
                 <form method="POST" action="{{ url_for('criar_regra') }}" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px;">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="voltar" value="{{ request.full_path }}">
-                    <input type="text" name="padrao_texto" value="{{ tx['estabelecimento'] or tx['descricao'] or '' }}" maxlength="80" style="flex:2 1 150px;" aria-label="Trecho que identifica o gasto">
+                    <input type="text" name="padrao_texto" value="{{ padrao_sugerido(tx['estabelecimento'] or tx['descricao'] or '') }}" maxlength="80" style="flex:2 1 150px;" aria-label="Trecho que identifica o gasto">
                     <select name="categoria_nome" style="flex:1 1 130px;" aria-label="Categoria">
                         {% for cat in expense_categories %}
                         <option value="{{ cat }}" {% if tx['categoria'] == cat %}selected{% endif %}>{{ cat }}</option>
