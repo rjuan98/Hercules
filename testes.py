@@ -17,6 +17,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import app as A
 from database import get_db
 
+# Rota que estoura de proposito, pra provar que o app avisa em vez de dar tela branca.
+# Precisa ser registrada aqui: o Flask nao aceita rota nova depois da 1a requisicao.
+@A.app.route("/quebra-de-proposito")
+def _quebrar():
+    raise RuntimeError("estourei aqui")
+
 OK, FALHAS = [], []
 
 def check(nome, cond, extra=""):
@@ -782,6 +788,117 @@ check("oculto: largura FIXA (nao entrega a grandeza)",
       "width: 4.4em" in _regra and "overflow: hidden" in _regra)
 check("oculto: borra o grafico junto", "canvas { filter: blur" in _css)
 check("deslogado nao tem olhinho", 'id="eyeToggle"' not in _an.get("/login").get_data(as_text=True))
+
+secao("34. Backup: a cópia tem que abrir e ter os dados")
+import gzip, shutil, sqlite3 as _sq
+import backup as B
+
+_dest = B.fazer_backup()
+check("gera o arquivo do dia", _dest.exists() and _dest.name.startswith("hercules-"))
+check("fica compactado", _dest.suffix == ".gz")
+check("nao deixa arquivo parcial pra tras", not list(B.BACKUP_DIR.glob("*.parcial")))
+
+_restaurado = os.path.join(TMP, "restaurado.db")
+with gzip.open(_dest, "rb") as _i, open(_restaurado, "wb") as _o:
+    shutil.copyfileobj(_i, _o)
+_r = _sq.connect(_restaurado)
+check("a copia nao esta corrompida",
+      _r.execute("PRAGMA integrity_check").fetchone()[0] == "ok")
+# backup que abre mas veio vazio e' pior que backup nenhum: da falsa seguranca
+_n_orig = None
+with get_db() as db:
+    _n_orig = db.execute("SELECT COUNT(*) AS n FROM usuarios").fetchone()["n"]
+check("a copia tem os usuarios de verdade",
+      _r.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0] == _n_orig, _n_orig)
+check("a copia tem as transacoes",
+      _r.execute("SELECT COUNT(*) FROM transacoes").fetchone()[0] > 0)
+check("a copia tem o schema inteiro",
+      _r.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0] >= 15)
+_r.close()
+
+check("nao repete o backup dentro das 24h", B.garantir_backup_do_dia() is False)
+# 15 dias de copias: a mais velha tem que sair sozinha, senao o disco enche
+for _d in range(20):
+    (B.BACKUP_DIR / f"hercules-2020-01-{_d + 1:02d}.db.gz").write_bytes(b"x")
+B.fazer_backup()
+check(f"guarda no maximo {B.MANTER_DIAS} copias", len(B.listar_backups()) == B.MANTER_DIAS,
+      len(B.listar_backups()))
+check("mantem as mais NOVAS", B.listar_backups()[0].name == B._nome_do_dia())
+
+_falhou = B.fazer_backup
+B.fazer_backup = lambda: (_ for _ in ()).throw(OSError("disco cheio"))
+try:
+    A.garantir_backup_do_dia.__globals__["fazer_backup"] = B.fazer_backup
+    check("backup quebrado NAO derruba o app", c1.get("/").status_code == 200)
+finally:
+    B.fazer_backup = _falhou
+    A.garantir_backup_do_dia.__globals__["fazer_backup"] = _falhou
+
+secao("35. Erro na cara do usuário e painel de saúde")
+
+_cli_erro = A.app.test_client()
+with _cli_erro.session_transaction() as s:
+    s["user_id"] = uid1; s["csrf_token"] = "t"
+_re_ = _cli_erro.get("/quebra-de-proposito")
+_h_erro = _re_.get_data(as_text=True)
+check("erro devolve 500 (nao mascara)", _re_.status_code == 500)
+check("mostra tela amiga, nao pagina branca", "Deu ruim aqui do meu lado" in _h_erro)
+check("tranquiliza sobre os dados", "seus dados estão salvos" in _h_erro)
+check("da um codigo pra pessoa mandar", "Se puder me avisar" in _h_erro)
+check("NAO vaza o traceback pro usuario",
+      "RuntimeError" not in _h_erro and "estourei aqui" not in _h_erro)
+
+check("404 tambem tem tela amiga",
+      "Essa página não existe" in _cli_erro.get("/rota-que-nao-existe").get_data(as_text=True))
+
+_log = A.ERROS_LOG.read_text(encoding="utf-8")
+check("o erro foi pro log", "RuntimeError" in _log and "estourei aqui" in _log)
+check("o log guarda onde quebrou", "/quebra-de-proposito" in _log)
+_erros = A.erros_recentes()
+check("erros_recentes lista a quebra", _erros and "RuntimeError" in _erros[0]["erro"])
+
+# O log nao pode virar um vazamento de dados
+c1.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "777,77",
+                                  "descricao": "SEGREDO DO USUARIO"})
+_cli_erro.get("/quebra-de-proposito")
+_log2 = A.ERROS_LOG.read_text(encoding="utf-8")
+check("o log NAO grava o que a pessoa digitou",
+      "SEGREDO DO USUARIO" not in _log2 and "777,77" not in _log2)
+check("o log NAO grava senha", "senha123" not in _log2)
+
+secao("36. Saúde do app: trancada por padrão (segurança)")
+check("sem ADMIN_EMAIL ninguem e' admin", A.ADMIN_EMAIL == "" and not A.eh_admin(None))
+check("sem ADMIN_EMAIL a tela nem existe (404)", c1.get("/saude").status_code == 404)
+check("sem ADMIN_EMAIL nao da pra baixar backup",
+      c1.get(f"/saude/backup/{_dest.name}").status_code == 404)
+
+A.ADMIN_EMAIL = "a@teste.com"          # como se a variavel de ambiente existisse
+check("agora o dono ve a tela", c1.get("/saude").status_code == 200)
+check("OUTRO usuario logado continua sem ver", c2.get("/saude").status_code == 404)
+check("outro usuario NAO baixa o backup",
+      c2.get(f"/saude/backup/{_dest.name}").status_code == 404)
+check("deslogado nao chega na tela", _an.get("/saude", follow_redirects=False).status_code == 302)
+
+# nome de arquivo e' conferido contra a lista real, nunca concatenado no caminho
+for _ataque in ("../database.db", "..%2fdatabase.db", "hercules-2020-01-01.db.gz/../../app.py"):
+    check(f"path traversal barrado: {_ataque[:24]}",
+          c1.get(f"/saude/backup/{_ataque}").status_code in (404, 308))
+
+_h_saude = c1.get("/saude").get_data(as_text=True)
+check("mostra quantos voltaram", "Voltaram nos 7 dias" in _h_saude)
+check("mostra as copias de seguranca", "Cópias de segurança" in _h_saude)
+check("avisa que a copia local nao salva de tudo", "não</strong> salvam" in _h_saude)
+check("lista as quebras", "Últimas quebras" in _h_saude)
+check("baixar backup funciona pro dono",
+      c1.get(f"/saude/backup/{_dest.name}").status_code == 200)
+
+with get_db() as db:
+    _visto = db.execute("SELECT last_seen FROM usuarios WHERE id=?", (uid1,)).fetchone()["last_seen"]
+check("marca que a pessoa voltou hoje", _visto == date.today().isoformat(), _visto)
+check("link no menu so aparece pro admin",
+      'Saúde do app' in c1.get("/").get_data(as_text=True)
+      and 'Saúde do app' not in c2.get("/").get_data(as_text=True))
+A.ADMIN_EMAIL = ""
 
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")

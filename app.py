@@ -11,6 +11,7 @@ import re
 import secrets
 import sqlite3
 import time
+import traceback
 import unicodedata
 import uuid
 import zipfile
@@ -32,10 +33,12 @@ from flask import (
     url_for,
 )
 from markupsafe import Markup
+from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+from backup import fazer_backup, garantir_backup_do_dia, listar_backups, ultimo_backup
 from database import get_db, init_db
 
 try:
@@ -2023,6 +2026,29 @@ app.jinja_env.globals["date"] = date
 
 
 @app.before_request
+def rotina_diaria():
+    """Uma vez por dia, por usuário: garante o backup e anota que a pessoa voltou.
+    Nada aqui pode derrubar a requisição — é manutenção, não é o app."""
+    if request.endpoint in (None, "static"):
+        return None
+    try:
+        garantir_backup_do_dia()
+    except Exception:
+        pass
+
+    uid = session.get("user_id")
+    hoje = date.today().isoformat()
+    if uid and session.get("visto_em") != hoje:
+        session["visto_em"] = hoje
+        try:
+            with get_db() as db:
+                db.execute("UPDATE usuarios SET last_seen = ? WHERE id = ?", (hoje, uid))
+        except Exception:
+            pass
+    return None
+
+
+@app.before_request
 def csrf_protect():
     if request.method == "POST":
         exempt = request.endpoint in {"logout", "api_captura",
@@ -2032,6 +2058,50 @@ def csrf_protect():
         if not exempt and token != session.get("csrf_token"):
             flash("Token de segurança inválido. Atualize a página e tente novamente.")
             return redirect(request.referrer or url_for("home" if "user_id" in session else "login"))
+
+
+ERROS_LOG = Path(os.environ.get("ERROS_LOG") or BASE_DIR / "erros.log")
+ERROS_MAX_BYTES = 512 * 1024
+
+
+def registrar_erro(e) -> str:
+    """Guarda o traceback e devolve um código curto. A pessoa lê o código na tela
+    e me manda por mensagem — assim dá pra achar o erro dela no meio dos outros."""
+    codigo = uuid.uuid4().hex[:6].upper()
+    quando = datetime.now().isoformat(timespec="seconds")
+    try:
+        # NUNCA gravar o corpo da requisição: ele carrega valor, descrição, senha.
+        # O que interessa pra depurar é onde quebrou, não o que a pessoa digitou.
+        cabecalho = (f"\n{'=' * 70}\n[{quando}] {codigo}  {request.method} {request.path}\n"
+                     f"user_id={session.get('user_id')}\n")
+        if ERROS_LOG.exists() and ERROS_LOG.stat().st_size > ERROS_MAX_BYTES:
+            ERROS_LOG.replace(ERROS_LOG.with_suffix(".log.1"))
+        with open(ERROS_LOG, "a", encoding="utf-8") as f:
+            f.write(cabecalho + "".join(traceback.format_exception(type(e), e, e.__traceback__)))
+    except Exception:
+        pass
+    app.logger.exception("Erro %s em %s %s", codigo, request.method, request.path)
+    return codigo
+
+
+def erros_recentes(limite=15):
+    """As últimas quebras, mais nova primeiro — pro painel de saúde."""
+    if not ERROS_LOG.exists():
+        return []
+    try:
+        blocos = ERROS_LOG.read_text(encoding="utf-8", errors="replace").split("=" * 70)
+    except OSError:
+        return []
+    saida = []
+    for bloco in reversed(blocos):
+        linhas = [l for l in bloco.strip().splitlines() if l.strip()]
+        if not linhas:
+            continue
+        ultima = next((l for l in reversed(linhas) if l and not l.startswith(" ")), linhas[-1])
+        saida.append({"cabecalho": linhas[0], "erro": ultima[:160]})
+        if len(saida) >= limite:
+            break
+    return saida
 
 
 # Depois de quantos minutos parado o app pede a digital de novo
@@ -4435,6 +4505,90 @@ def pluggy_recomecar():
 # ------------------------
 # Export
 # ------------------------
+# ------------------------
+# Saúde do app (só pra quem mantém — desligado por padrão)
+# ------------------------
+ADMIN_EMAIL = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
+
+
+def eh_admin(user) -> bool:
+    """Sem ADMIN_EMAIL no ambiente ninguém é admin — nem por engano, nem por
+    conta criada com o e-mail certo antes de a variável existir."""
+    if not ADMIN_EMAIL or not user:
+        return False
+    return (user["email"] or "").strip().lower() == ADMIN_EMAIL
+
+
+def _so_admin():
+    """404 em vez de 403: quem não é admin não descobre nem que a tela existe."""
+    from werkzeug.exceptions import NotFound
+    if not eh_admin(current_user()):
+        raise NotFound()
+
+
+@app.context_processor
+def _admin_no_menu():
+    try:
+        return {"eh_admin": eh_admin(current_user()) if session.get("user_id") else False}
+    except Exception:
+        return {"eh_admin": False}
+
+
+@app.route("/saude")
+@login_required
+def saude_app():
+    _so_admin()
+    hoje = date.today()
+    with get_db() as db:
+        u = db.execute(
+            """SELECT COUNT(*) AS total,
+                      SUM(CASE WHEN last_seen >= ? THEN 1 ELSE 0 END) AS ativos7,
+                      SUM(CASE WHEN last_seen  = ? THEN 1 ELSE 0 END) AS hoje,
+                      SUM(CASE WHEN DATE(created_at) >= ? THEN 1 ELSE 0 END) AS novos7
+                 FROM usuarios""",
+            ((hoje - timedelta(days=7)).isoformat(), hoje.isoformat(),
+             (hoje - timedelta(days=7)).isoformat()),
+        ).fetchone()
+        pessoas = db.execute(
+            """SELECT nome, perfil, DATE(created_at) AS entrou, last_seen,
+                      (SELECT COUNT(*) FROM transacoes t WHERE t.user_id = usuarios.id) AS lancamentos
+                 FROM usuarios ORDER BY COALESCE(last_seen, '') DESC, id DESC LIMIT 25"""
+        ).fetchall()
+
+    return render_template(
+        "saude.html", user=current_user(),
+        u=u, pessoas=pessoas, hoje=hoje,
+        backups=listar_backups(), ultimo=ultimo_backup(), erros=erros_recentes(),
+    )
+
+
+@app.route("/saude/backup", methods=["POST"])
+@login_required
+def saude_backup_agora():
+    _so_admin()
+    try:
+        caminho = fazer_backup()
+        flash(f"Backup feito: {caminho.name}")
+    except Exception as e:
+        flash(f"Não consegui fazer o backup: {e}")
+    return redirect(url_for("saude_app"))
+
+
+@app.route("/saude/backup/<nome>")
+@login_required
+def saude_baixar_backup(nome):
+    """Tira uma cópia do servidor — é o que protege contra perder o servidor inteiro.
+    O nome é conferido contra a lista real, nunca concatenado: senão viraria uma
+    porta pra baixar qualquer arquivo do disco."""
+    _so_admin()
+    from werkzeug.exceptions import NotFound
+    alvo = next((p for p in listar_backups() if p.name == nome), None)
+    if alvo is None:
+        raise NotFound()
+    app.logger.warning("Backup %s baixado por %s", nome, session.get("user_id"))
+    return send_from_directory(alvo.parent, alvo.name, as_attachment=True)
+
+
 @app.route("/exportar-ir")
 @login_required
 def exportar_ir():
@@ -4544,6 +4698,26 @@ def home_alias():
 def too_large(_):
     flash("Arquivo muito grande. Envie até 16 MB.")
     return redirect(request.referrer or url_for("home"))
+
+
+@app.errorhandler(404)
+def nao_encontrado(_):
+    return render_template("erro.html", codigo=404,
+                           titulo="Essa página não existe",
+                           recado="Pode ser um link velho meu. Volta pro início que eu te mostro tudo."), 404
+
+
+@app.errorhandler(Exception)
+def erro_inesperado(e):
+    """Antes disso, um erro entregava tela branca: a pessoa fechava o app e
+    não contava pra ninguém — e o silêncio era lido como 'não gostou'."""
+    if isinstance(e, HTTPException):
+        return e
+    codigo = registrar_erro(e)
+    return render_template("erro.html", codigo=500, ref=codigo,
+                           titulo="Deu ruim aqui do meu lado",
+                           recado="Não foi culpa sua, e seus dados estão salvos. "
+                                  "Já anotei o que aconteceu pra consertar."), 500
 
 
 if __name__ == "__main__":

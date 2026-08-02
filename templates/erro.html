@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}{{ titulo }} · Hércules{% endblock %}
+{% block page_title %}{{ titulo }}{% endblock %}
+{% block page_subtitle %}Nada que você fez causou isso.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:620px; margin:0 auto; text-align:center;">
+    <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc"
+         style="width:88px; height:88px; opacity:0.9;">
+    <h2 class="topbar-title" style="font-size:1.35rem; margin-top:12px;">{{ titulo }}</h2>
+    <p class="topbar-subtitle" style="margin-top:8px;">{{ recado }}</p>
+
+    {% if ref %}
+    <div class="auth-note" style="margin-top:18px; text-align:left;">
+        Se puder me avisar, manda esse código junto — com ele eu acho exatamente o que quebrou:
+        <p style="font-family:monospace; font-size:1.4rem; font-weight:900; letter-spacing:.14em;
+                  margin-top:10px; color:var(--primary-deep);">{{ ref }}</p>
+    </div>
+    {% endif %}
+
+    <div class="page-actions" style="justify-content:center; margin-top:20px;">
+        <a href="{{ url_for('home') if session.get('user_id') else url_for('login') }}"
+           class="button button-primary"><i data-lucide="house"></i> Voltar pro início</a>
+    </div>
+</section>
+{% endblock %}

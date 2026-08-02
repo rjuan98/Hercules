@@ -80,6 +80,47 @@ seria apagado a cada deploy. Use só com o plano Starter (~US$ 7/mês) + disco.
 | `SECURE_COOKIES`| `1` força cookie apenas-HTTPS                           | auto no Render       |
 | `HOST` / `PORT` | bind do servidor de desenvolvimento (`python app.py`)   | `0.0.0.0` / `5000`   |
 | `FLASK_DEBUG`   | `0` desliga o debug no `python app.py`                  | `1` (dev)            |
+| `ADMIN_EMAIL`   | destranca a tela **Saúde do app** pra esse e-mail        | vazio (tela não existe) |
+| `BACKUP_DIR`    | onde ficam as cópias do banco                           | `backups/` ao lado do DB |
+| `ERROS_LOG`     | arquivo do log de erros                                 | `./erros.log`        |
+
+---
+
+## Cópia de segurança do banco
+
+O app faz uma cópia por dia sozinho, na primeira visita do dia — **sem precisar
+configurar nada**. Ficam as 14 mais recentes em `backups/`, compactadas.
+
+Pra fazer na mão (ou numa tarefa agendada):
+
+```
+python backup.py
+```
+
+⚠️ **As cópias ficam no mesmo disco do servidor.** Isso protege contra migração
+ruim, tabela apagada por engano e arquivo corrompido — **não** protege contra
+perder o servidor inteiro. De vez em quando baixe uma cópia pro seu computador
+em **Saúde do app → Baixar**.
+
+Pra restaurar: descompacte o `.gz` e ponha no lugar do `database.db`.
+
+```
+gunzip -c backups/hercules-2026-08-01.db.gz > database.db
+```
+
+---
+
+## Saúde do app (só pra quem mantém)
+
+Defina `ADMIN_EMAIL` com o seu e-mail de login e a tela `/saude` aparece no menu.
+Sem essa variável a rota devolve **404 pra todo mundo** — nem existe. Ela mostra
+quantas pessoas voltaram nos últimos 7 dias, o estado das cópias de segurança e
+as últimas quebras.
+
+Quando um usuário toma um erro, ele vê um código curto (ex.: `A3F91C`) na tela.
+Esse mesmo código está no `erros.log`, junto do traceback completo — é assim que
+você acha o erro dele no meio dos outros. O log **não guarda** o que a pessoa
+digitou (valor, descrição, senha), só onde quebrou.
 
 ## Teste rápido no celular sem deploy (mesma rede Wi-Fi)
 

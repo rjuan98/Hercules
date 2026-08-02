@@ -6,7 +6,9 @@ __pycache__/
 # Dados locais (nunca versionar dados de usuário!)
 database.db
 uploads/
+backups/
 .secret_key
+erros.log
 
 # Ferramentas
 .claude/

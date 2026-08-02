@@ -332,6 +332,8 @@ def init_db():
     _add_column_if_missing(conn, "usuarios", "last_sync_at", "TEXT")
     _add_column_if_missing(conn, "usuarios", "ultima_coleta_banco", "TEXT")
     _add_column_if_missing(conn, "usuarios", "saldo_investido", "REAL")
+    # Sem isso não dá pra saber se quem testou o app voltou no dia seguinte
+    _add_column_if_missing(conn, "usuarios", "last_seen", "TEXT")
     _add_column_if_missing(conn, "categorias", "limite_mensal", "REAL NOT NULL DEFAULT 0.0")
     _add_column_if_missing(conn, "categorias", "created_at", "TIMESTAMP")
     # Cópias antigas do banco tinham categoria_id e nenhum timestamp nas regras

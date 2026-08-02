@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block title %}Saúde do app · Hércules{% endblock %}
+{% block page_title %}Saúde do app{% endblock %}
+{% block page_subtitle %}Se está de pé, se está quebrando e se as pessoas voltam.{% endblock %}
+
+{% block content %}
+<section class="metric-grid cols-4">
+    <article class="glass-card metric-card">
+        <p class="metric-label">Contas criadas</p>
+        <p class="metric-value">{{ u['total'] or 0 }}</p>
+        <p class="metric-footnote">{{ u['novos7'] or 0 }} nos últimos 7 dias</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Voltaram nos 7 dias</p>
+        <p class="metric-value" style="color:{{ 'var(--success)' if (u['ativos7'] or 0) else 'var(--muted)' }};">{{ u['ativos7'] or 0 }}</p>
+        <p class="metric-footnote">É esse número que diz se o app grudou.</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Abriram hoje</p>
+        <p class="metric-value">{{ u['hoje'] or 0 }}</p>
+    </article>
+    <article class="glass-card metric-card">
+        <p class="metric-label">Erros registrados</p>
+        <p class="metric-value" style="color:{{ 'var(--danger)' if erros else 'var(--success)' }};">{{ erros|length }}</p>
+        <p class="metric-footnote">{% if erros %}Tem coisa quebrando.{% else %}Nada quebrou até agora.{% endif %}</p>
+    </article>
+</section>
+
+{# ---- Backup ---- #}
+<section class="page-card" style="margin-top:18px;">
+    <div class="note-header">
+        <h2 class="topbar-title" style="font-size:1.2rem;">Cópias de segurança</h2>
+        <form method="POST" action="{{ url_for('saude_backup_agora') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="button button-outline"><i data-lucide="save"></i> Fazer agora</button>
+        </form>
+    </div>
+
+    {% if ultimo %}
+    <p class="subtitle" style="margin-top:10px;">
+        Última: <strong>{{ ultimo.quando.strftime('%d/%m/%Y às %H:%M') }}</strong>
+        ({{ (ultimo.tamanho / 1024)|round(0)|int }} KB) · {{ backups|length }} guardadas.
+    </p>
+    {% else %}
+    <div class="auth-note" style="margin-top:12px; border-color:var(--danger);">
+        ⚠️ <strong>Nenhuma cópia ainda.</strong> Toque em “Fazer agora”.
+    </div>
+    {% endif %}
+
+    <div class="auth-note" style="margin-top:14px;">
+        📥 <strong>Baixe uma de vez em quando.</strong> As cópias ficam no mesmo disco do servidor:
+        elas salvam de migração ruim e de arquivo corrompido, mas <strong>não</strong> salvam se o
+        servidor inteiro se perder. Uma cópia no seu computador resolve isso.
+    </div>
+
+    {% if backups %}
+    <ul class="data-list" style="margin-top:14px;">
+        {% for b in backups[:7] %}
+        <li class="data-item" style="padding:12px 16px;">
+            <div class="note-header">
+                <p class="note-title" style="font-family:monospace;">{{ b.name }}</p>
+                <a href="{{ url_for('saude_baixar_backup', nome=b.name) }}" class="button button-outline"
+                   style="padding:6px 12px;"><i data-lucide="download"></i> Baixar</a>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>
+
+{# ---- Quem está usando ---- #}
+<section class="page-card" style="margin-top:18px;">
+    <h2 class="topbar-title" style="font-size:1.2rem;">Quem está usando</h2>
+    <p class="topbar-subtitle" style="margin-bottom:12px;">
+        Quem criou conta e sumiu no primeiro dia é o sinal mais útil que tem aqui — quer dizer que
+        travou em alguma coisa, não que não gostou.
+    </p>
+    <ul class="data-list">
+        {% for p in pessoas %}
+        <li class="data-item" style="padding:12px 16px;">
+            <div class="note-header">
+                <div>
+                    <p class="note-title">{{ p['nome'] }} <span class="badge">{{ (p['perfil'] or 'pf')|upper }}</span></p>
+                    <div class="note-meta"><span>
+                        Entrou em {{ p['entrou']|format_date if p['entrou'] else '—' }} ·
+                        {{ p['lancamentos'] }} lançamento{{ '' if p['lancamentos'] == 1 else 's' }}
+                    </span></div>
+                </div>
+                <span class="helper-text" style="white-space:nowrap;">
+                    {% if not p['last_seen'] %}nunca voltou
+                    {% elif p['last_seen'] == hoje.isoformat() %}✅ hoje
+                    {% else %}{{ p['last_seen']|format_date }}{% endif %}
+                </span>
+            </div>
+        </li>
+        {% else %}
+        <li class="data-item"><span class="helper-text">Ninguém ainda.</span></li>
+        {% endfor %}
+    </ul>
+</section>
+
+{# ---- Erros ---- #}
+<section class="page-card" style="margin-top:18px;">
+    <h2 class="topbar-title" style="font-size:1.2rem;">Últimas quebras</h2>
+    {% if erros %}
+    <p class="topbar-subtitle" style="margin-bottom:12px;">
+        O código no começo da linha é o mesmo que apareceu na tela da pessoa.
+    </p>
+    <ul class="data-list">
+        {% for e in erros %}
+        <li class="data-item" style="padding:12px 16px;">
+            <p class="note-title" style="font-family:monospace; font-size:0.85rem;">{{ e.cabecalho }}</p>
+            <div class="note-meta"><span style="font-family:monospace; color:var(--danger);">{{ e.erro }}</span></div>
+        </li>
+        {% endfor %}
+    </ul>
+    <p class="helper-text" style="margin-top:12px;">O traceback completo está em <code>erros.log</code>, no servidor.</p>
+    {% else %}
+    <p class="subtitle" style="margin:0;">✅ Nenhum erro registrado. É pra ser assim.</p>
+    {% endif %}
+</section>
+{% endblock %}

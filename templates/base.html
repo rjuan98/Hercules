@@ -71,6 +71,9 @@
                 <p class="sidebar-section-label">Conta</p>
                 <a href="{{ url_for('settings') }}" class="menu-link {% if request.path.startswith('/settings') %}active{% endif %}"><i data-lucide="settings-2"></i><span>Configurações</span></a>
                 <a href="{{ url_for('ajuda') }}" class="menu-link {% if request.path.startswith('/ajuda') %}active{% endif %}"><i data-lucide="circle-help"></i><span>Ajuda</span></a>
+                {% if eh_admin %}
+                <a href="{{ url_for('saude_app') }}" class="menu-link {% if request.path.startswith('/saude') %}active{% endif %}"><i data-lucide="heart-pulse"></i><span>Saúde do app</span></a>
+                {% endif %}
             </nav>
 
             <div class="sidebar-section sidebar-profile">
