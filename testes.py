@@ -2184,6 +2184,77 @@ check("logout numa sessão não derruba a outra",
                  follow_redirects=False).status_code == 302)
 
 
+secao("73. Simulador: será que cabe?")
+c_sim = novo_cliente("simular@teste.com", nome="Sim")
+uid_sim = uid_de("simular@teste.com")
+
+def _monta_cenario(salario, gasto_dia, conta):
+    with get_db() as db:
+        db.execute("DELETE FROM transacoes WHERE user_id=?", (uid_sim,))
+        db.execute("DELETE FROM compromissos WHERE user_id=?", (uid_sim,))
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'entrada',?,'salario',
+                      'Salário','ofx',95,?,0)""", (uid_sim, salario, date.today().isoformat()))
+        for _i in range(40):
+            db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                          confidence,data_transacao,no_credito) VALUES (?,'saida',?,?,'Mercado',
+                          'ofx',95,?,0)""",
+                       (uid_sim, gasto_dia, f"g{_i}",
+                        (date.today() - timedelta(days=_i)).isoformat()))
+        if conta:
+            db.execute("""INSERT INTO compromissos (user_id,descricao,valor,vencimento,tipo,status)
+                          VALUES (?,'aluguel',?,?,'saida','pendente')""",
+                       (uid_sim, conta, (date.today() + timedelta(days=8)).isoformat()))
+
+# A media tem que usar o periodo REAL de historico. Dividir 40 dias de dado pela
+# janela de 60 faria a pessoa parecer gastar dois tercos do que gasta — e o
+# simulador diria "cabe" pra coisa que nao cabe.
+_monta_cenario(4200, 40, 900)
+_media, _dias_dado = A.media_gasto_diario(uid_sim)
+check("média diária bate com o gasto real", abs(_media - 40) < 1.5, _media)
+check("conta quantos dias tem histórico", _dias_dado >= 39, _dias_dado)
+
+_base = A.simular_gasto(uid_sim, 1)
+check("soma as contas que ainda vencem no mês", abs(_base["contas"] - 900) < 0.01)
+check("não conta o dia de hoje duas vezes (o gasto de hoje já está na média)",
+      _base["dias_futuros"] == A.days_left_in_month() - 1)
+
+for _v, _esperado in [(300, "cabe"), (450, "aperta"), (600, "nao_cabe")]:
+    check(f"gastar {_v} -> {_esperado}", A.simular_gasto(uid_sim, _v)["veredito"] == _esperado,
+          A.simular_gasto(uid_sim, _v)["veredito"])
+
+check("diz até quanto cabe com folga", 0 < _base["teto_folgado"] < _base["teto"])
+check("e o teto sem folga é maior", _base["teto"] > _base["teto_folgado"])
+
+# Quando o mes ja nao fecha sem a compra, dizer "nao cabe" pra R$ 150 e' verdade
+# sem ser util: o problema nao e' a compra.
+_monta_cenario(1500, 45, 1300)
+_ja = A.simular_gasto(uid_sim, 150)
+check("mês que já não fecha tem veredito próprio", _ja["veredito"] == "ja_apertado")
+check("e diz quanto falta MESMO SEM a compra", _ja["falta_sem_a_compra"] > 0)
+_h_ja = c_sim.post("/simular", data={"csrf_token": "t", "valor": "150,00"}).get_data(as_text=True)
+check("a tela explica que não é sobre a compra", "não é sobre essa compra" in _h_ja)
+check("e aponta um caminho, não só o problema", "/compromissos" in _h_ja)
+
+# Sem historico o simulador nao pode fingir precisao
+c_novo_sim = novo_cliente("simnovo@teste.com", nome="Novo")
+_r_novo = A.simular_gasto(uid_de("simnovo@teste.com"), 100)
+check("sem histórico, avisa que o ritmo é chute", _r_novo["tem_historico"] is False)
+check("e não inventa média", _r_novo["media"] == 0.0)
+
+_monta_cenario(4200, 40, 900)
+_h_sim = c_sim.post("/simular", data={"csrf_token": "t", "valor": "300,00"}).get_data(as_text=True)
+check("a tela mostra a conta aberta (dá pra conferir a matemática)", "conta-aberta" in _h_sim)
+check("mostra o ritmo por dia", "por dia" in _h_sim)
+check("avisa que é projeção, não promessa", "não uma promessa" in _h_sim)
+check("e que crédito não entra nessa conta", "Compra no crédito não entra" in _h_sim)
+check("valor absurdo é recusado no simulador",
+      "Informe um valor válido" in c_sim.post("/simular",
+          data={"csrf_token": "t", "valor": "999999999999999"},
+          follow_redirects=True).get_data(as_text=True))
+check("está no menu", "/simular" in c_sim.get("/").get_data(as_text=True))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

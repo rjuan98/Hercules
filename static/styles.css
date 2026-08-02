@@ -1572,3 +1572,49 @@ html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
     padding-top: 16px;
     border-top: 1.5px solid var(--border);
 }
+
+/* ---- Simulador: o veredito é a informação, não o número ---- */
+.veredito { border-width: 2px; border-style: solid; }
+.veredito-cabe      { border-color: var(--success); box-shadow: 5px 5px 0 var(--success); }
+.veredito-aperta    { border-color: var(--warning); box-shadow: 5px 5px 0 var(--warning); }
+.veredito-nao_cabe  { border-color: var(--danger);  box-shadow: 5px 5px 0 var(--danger); }
+.veredito-ja_apertado { border-color: var(--danger); box-shadow: 5px 5px 0 var(--danger); }
+
+.veredito-selo {
+    margin: 0 0 10px;
+    font-size: 0.76rem;
+    font-weight: 900;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+.veredito-cabe     .veredito-selo { color: var(--success); }
+.veredito-aperta   .veredito-selo { color: var(--warning); }
+.veredito-nao_cabe .veredito-selo { color: var(--danger); }
+.veredito-ja_apertado .veredito-selo { color: var(--danger); }
+
+.veredito-frase { margin: 0; font-size: 1.16rem; line-height: 1.55; }
+
+/* A conta aberta: quem discorda do veredito precisa poder conferir a matemática */
+.conta-aberta {
+    margin-top: 18px;
+    border-top: 1.5px solid var(--border);
+    display: grid;
+}
+.conta-linha {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    padding: 11px 0;
+    border-bottom: 1.5px solid var(--border);
+    font-size: 0.94rem;
+}
+.conta-linha span { color: var(--muted); }
+.conta-linha strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.conta-linha .tira { color: var(--danger); }
+.conta-total {
+    border-bottom: 0;
+    padding-top: 14px;
+    font-size: 1.05rem;
+}
+.conta-total span { color: var(--text); font-weight: 800; }

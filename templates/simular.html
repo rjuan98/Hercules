@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+{% block title %}Será que cabe? · Hércules{% endblock %}
+{% block page_title %}Será que cabe?{% endblock %}
+{% block page_subtitle %}Antes de gastar, pergunta pra mim.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:640px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:16px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Vai comprar alguma coisa e ficou na dúvida?</strong><br>
+            Me diz quanto é. Eu olho suas contas até o fim do mês e o seu ritmo de gasto,
+            e te digo se cabe — <strong>inclusive quando não cabe</strong>.
+        </div>
+    </div>
+
+    <form method="POST" class="suggestion-actions">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="money-input" style="flex:1;">
+            <span class="money-prefix">R$</span>
+            <input type="text" name="valor" data-money placeholder="0,00" required
+                   inputmode="decimal" autofocus value="{{ valor_digitado }}">
+        </div>
+        <button type="submit" class="button button-primary">
+            <i data-lucide="calculator"></i> Será que cabe?
+        </button>
+    </form>
+</section>
+
+{% if resultado %}
+{% set r = resultado %}
+<section class="page-card veredito veredito-{{ r.veredito }}" style="max-width:640px; margin:18px auto 0;">
+    {% if r.veredito == 'ja_apertado' %}
+        <p class="veredito-selo">O mês já está apertado</p>
+        <p class="veredito-frase">
+            Isso não é sobre essa compra. Mesmo <strong>sem gastar nada</strong>, do jeito
+            que está hoje faltariam <strong>{{ r.falta_sem_a_compra|money }}</strong> pra
+            chegar no fim do mês — entre as contas que vencem e o seu ritmo de gasto.
+        </p>
+        <p class="veredito-frase" style="margin-top:12px; font-size:1rem;">
+            Vale olhar as <a href="{{ url_for('compromissos') }}">contas do mês</a> e ver o
+            que dá pra adiar ou renegociar. Se entrar dinheiro que eu ainda não sei,
+            <a href="{{ url_for('nova_transacao') }}?tipo=entrada">me conta</a> que eu refaço a conta.
+        </p>
+    {% elif r.veredito == 'cabe' %}
+        <p class="veredito-selo">Cabe</p>
+        <p class="veredito-frase">
+            Gastando <strong>{{ r.valor|money }}</strong> hoje, ainda sobram
+            <strong>{{ r.sobra|money }}</strong> de folga até o fim do mês.
+        </p>
+    {% elif r.veredito == 'aperta' %}
+        <p class="veredito-selo">Cabe, mas aperta</p>
+        <p class="veredito-frase">
+            Dá pra gastar <strong>{{ r.valor|money }}</strong>, mas sobra só
+            <strong>{{ r.sobra|money }}</strong> de margem — qualquer imprevisto
+            no mês encosta no vermelho.
+            {% if r.teto_folgado > 0 %}
+            Até <strong>{{ r.teto_folgado|money }}</strong> você fica tranquilo.
+            {% endif %}
+        </p>
+    {% else %}
+        <p class="veredito-selo">Não cabe</p>
+        <p class="veredito-frase">
+            Gastando <strong>{{ r.valor|money }}</strong> hoje, faltariam
+            <strong>{{ (-r.sobra)|money }}</strong> antes de o mês acabar.
+            {% if r.teto_folgado > 0 %}
+            O que cabe com tranquilidade é até <strong>{{ r.teto_folgado|money }}</strong>.
+            {% elif r.teto > 0 %}
+            No limite, sem folga nenhuma, dá pra ir até {{ r.teto|money }}.
+            {% else %}
+            Neste momento não sobra nada pra gasto extra.
+            {% endif %}
+        </p>
+    {% endif %}
+
+    <div class="conta-aberta">
+        <div class="conta-linha">
+            <span>Você tem hoje</span>
+            <strong>{{ r.saldo|money }}</strong>
+        </div>
+        {% if r.contas > 0 %}
+        <div class="conta-linha">
+            <span>Contas que ainda vencem este mês</span>
+            <strong class="tira">− {{ r.contas|money }}</strong>
+        </div>
+        {% endif %}
+        <div class="conta-linha">
+            <span>Seu ritmo: {{ r.media|money }} por dia × {{ r.dias_futuros }} dia{{ '' if r.dias_futuros == 1 else 's' }}</span>
+            <strong class="tira">− {{ (r.media * r.dias_futuros)|money }}</strong>
+        </div>
+        <div class="conta-linha">
+            <span>Esta compra</span>
+            <strong class="tira">− {{ r.valor|money }}</strong>
+        </div>
+        <div class="conta-linha conta-total">
+            <span>{{ 'Sobra' if r.sobra >= 0 else 'Falta' }}</span>
+            <strong>{{ (r.sobra if r.sobra >= 0 else -r.sobra)|money }}</strong>
+        </div>
+    </div>
+
+    {% if not r.tem_historico %}
+    <div class="auth-note" style="margin-top:16px;">
+        Ainda tenho pouco histórico seu ({{ r.dias_com_dado }} dia{{ '' if r.dias_com_dado == 1 else 's' }}
+        com gasto registrado), então o “ritmo por dia” é um chute fraco. Conforme você usar,
+        essa conta fica boa.
+    </div>
+    {% endif %}
+
+    <p class="helper-text" style="margin-top:16px;">
+        Isso é uma projeção pelo seu histórico, não uma promessa — mês com imprevisto
+        foge da conta. Compra no crédito não entra aqui: ela sai da conta quando a
+        fatura for paga.
+    </p>
+</section>
+{% endif %}
+{% endblock %}

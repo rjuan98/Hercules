@@ -32,7 +32,7 @@ você configurar as chaves.
 python testes.py
 ```
 
-São **624 verificações** contra um banco temporário e isolado — não encostam nos seus
+São **645 verificações** contra um banco temporário e isolado — não encostam nos seus
 dados. Cobrem as contas de dinheiro, isolamento entre usuários, fuso horário, o ciclo
 da fatura, entrada hostil em todo formulário, envio duplicado, exclusão em cascata e
 duas abas abertas na mesma conta.
@@ -63,6 +63,8 @@ pip-audit -r requirements.txt
 - Contas a pagar, dívidas (o que você deve e o que te devem), assinaturas detectadas
   sozinhas e orçamento por categoria
 - Metas com um valor que **cabe no bolso**: calculado pelo seu pior mês, não pela média
+- **"Será que cabe?"** — antes de gastar, o app olha as contas que ainda vencem e o seu
+  ritmo de gasto e dá um veredito, não um número: cabe, aperta ou não cabe
 
 **Os fechamentos**
 - Recado da semana: o que mudou, não o que você já sabe

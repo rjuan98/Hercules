@@ -2464,6 +2464,98 @@ def _valor_redondo(v: float) -> int:
     return int(v // 50) * 50
 
 
+def media_gasto_diario(user_id: int, dias: int = 60) -> tuple[float, int]:
+    """Quanto sai por dia, em média, sem contar crédito nem ajuste de saldo.
+
+    Devolve também em quantos dias há histórico — sem isso o simulador daria
+    palpite confiante pra quem entrou ontem."""
+    desde = hoje_br() - timedelta(days=dias)
+    with get_db() as db:
+        r = db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS total,
+                      COUNT(DISTINCT date(COALESCE(NULLIF(data_transacao, ''), created_at))) AS dias,
+                      MIN(date(COALESCE(NULLIF(data_transacao, ''), created_at))) AS primeiro
+                 FROM transacoes
+                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0 AND fonte != 'ajuste'
+                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)""",
+            (user_id, desde.isoformat()),
+        ).fetchone()
+    com_gasto = r["dias"] or 0
+    if com_gasto == 0 or not r["primeiro"]:
+        return 0.0, 0
+
+    # Divide pelo período que a pessoa REALMENTE tem, não pela janela inteira:
+    # quem usa há 20 dias dividido por 60 pareceria gastar um terço do que gasta,
+    # e o simulador diria "cabe" pra coisa que não cabe.
+    try:
+        primeiro = date.fromisoformat(r["primeiro"])
+    except (TypeError, ValueError):
+        primeiro = desde
+    corridos = max(1, (hoje_br() - max(primeiro, desde)).days + 1)
+    # Mas divide pelos dias corridos, não pelos dias em que houve gasto: quem gasta
+    # em 3 dias da semana continua tendo que atravessar os outros 4.
+    return float(r["total"]) / corridos, com_gasto
+
+
+def contas_ate_fim_do_mes(user_id: int) -> float:
+    """O que ainda vence neste mês e não foi pago."""
+    _, fim = month_bounds()
+    with get_db() as db:
+        return float(db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS t FROM compromissos
+                WHERE user_id = ? AND status = 'pendente' AND tipo = 'saida'
+                  AND date(vencimento) <= date(?)""",
+            (user_id, fim.isoformat()),
+        ).fetchone()["t"])
+
+
+def simular_gasto(user_id: int, valor: float) -> dict[str, Any]:
+    """'Se eu gastar isso hoje, eu atravesso o mês?'
+
+    A resposta útil não é o saldo depois — é o veredito. Calculadora qualquer um
+    tem; o que o Hércules sabe e a calculadora não são as contas que ainda vencem
+    e o ritmo de gasto da própria pessoa."""
+    stats = calc_transaction_totals(user_id)
+    saldo = float(stats["balance"])
+    contas = contas_ate_fim_do_mes(user_id)
+    media, dias_com_dado = media_gasto_diario(user_id)
+    dias = days_left_in_month()
+
+    # O gasto de hoje já entrou na média; contar o dia de hoje de novo puniria
+    # duas vezes. Por isso dias - 1.
+    dias_futuros = max(0, dias - 1)
+    reservado = contas + media * dias_futuros
+    sobra = saldo - valor - reservado
+    folga_minima = max(media * 3, 50.0)      # três dias de respiro, ou R$ 50
+
+    # Se nem sem a compra o mes fecha, o problema nao e' a compra. Dizer "nao cabe"
+    # pra R$ 150 seria verdade sem ser util — e a pessoa precisa saber a real.
+    ja_no_vermelho = saldo - reservado < 0
+    if ja_no_vermelho:
+        veredito = "ja_apertado"
+    elif sobra < 0:
+        veredito = "nao_cabe"
+    elif sobra < folga_minima:
+        veredito = "aperta"
+    else:
+        veredito = "cabe"
+
+    teto = max(0.0, saldo - reservado)                 # gastar isso zera o mês
+    teto_folgado = max(0.0, teto - folga_minima)       # gastar isso ainda deixa respiro
+
+    return {
+        "valor": valor, "saldo": saldo, "contas": contas, "media": media,
+        "dias": dias, "dias_futuros": dias_futuros, "reservado": reservado,
+        "sobra": sobra, "veredito": veredito,
+        "teto": teto, "teto_folgado": teto_folgado,
+        "ja_no_vermelho": ja_no_vermelho,
+        "falta_sem_a_compra": max(0.0, reservado - saldo),
+        "tem_historico": dias_com_dado >= 5,
+        "dias_com_dado": dias_com_dado,
+        "saldo_depois": saldo - valor,
+    }
+
+
 def sugerir_guardar_mensal(user_id: int, meses: int = 6) -> dict[str, Any] | None:
     """Quanto a pessoa CONSEGUE guardar sem precisar mexer depois.
 
@@ -3459,6 +3551,22 @@ def meses():
         detalhe=next((m for m in historico if m["mes"] == escolhido), None),
         detalhe_ant=next((m for m in historico if m["mes"] == anterior), None),
     )
+
+
+@app.route("/simular", methods=["GET", "POST"])
+@login_required
+def simular():
+    """A pergunta que a pessoa faz na loja, não em casa depois."""
+    user = current_user()
+    bruto = request.form.get("valor") if request.method == "POST" else request.args.get("valor")
+    valor = parse_money(bruto)
+    resultado = None
+    if valor > 0 and not valor_absurdo(valor):
+        resultado = simular_gasto(user["id"], valor)
+    elif bruto:
+        flash("Informe um valor válido pra eu simular.")
+    return render_template("simular.html", user=user, resultado=resultado,
+                           valor_digitado=bruto or "")
 
 
 @app.route("/recado")
