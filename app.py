@@ -2290,6 +2290,55 @@ def home():
     )
 
 
+def _valor_redondo(v: float) -> int:
+    """Número fácil de lembrar: 87 vira 85, 137 vira 130, 640 vira 600."""
+    if v < 50:
+        return max(10, int(v // 5) * 5)
+    if v < 200:
+        return int(v // 10) * 10
+    return int(v // 50) * 50
+
+
+def sugerir_guardar_mensal(user_id: int, meses: int = 6) -> dict[str, Any] | None:
+    """Quanto a pessoa CONSEGUE guardar sem precisar mexer depois.
+
+    Usa o PIOR mês (não a média) de propósito: meta que se cumpre constrói
+    confiança; meta que se quebra confirma o "eu não consigo guardar". Melhor
+    guardar pouco e manter do que guardar muito e sacar na metade do mês.
+    """
+    hoje = date.today()
+    desde = (hoje - timedelta(days=31 * (meses + 1))).isoformat()
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT strftime('%Y-%m', COALESCE(data_transacao, created_at)) AS mes,
+                      SUM(CASE WHEN tipo = 'entrada' THEN valor ELSE 0 END) AS entrou,
+                      SUM(CASE WHEN tipo = 'saida' AND no_credito = 0 THEN valor ELSE 0 END) AS saiu
+               FROM transacoes
+               WHERE user_id = ? AND fonte != 'ajuste'
+                 AND date(COALESCE(data_transacao, created_at)) >= date(?)
+               GROUP BY mes ORDER BY mes DESC""",
+            (user_id, desde),
+        ).fetchall()
+
+    mes_atual = hoje.strftime("%Y-%m")  # mês corrente ainda não fechou: não conta
+    fechados = [r for r in rows if r["mes"] != mes_atual and float(r["entrou"] or 0) > 0]
+    if len(fechados) < 2:
+        return None  # sem histórico suficiente pra prometer qualquer coisa
+
+    sobras = [float(r["entrou"] or 0) - float(r["saiu"] or 0) for r in fechados]
+    positivas = [s for s in sobras if s > 0]
+
+    if not positivas:
+        # Nenhum mês sobrou: começar simbólico, só pra criar o hábito
+        return {"valor": 20, "meses": len(fechados), "apertado": True,
+                "pior": min(sobras), "melhor": max(sobras)}
+
+    # 80% do pior mês que sobrou: cabe até nos meses ruins
+    valor = _valor_redondo(min(positivas) * 0.8)
+    return {"valor": max(10, valor), "meses": len(fechados), "apertado": False,
+            "pior": min(sobras), "melhor": max(sobras)}
+
+
 def detectar_assinaturas(user_id: int, meses: int = 5) -> dict[str, Any]:
     """Acha o que se repete todo mês (Netflix, academia, seguro...). Critério: mesmo
     lugar, valor parecido, em 3+ meses diferentes. É o gasto que passa despercebido
@@ -2762,7 +2811,8 @@ def metas():
         "r6": custo_mensal * 6,
     }
     novo = request.args.get("novo", type=int)
-    return render_template("metas.html", user=user, goals=goals_view, stats=stats, novo=novo, reserva=reserva)
+    return render_template("metas.html", user=user, goals=goals_view, stats=stats, novo=novo,
+                           reserva=reserva, guardar=sugerir_guardar_mensal(user["id"]))
 
 
 def calc_dividas(user_id: int) -> dict[str, Any]:
@@ -2865,6 +2915,22 @@ def reserva_usar_saldo_real():
             return redirect(url_for("metas"))
         db.execute("UPDATE metas SET valor_atual = ? WHERE id = ?", (float(real), goal["id"]))
     flash(f"Reserva atualizada pelo banco: {money(real)}.")
+    return redirect(url_for("metas"))
+
+
+@app.route("/metas/quanto-guardar", methods=["POST"])
+@login_required
+def definir_guardar_mensal():
+    """Aceita a sugestão de quanto dá pra guardar por mês."""
+    user = current_user()
+    valor = parse_money(request.form.get("valor"))
+    if valor <= 0:
+        flash("Valor inválido.")
+        return redirect(url_for("metas"))
+    with get_db() as db:
+        db.execute("UPDATE usuarios SET meta_mensal = ? WHERE id = ?", (valor, user["id"]))
+    session["meta_mensal"] = valor
+    flash(f"Combinado: {money(valor)} por mês. Vou contar com isso no seu \"pode gastar hoje\".")
     return redirect(url_for("metas"))
 
 

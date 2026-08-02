@@ -641,6 +641,43 @@ check("apaga junto movimentacoes, metas e dividas (cascade)",
 check("NAO mexe nos dados de outro usuario", _conta_de("transacoes", uid1) > 0)
 check("sessao encerrada apos apagar", c_del.get("/", follow_redirects=False).status_code == 302)
 
+secao("30. Meta que cabe no bolso")
+def _lanca_mes(uid, tipo, valor, meses_atras):
+    d = (date.today().replace(day=15) - timedelta(days=30 * meses_atras)).isoformat()
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,'hist','Outros','ofx',95,?,0)""",
+                   (uid, tipo, valor, d))
+
+c_g = novo_cliente("guardar@teste.com", nome="Guardar")
+uid_g = uid_de("guardar@teste.com")
+for m, (ent, sai) in enumerate([(2000, 1880), (2000, 1500), (2000, 1700)], start=1):
+    _lanca_mes(uid_g, "entrada", ent, m)
+    _lanca_mes(uid_g, "saida", sai, m)
+sug = A.sugerir_guardar_mensal(uid_g)
+check("usa o PIOR mes, nao a media (90, nao 307)", sug["valor"] == 90, sug)
+check("nao marca como apertado quando sobra", sug["apertado"] is False)
+check("card aparece nas Metas", "dá pra guardar" in c_g.get("/metas").get_data(as_text=True))
+c_g.post("/metas/quanto-guardar", data={"csrf_token": "t", "valor": str(sug["valor"])})
+with get_db() as db:
+    mm = db.execute("SELECT meta_mensal FROM usuarios WHERE id=?", (uid_g,)).fetchone()["meta_mensal"]
+check("aceitar a sugestao grava a meta mensal", abs(mm - 90) < 0.01, mm)
+check("entra no calculo do 'pode gastar hoje'",
+      A.calc_transaction_totals(uid_g)["reserve_monthly_needed"] > 0)
+
+c_ap = novo_cliente("apertado@teste.com", nome="Apertado")
+uid_ap = uid_de("apertado@teste.com")
+for m, (ent, sai) in enumerate([(1500, 1600), (1500, 1550), (1500, 1700)], start=1):
+    _lanca_mes(uid_ap, "entrada", ent, m)
+    _lanca_mes(uid_ap, "saida", sai, m)
+sug_ap = A.sugerir_guardar_mensal(uid_ap)
+check("mes no vermelho: valor simbolico e tom acolhedor",
+      sug_ap["valor"] == 20 and sug_ap["apertado"] is True, sug_ap)
+check("nao culpa a pessoa", "não é falta de disciplina" in c_ap.get("/metas").get_data(as_text=True))
+
+c_novo2 = novo_cliente("semhist@teste.com", nome="Novo")
+check("sem historico NAO promete nada", A.sugerir_guardar_mensal(uid_de("semhist@teste.com")) is None)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

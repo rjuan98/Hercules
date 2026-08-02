@@ -4,6 +4,36 @@
 {% block page_subtitle %}Reserva, viagem, casa e qualquer objetivo seu.{% endblock %}
 
 {% block content %}
+{% if guardar %}
+<section class="page-card suggestion-card" style="margin-bottom:18px;">
+    <div class="hercules-greeting" style="margin-bottom:12px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            {% if guardar.apertado %}
+            <strong>Vamos começar pequeno?</strong><br>
+            Olhei seus últimos {{ guardar.meses }} meses e o dinheiro tem ficado justo — isso acontece,
+            e não é falta de disciplina. Que tal separar <strong>{{ guardar.valor|money }}</strong> por mês
+            só pra criar o hábito? Quando sobrar mais, a gente aumenta.
+            {% else %}
+            <strong>Pelo seu ritmo, dá pra guardar {{ guardar.valor|money }} por mês.</strong><br>
+            Olhei seus últimos {{ guardar.meses }} meses e escolhi um valor que cabe até nos
+            <strong>meses mais apertados</strong> — assim você guarda e não precisa mexer depois.
+            É melhor guardar pouco todo mês do que guardar muito e ter que sacar na metade.
+            {% endif %}
+        </div>
+    </div>
+    <form method="POST" action="{{ url_for('definir_guardar_mensal') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="valor" value="{{ guardar.valor }}">
+        <button type="submit" class="button button-primary">Vou guardar {{ guardar.valor|money }} por mês</button>
+    </form>
+    <p class="helper-text" style="margin-top:10px;">
+        Isso entra no cálculo do seu "pode gastar hoje" — o Herc separa esse valor antes de dizer
+        quanto sobra. Dá pra mudar quando quiser nas Configurações.
+    </p>
+</section>
+{% endif %}
+
 {% if stats['saldo_investido'] is not none %}
 {% for g in goals if 'reserva' in (g.row['nome'] or '')|lower and g.row['ativo'] %}
 {% if (g.row['valor_atual']|float - stats['saldo_investido'])|abs > 0.01 %}
