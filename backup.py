@@ -14,6 +14,12 @@ Importante saber o que isso NÃO cobre: a cópia fica no mesmo disco do
 servidor. Protege contra migração ruim, apagão de tabela e corrupção do
 arquivo — não protege contra perder o servidor inteiro. Pra isso é preciso
 baixar uma cópia de vez em quando (Configurações → Saúde do app).
+
+E é justamente por VIAJAR que ela precisa ir cifrada: o arquivo sai do
+servidor, passa pelo seu computador e às vezes por uma nuvem qualquer.
+Defina BACKUP_SENHA e ele deixa de ser legível fora daqui. Sem a variável
+o backup continua funcionando em texto claro — o app avisa na tela de
+Saúde, porque backup que não roda é pior que backup legível.
 """
 import gzip
 import os
@@ -29,7 +35,56 @@ from database import DB_PATH, SQLITE_TIMEOUT
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR") or DB_PATH.parent / "backups")
 MANTER_DIAS = 14
 
+# Senha que cifra a cópia. Fica no ambiente do servidor: quem tomar o servidor
+# leva o banco de qualquer jeito, então ela não protege contra isso. O que ela
+# protege é o arquivo depois que ele SAI daqui — que é pra onde ele vai.
+BACKUP_SENHA = os.environ.get("BACKUP_SENHA") or ""
+MAGICO = b"HERCBK1:"       # marca o arquivo cifrado e a versão do formato
+
 _lock = threading.Lock()
+
+
+def cifragem_ligada() -> bool:
+    return bool(BACKUP_SENHA) and _fernet_disponivel()
+
+
+def _fernet_disponivel() -> bool:
+    try:
+        import cryptography  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _chave(salt: bytes):
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+    import base64
+    bruta = Scrypt(salt=salt, length=32, n=2**14, r=8, p=1).derive(BACKUP_SENHA.encode("utf-8"))
+    return Fernet(base64.urlsafe_b64encode(bruta))
+
+
+def cifrar(dados: bytes) -> bytes:
+    """Sal novo por arquivo: dois backups do mesmo banco não ficam idênticos."""
+    salt = os.urandom(16)
+    return MAGICO + salt + _chave(salt).encrypt(dados)
+
+
+def decifrar(dados: bytes) -> bytes:
+    if not dados.startswith(MAGICO):
+        return dados                       # backup antigo, em texto claro
+    if not BACKUP_SENHA:
+        raise ValueError("Este backup está cifrado. Defina BACKUP_SENHA para abrir.")
+    corpo = dados[len(MAGICO):]
+    return _chave(corpo[:16]).decrypt(corpo[16:])
+
+
+def esta_cifrado(caminho) -> bool:
+    try:
+        with open(caminho, "rb") as f:
+            return f.read(len(MAGICO)) == MAGICO
+    except OSError:
+        return False
 
 
 def _nome_do_dia(quando=None):
@@ -80,11 +135,15 @@ def fazer_backup():
         finally:
             origem.close()
 
+        with open(tmp, "rb") as f_in:
+            conteudo = gzip.compress(f_in.read())
+        if cifragem_ligada():
+            conteudo = cifrar(conteudo)
+
         # grava com nome temporário e só então renomeia: se cair no meio,
         # o backup de ontem continua inteiro em vez de virar um arquivo pela metade
         parcial = destino.with_suffix(".parcial")
-        with open(tmp, "rb") as f_in, gzip.open(parcial, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
+        parcial.write_bytes(conteudo)
         os.replace(parcial, destino)
     finally:
         try:
@@ -116,8 +175,37 @@ def garantir_backup_do_dia():
         _lock.release()
 
 
+def restaurar(arquivo, destino) -> Path:
+    """Decifra e descompacta uma cópia, devolvendo um .db pronto pra usar.
+
+    Existe pra que a restauração seja um comando, não uma pesquisa no dia em que
+    o banco quebrar. É o único momento em que o backup vale alguma coisa."""
+    bruto = Path(arquivo).read_bytes()
+    conteudo = gzip.decompress(decifrar(bruto))
+    destino = Path(destino)
+    destino.write_bytes(conteudo)
+
+    conferencia = sqlite3.connect(destino)
+    try:
+        estado = conferencia.execute("PRAGMA integrity_check").fetchone()[0]
+    finally:
+        conferencia.close()
+    if estado != "ok":
+        raise ValueError(f"A cópia abriu, mas está corrompida: {estado}")
+    return destino
+
+
 if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 2 and sys.argv[1] == "--restaurar":
+        saida = sys.argv[3] if len(sys.argv) > 3 else "restaurado.db"
+        print(f"Restaurado em {restaurar(sys.argv[2], saida)} — íntegro ✓")
+        print("Confira os dados e só então ponha no lugar do database.db.")
+        raise SystemExit(0)
+
     caminho = fazer_backup()
     tam = caminho.stat().st_size / 1024
     print(f"Backup salvo em {caminho} ({tam:.0f} KB)")
+    print(f"Cifrado: {'sim' if esta_cifrado(caminho) else 'NÃO — defina BACKUP_SENHA'}")
     print(f"Cópias guardadas: {len(listar_backups())} (mantendo as {MANTER_DIAS} mais recentes)")
+    print(f"\nPra restaurar:  python backup.py --restaurar {caminho.name} saida.db")

@@ -47,6 +47,17 @@
     </div>
     {% endif %}
 
+    {% if not cifrado %}
+    <div class="auth-note" style="margin-top:14px; border-color:var(--danger);">
+        🔓 <strong>As cópias estão em texto claro.</strong> Qualquer um que pegar o arquivo lê os
+        dados de todo mundo — e ele é feito pra sair daqui. Defina <code>BACKUP_SENHA</code> no
+        servidor e as próximas já saem cifradas.
+    </div>
+    {% else %}
+    <p class="helper-text" style="margin-top:12px;">🔒 As cópias saem cifradas — sem a
+    <code>BACKUP_SENHA</code> o arquivo não abre em lugar nenhum.</p>
+    {% endif %}
+
     <div class="auth-note" style="margin-top:14px;">
         📥 <strong>Baixe uma de vez em quando.</strong> As cópias ficam no mesmo disco do servidor:
         elas salvam de migração ruim e de arquivo corrompido, mas <strong>não</strong> salvam se o
@@ -58,7 +69,7 @@
         {% for b in backups[:7] %}
         <li class="data-item" style="padding:12px 16px;">
             <div class="note-header">
-                <p class="note-title" style="font-family:monospace;">{{ b.name }}</p>
+                <p class="note-title" style="font-family:monospace;">{{ "🔒" if cifrado else "🔓" }} {{ b.name }}</p>
                 <a href="{{ url_for('saude_baixar_backup', nome=b.name) }}" class="button button-outline"
                    style="padding:6px 12px;"><i data-lucide="download"></i> Baixar</a>
             </div>

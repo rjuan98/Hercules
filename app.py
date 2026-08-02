@@ -37,7 +37,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
-from backup import fazer_backup, garantir_backup_do_dia, listar_backups, ultimo_backup
+from backup import (cifragem_ligada, esta_cifrado, fazer_backup, garantir_backup_do_dia,
+                    listar_backups, ultimo_backup)
 from database import get_db, init_db
 
 try:
@@ -4760,6 +4761,7 @@ def saude_app():
         "saude.html", user=current_user(),
         u=u, pessoas=pessoas, hoje=hoje,
         backups=listar_backups(), ultimo=ultimo_backup(), erros=erros_recentes(),
+        cifrado=cifragem_ligada(),
     )
 
 

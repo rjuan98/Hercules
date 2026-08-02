@@ -3,7 +3,7 @@
 Roda contra um banco temporário e isolado — não toca nos seus dados.
 Use sempre que mexer no código:  python testes.py
 """
-import os, sys, json, tempfile, traceback
+import os, sys, json, pathlib, tempfile, traceback
 from datetime import date, datetime, timedelta
 
 TMP = tempfile.mkdtemp()
@@ -1675,6 +1675,53 @@ with _c_ses.session_transaction() as s:
     check("dado plantado antes do login e' descartado", "lixo_antigo" not in s)
     check("o token de CSRF e' trocado no login", s.get("csrf_token") != "plantado")
     check("e o login funcionou", s.get("user_id") is not None)
+
+secao("60. Backup que viaja tem que viajar cifrado")
+# O backup e' feito pra SAIR do servidor — vai pro computador, as vezes pra
+# nuvem. Em texto claro, quem pegar o arquivo le os dados de todo mundo.
+_senha_orig, _bk_dir_orig = B.BACKUP_SENHA, B.BACKUP_DIR
+B.BACKUP_SENHA = "cofre-de-teste-do-hercules"
+B.BACKUP_DIR = pathlib.Path(os.path.join(TMP, "bk_cifrado"))
+try:
+    _p = B.fazer_backup()
+    _cru = open(_p, "rb").read()
+    check("com BACKUP_SENHA, a copia sai cifrada", B.esta_cifrado(_p))
+    check("nao da pra ler e-mail dentro do arquivo",
+          not re.findall(rb"[\w.+-]+@[\w-]+\.[\w.]+", _cru))
+    check("nem parece um banco SQLite", b"SQLite format" not in _cru)
+    check("dois backups do mesmo conteudo nao ficam iguais (sal por arquivo)",
+          B.cifrar(b"igual") != B.cifrar(b"igual"))
+
+    # Backup que nao abre nao e' backup: a restauracao tem que ser um comando
+    _volta = os.path.join(TMP, "restaurado_cifrado.db")
+    B.restaurar(_p, _volta)
+    _cx = _sq4.connect(_volta)
+    check("restaura e abre integro",
+          _cx.execute("PRAGMA integrity_check").fetchone()[0] == "ok")
+    check("com os dados de verdade dentro",
+          _cx.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0] > 0)
+    _cx.close()
+
+    for _senha, _rotulo in [("senha-errada", "com a senha errada"), ("", "sem senha nenhuma")]:
+        B.BACKUP_SENHA = _senha
+        try:
+            B.restaurar(_p, os.path.join(TMP, "nao.db")); _abriu = True
+        except Exception:
+            _abriu = False
+        check(f"{_rotulo} NAO abre", not _abriu)
+finally:
+    B.BACKUP_SENHA, B.BACKUP_DIR = _senha_orig, _bk_dir_orig
+
+check("sem BACKUP_SENHA o backup continua funcionando (so que em claro)",
+      B.cifragem_ligada() is False)
+check("e a tela de Saude avisa quando esta em claro",
+      "texto claro" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                         "templates", "saude.html"), encoding="utf-8").read())
+check("backup antigo, sem cifra, continua abrindo",
+      B.decifrar(b"conteudo antigo") == b"conteudo antigo")
+check("existe requirements-dev com o checador de vulnerabilidade",
+      "pip-audit" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                       "requirements-dev.txt"), encoding="utf-8").read())
 
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")

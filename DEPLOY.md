@@ -83,6 +83,7 @@ seria apagado a cada deploy. Use só com o plano Starter (~US$ 7/mês) + disco.
 | `BACKUP_DIR`    | onde ficam as cópias do banco                           | `backups/` ao lado do DB |
 | `ERROS_LOG`     | arquivo do log de erros                                 | `./erros.log`        |
 | `SQLITE_TIMEOUT`| segundos de espera quando o banco está ocupado           | `20`                 |
+| `BACKUP_SENHA`  | **cifra as cópias** — sem ela o backup sai legível       | vazio (texto claro)  |
 | `SECURE_COOKIES`| `0` desliga o cookie só-HTTPS (liga sozinho em hospedagem)| auto                |
 
 ---
@@ -103,11 +104,26 @@ ruim, tabela apagada por engano e arquivo corrompido — **não** protege contra
 perder o servidor inteiro. De vez em quando baixe uma cópia pro seu computador
 em **Saúde do app → Baixar**.
 
-Pra restaurar: descompacte o `.gz` e ponha no lugar do `database.db`.
+### Cifre a cópia — ela é feita pra viajar
+
+Defina `BACKUP_SENHA` no servidor e as cópias passam a sair cifradas. Isso importa
+porque o arquivo **sai daqui**: vai pro seu computador, às vezes pra uma nuvem.
+Sem cifra, quem pegar o arquivo lê os dados de todo mundo.
+
+A senha mora no ambiente do servidor, então ela **não** protege contra alguém que
+tome o servidor — essa pessoa já teria o banco. O que ela protege é o caminho de
+fora, que é onde o arquivo passa a maior parte da vida.
+
+**Guarde essa senha fora do servidor.** Sem ela, nem você abre o backup.
+
+Pra restaurar:
 
 ```
-gunzip -c backups/hercules-2026-08-01.db.gz > database.db
+python backup.py --restaurar backups/hercules-2026-08-02.db.gz saida.db
 ```
+
+Ele decifra, descompacta e confere a integridade. Confira os dados e só então
+ponha no lugar do `database.db`.
 
 ---
 
@@ -135,6 +151,8 @@ digitou (valor, descrição, senha), só onde quebrou.
 | Cabeçalhos | CSP, `X-Frame-Options: DENY`, `nosniff`, Referrer-Policy, HSTS |
 | Isolamento | toda consulta filtra por `user_id`; testado contra acesso cruzado |
 | Exclusão | apagar a conta apaga tudo em cascata, sem sobra |
+| Backup | cifrado com `BACKUP_SENHA` (scrypt + Fernet), sal novo por arquivo |
+| Dependências | `pip-audit -r requirements.txt` avisa de falha publicada |
 
 O que **não** existe: pentest profissional, auditoria formal, criptografia
 individual dos dados em repouso. Isso está dito sem rodeio em `/privacidade`,

@@ -1,0 +1,6 @@
+# Ferramentas de desenvolvimento — NÃO precisam ir pro servidor.
+#   pip install -r requirements-dev.txt
+
+# Checa se alguma dependência tem falha de segurança publicada.
+# Rode antes de subir:  pip-audit -r requirements.txt
+pip-audit>=2.7.0

@@ -32,7 +32,7 @@ você configurar as chaves.
 python testes.py
 ```
 
-São **505 verificações** contra um banco temporário e isolado — não encostam nos seus
+São **517 verificações** contra um banco temporário e isolado — não encostam nos seus
 dados. Cobrem desde as contas de dinheiro até isolamento entre usuários, fuso horário,
 concorrência e o ciclo da fatura, e já pegaram bugs que teriam quebrado a instalação de
 todo mundo.
@@ -83,6 +83,7 @@ Nada abaixo é obrigatório para rodar local. Cada chave liga uma funcionalidade
 | `DATABASE_PATH` | onde fica o SQLite | `./database.db` |
 | `UPLOAD_DIR` | anexos das notas | `./uploads` |
 | `BACKUP_DIR` | cópias do banco | `backups/` ao lado do DB |
+| `BACKUP_SENHA` | cifra as cópias (elas saem do servidor) | vazio — sai legível |
 | `PLUGGY_CLIENT_ID` / `PLUGGY_CLIENT_SECRET` | conexão com o banco | desligado |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | entrar com o Google | desligado |
 | `ANTHROPIC_API_KEY` | ler nota fiscal por foto | desligado |
