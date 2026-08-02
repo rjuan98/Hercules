@@ -368,6 +368,12 @@ def init_db():
     # Índices que dependem de colunas criadas nas migrações acima (banco novo não tem
     # essas colunas na CREATE TABLE original, então o índice só pode vir depois).
     conn.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_user_fitid ON transacoes(user_id, fitid)")
+    # 29 consultas filtram por date(COALESCE(NULLIF(data_transacao,''), created_at)). Com a
+    # coluna embrulhada em função, o índice comum não serve e o SQLite calcula a data linha
+    # a linha — a Início ia ficando mais lenta a cada mês de uso. Índice sobre a EXPRESSÃO
+    # (precisa bater exatamente com a das consultas).
+    conn.execute("""CREATE INDEX IF NOT EXISTS idx_transacoes_user_dia
+                    ON transacoes(user_id, date(COALESCE(NULLIF(data_transacao, ''), created_at)))""")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tentativas_email ON tentativas_login(email, quando)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_tentativas_ip ON tentativas_login(ip, quando)")
 

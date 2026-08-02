@@ -1737,6 +1737,50 @@ check("o servidor aceita os formatos de foto",
 check("e recusa o que nao e' nota", not A.allowed_file("virus.exe"))
 
 
+secao("62. Não fica mais lento a cada mês de uso")
+# A Inicio carregava TODA a tabela de transacoes na memoria pra responder
+# "existe alguma?". Quem usa ha um ano pagava por isso em toda visita.
+c_esc = novo_cliente("escala@teste.com", nome="Esc")
+uid_esc = uid_de("escala@teste.com")
+check("sem lançamento, a home sabe que está vazia",
+      A.calc_transaction_totals(uid_esc)["tem_lancamentos"] is False)
+_um_gasto(uid_esc)
+check("com lançamento, sabe que tem", A.calc_transaction_totals(uid_esc)["tem_lancamentos"] is True)
+check("nao carrega a tabela inteira pra isso",
+      "SELECT 1 FROM transacoes WHERE user_id = ? LIMIT 1" in _APP_SRC)
+check("e a lista de recentes segue limitada", "DESC LIMIT 8" in _APP_SRC)
+
+# 29 consultas filtram pela data embrulhada em funcao; sem indice de expressao
+# o SQLite calcula linha a linha e a tela cresce junto com o historico
+with get_db() as db:
+    _plano = [r["detail"] for r in db.execute("""EXPLAIN QUERY PLAN
+        SELECT COALESCE(SUM(valor),0) FROM transacoes
+         WHERE user_id = ? AND tipo='saida' AND no_credito = 0
+           AND date(COALESCE(NULLIF(data_transacao,''), created_at)) BETWEEN date(?) AND date(?)""",
+        (uid_esc, "2026-08-01", "2026-08-31")).fetchall()]
+check("a soma do mês usa índice, não varre a tabela",
+      any("idx_transacoes_user_dia" in p for p in _plano), str(_plano))
+
+with get_db() as db:
+    _indices = {r["name"] for r in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='transacoes'")}
+check("o índice de expressão existe", "idx_transacoes_user_dia" in _indices, sorted(_indices))
+
+# Volume real de quem usa ha um ano, pra provar que nao degrada
+with get_db() as db:
+    for _i in range(3000):
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'saida',?,?,'Mercado','ofx',95,
+                      date('now','-'||?||' days'),0)""", (uid_esc, 10 + _i % 90, f"L{_i}", _i % 700))
+import time as _tm
+c_esc.get("/")
+_t0 = _tm.perf_counter()
+for _ in range(3):
+    c_esc.get("/")
+_ms = (_tm.perf_counter() - _t0) / 3 * 1000
+check(f"Início com 3000 lançamentos abre rápido ({_ms:.0f}ms)", _ms < 250, f"{_ms:.0f}ms")
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

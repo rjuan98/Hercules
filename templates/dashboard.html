@@ -4,7 +4,7 @@
 {% block page_subtitle %}O mês inteiro em uma tela: entradas, saídas, contas e metas.{% endblock %}
 
 {% block content %}
-{% if not retrato.tem_dados and not stats['transactions'] %}
+{% if not retrato.tem_dados and not stats['tem_lancamentos'] %}
 {# Conta sem nenhum dado: uma mensagem, não uma parede de R$ 0,00 #}
 <section class="page-card" style="max-width:560px; margin:6vh auto 0; text-align:center;">
     <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="auth-mark" style="margin:0 auto;">

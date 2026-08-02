@@ -1423,10 +1423,12 @@ def calc_transaction_totals(user_id: int):
     today = hoje_br()
     month_start, month_end = month_bounds(today)
     with get_db() as db:
-        transactions = db.execute(
-            "SELECT * FROM transacoes WHERE user_id = ? ORDER BY date(COALESCE(NULLIF(data_transacao, ''), created_at)) DESC",
-            (user_id,),
-        ).fetchall()
+        # Só interessa SE existe alguma — quem precisa da lista usa `recent` (LIMIT 8)
+        # ou a tela de lançamentos, que é paginada. Carregar a tabela inteira aqui fazia
+        # a Início ficar mais lenta a cada mês de uso, sem nada em troca.
+        tem_lancamentos = db.execute(
+            "SELECT 1 FROM transacoes WHERE user_id = ? LIMIT 1", (user_id,)
+        ).fetchone() is not None
         month_income = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
@@ -1581,7 +1583,7 @@ def calc_transaction_totals(user_id: int):
     credito_pct_renda = (fatura_atual / float(month_income) * 100) if (month_income and float(month_income) > 0) else None
 
     stats = {
-        "transactions": transactions,
+        "tem_lancamentos": tem_lancamentos,
         "month_income": float(month_income or 0),
         "month_expenses": float(month_expenses or 0),
         "balance": float(balance or 0),
