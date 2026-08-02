@@ -2018,6 +2018,55 @@ check("trocar pra e-mail quebrado nas Configuracoes tambem e' barrado",
       _mail != "quebrado", _mail)
 
 
+_APP_SRC_2 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "app.py"), encoding="utf-8").read()
+
+secao("70. Toque duplo não vira lançamento duplo")
+# Num 4G ruim a pagina demora e a pessoa toca de novo. Antes: dois lancamentos.
+# E' o bug que o testador acha e culpa a si mesmo — e que corrompe o saldo calado.
+import threading as _th2
+c_dup = novo_cliente("duplo@teste.com", nome="Duda")
+uid_dup = uid_de("duplo@teste.com")
+
+def _salvar_gasto(desc="casa do biscoito", valor="57,00"):
+    c_dup.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": valor,
+                                         "descricao": desc, "categoria": "Outros"})
+
+def _quantos(cond):
+    with get_db() as db:
+        return db.execute("SELECT COUNT(*) AS n FROM transacoes WHERE user_id=? AND " + cond,
+                          (uid_dup,)).fetchone()["n"]
+
+_ths = [_th2.Thread(target=_salvar_gasto) for _ in range(4)]
+[t.start() for t in _ths]
+[t.join() for t in _ths]
+check("4 toques simultâneos geram UM lançamento",
+      _quantos("descricao='casa do biscoito'") == 1, _quantos("descricao='casa do biscoito'"))
+
+# A guarda nao pode comer lancamento legitimo
+_salvar_gasto("padaria", "8,00")
+_salvar_gasto("uber", "16,00")
+check("gastos diferentes seguidos entram todos", _quantos("1=1") == 3, _quantos("1=1"))
+_salvar_gasto("padaria", "12,00")   # mesmo lugar, valor diferente
+check("mesmo lugar com valor diferente entra", _quantos("descricao='padaria'") == 2)
+
+# So conferir antes do INSERT nao basta: os dois SELECTs rodam antes de qualquer
+# commit e os dois se acham originais. A trava de escrita tem que vir junto.
+check("a conferência pega a trava de escrita (BEGIN IMMEDIATE)",
+      "BEGIN IMMEDIATE" in _APP_SRC_2)
+check("a janela é curta (5s) pra não comer gasto repetido de verdade",
+      "'-5 seconds'" in _APP_SRC_2)
+
+# Camada do navegador: barra o segundo envio sem mexer em `disabled`, porque
+# botao desabilitado nao manda o proprio name/value (as fichas de categoria)
+_h_base = c_dup.get("/").get_data(as_text=True)
+check("o JS barra o segundo envio", "dataset.enviando" in _h_base)
+check("sem desabilitar o botão (perderia name/value)",
+      "b.disabled = true" not in _h_base and "classList.add('enviando')" in _h_base)
+check("e devolve o formulário se a navegação não acontecer", "12000" in _h_base)
+check("formulário com confirmação não é afetado", "hasAttribute('data-confirm')" in _h_base)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

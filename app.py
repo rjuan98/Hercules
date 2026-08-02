@@ -4154,28 +4154,41 @@ def nova_transacao():
         except ValueError:
             flash("Data inválida.")
             return redirect(url_for("nova_transacao"))
+
+        # Rede de segurança do toque duplo (o JS já barra o segundo envio, mas ele
+        # pode falhar). Preencher o MESMO formulário duas vezes em 5 segundos não é
+        # humanamente possível — mas um toque a mais no 4G ruim é rotina, e
+        # lançamento duplicado corrompe o saldo em silêncio.
         with get_db() as db:
-            cursor = db.execute(
-                """INSERT INTO transacoes
-                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, needs_review, extra_json, no_credito)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    user["id"],
-                    tipo,
-                    valor,
-                    descricao,
-                    estabelecimento,
-                    categoria,
-                    data_transacao,
-                    fonte,
-                    max(0, min(100, confidence)),
-                    needs_review,
-                    extra_json,
-                    no_credito,
-                ),
-            )
-            new_id = cursor.lastrowid
-        flash(("Entrada registrada." if tipo == "entrada" else "Saída registrada.") + " Está aqui na sua lista.")
+            # BEGIN IMMEDIATE porque conferir antes não basta: dois toques chegam
+            # juntos, os dois SELECTs rodam antes de qualquer INSERT comitar e os dois
+            # se acham originais. Pegando a trava de escrita já na conferência, o
+            # segundo espera e enxerga o primeiro.
+            db.execute("BEGIN IMMEDIATE")
+            repetido = db.execute(
+                """SELECT id FROM transacoes
+                    WHERE user_id = ? AND tipo = ? AND valor = ? AND descricao = ?
+                      AND datetime(created_at) >= datetime('now', '-5 seconds')""",
+                (user["id"], tipo, valor, descricao),
+            ).fetchone()
+            if repetido:
+                new_id, era_repetido = repetido["id"], True
+            else:
+                cursor = db.execute(
+                    """INSERT INTO transacoes
+                       (user_id, tipo, valor, descricao, estabelecimento, categoria,
+                        data_transacao, fonte, confidence, needs_review, extra_json, no_credito)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        user["id"], tipo, valor, descricao, estabelecimento, categoria,
+                        data_transacao, fonte, max(0, min(100, confidence)), needs_review,
+                        extra_json, no_credito,
+                    ),
+                )
+                new_id, era_repetido = cursor.lastrowid, False
+        if not era_repetido:
+            flash(("Entrada registrada." if tipo == "entrada" else "Saída registrada.")
+                  + " Está aqui na sua lista.")
         return redirect(url_for("listar_transacoes", novo=new_id))
     return render_template(
         "nova_transacao.html",
