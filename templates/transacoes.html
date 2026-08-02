@@ -114,5 +114,27 @@
         </li>
         {% endfor %}
     </ul>
+
+    {% if ultima_pagina > 1 %}
+    {# Mantém os filtros ao trocar de página — sem isso a busca se perde no "próxima" #}
+    {% set base = {'q': q, 'tipo': tipo, 'categoria': categoria,
+                   'data_inicio': data_inicio, 'data_fim': data_fim} %}
+    <nav class="paginacao">
+        {% if pagina > 1 %}
+        <a href="{{ url_for('listar_transacoes', p=pagina-1, **base) }}" class="button button-outline">
+            <i data-lucide="chevron-left"></i> Anteriores
+        </a>
+        {% endif %}
+        <span class="helper-text">
+            {{ (pagina - 1) * por_pagina + 1 }}–{{ [pagina * por_pagina, total]|min }} de
+            <strong>{{ total }}</strong>
+        </span>
+        {% if pagina < ultima_pagina %}
+        <a href="{{ url_for('listar_transacoes', p=pagina+1, **base) }}" class="button button-outline">
+            Mais antigas <i data-lucide="chevron-right"></i>
+        </a>
+        {% endif %}
+    </nav>
+    {% endif %}
 </section>
 {% endblock %}

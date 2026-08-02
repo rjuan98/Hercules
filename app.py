@@ -15,7 +15,6 @@ import traceback
 import unicodedata
 import uuid
 import zipfile
-from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -132,6 +131,7 @@ PROFILE_CHOICES = [
 
 
 
+POR_PAGINA = 60      # cabe numa rolagem sem virar página gigante
 TRANSACTION_TYPES = [
     ("saida", "Saída"),
     ("entrada", "Entrada"),
@@ -486,6 +486,19 @@ def _dia_do_mes(ano: int, mes: int, dia: int) -> date:
     return date(ano, mes, min(dia, calendar.monthrange(ano, mes)[1]))
 
 
+def dia_de_data_api(valor) -> int | None:
+    """Extrai o dia do mês de uma data vinda da API do banco.
+
+    Fatiar a string na mão (`str(v)[8:10]`) quebra com formato inesperado e, pior,
+    às vezes ACERTA um número errado — "15/08/2026" viraria dia 26 e desalinharia
+    a fatura inteira sem erro nenhum. Na dúvida, devolve None."""
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", str(valor or "").strip())
+    if not m:
+        return None
+    dia = int(m.group(3))
+    return dia if 1 <= dia <= 31 else None
+
+
 def ciclo_fatura(hoje: date, dia_fechamento: int) -> tuple[date, date]:
     """Início e fim da fatura ABERTA. Fatura não segue o calendário: fecha no dia X,
     então uma compra do dia 28 pode cair na fatura do mês seguinte."""
@@ -543,7 +556,7 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
     stats = {"importadas": 0, "ja_importadas": 0, "reconciliadas": 0, "antigas": 0}
     with get_db() as db:
         saldo_row = db.execute(
-            """SELECT date(COALESCE(data_transacao, created_at)) AS dia FROM transacoes
+            """SELECT date(COALESCE(NULLIF(data_transacao, ''), created_at)) AS dia FROM transacoes
                WHERE user_id = ? AND fonte = 'ajuste' AND descricao = 'Saldo inicial'
                ORDER BY dia ASC LIMIT 1""",
             (user_id,),
@@ -552,7 +565,7 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
 
         for item in items:
             # O saldo inicial já resume o passado: importar dias anteriores duplicaria dinheiro
-            if saldo_date and item["data"] < saldo_date:
+            if saldo_date and item["data"] and item["data"] < saldo_date:
                 stats["antigas"] += 1
                 continue
             if item["fitid"]:
@@ -569,7 +582,7 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
             match = db.execute(
                 """SELECT id FROM transacoes
                    WHERE user_id = ? AND tipo = ? AND ABS(valor - ?) < 0.005
-                     AND date(COALESCE(data_transacao, created_at)) = date(?)
+                     AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) = date(?)
                      AND fitid IS NULL AND fonte != 'ofx'
                    LIMIT 1""",
                 (user_id, item["tipo"], item["valor"], item["data"]),
@@ -786,7 +799,9 @@ def pluggy_fetch_items(api_key: str, contas: list[dict], since: str) -> list[dic
             items.append({
                 "valor": abs(float(amount)),
                 "tipo": tipo,
-                "data": (t.get("date") or "")[:10],
+                # Vazio viraria data_transacao = "", que o COALESCE não troca pelo
+                # created_at: a movimentação some das telas por mês mas continua no saldo.
+                "data": ((t.get("date") or "")[:10] or None),
                 "descricao": sanitize_text(desc)[:120] or "Movimentação",
                 "fitid": "PLG-" + str(t.get("id"))[:70],
                 "no_credito": is_credit,
@@ -856,7 +871,7 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
             gasto = db.execute(
                 """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                    WHERE user_id = ? AND tipo = 'saida' AND categoria = ?
-                     AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                     AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
                 (user_id, cat["nome"], ini, fim),
             ).fetchone()["t"]
             if float(gasto) <= float(cat["limite_mensal"]):
@@ -881,7 +896,7 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
                       COUNT(*) AS n
                FROM transacoes
                WHERE user_id = ? AND fonte != 'ajuste'
-                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, ini, fim),
         ).fetchone()
         return row["n"] > 0 and float(row["e"]) >= float(row["s"])
@@ -910,7 +925,7 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
         fatura = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
-                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, ini, fim),
         ).fetchone()["t"]
         return 0 < float(fatura) <= teto
@@ -935,7 +950,7 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
         ).fetchone() is not None
     if key == "pomos":
         n = db.execute(
-            """SELECT COUNT(DISTINCT strftime('%Y-%m', COALESCE(data_transacao, created_at))) AS n
+            """SELECT COUNT(DISTINCT strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at))) AS n
                FROM transacoes WHERE user_id = ? AND categoria = 'Reserva' AND tipo = 'saida'""",
             (user_id,),
         ).fetchone()["n"]
@@ -1027,12 +1042,15 @@ def _normalizar_regra(texto: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", t)).strip()
 
 
-def apply_rules(user_id: int, *texts: str | None) -> str | None:
-    """Regra aprendida vence tudo. Compara normalizado (sem acento, caixa ou símbolo)."""
+def apply_rules(user_id: int, *texts: str | None, regras=None) -> str | None:
+    """Regra aprendida vence tudo. Compara normalizado (sem acento, caixa ou símbolo).
+
+    `regras` evita reler o banco quando isto roda em cima de milhares de linhas —
+    passe o resultado de user_rules() uma vez e reaproveite."""
     haystack = _normalizar_regra(" ".join(t for t in texts if t))
     if not haystack:
         return None
-    for rule in user_rules(user_id):
+    for rule in (user_rules(user_id) if regras is None else regras):
         if rule["categoria_nome"] == IGNORE_RULE:
             continue
         padrao = _normalizar_regra(rule["padrao_texto"])
@@ -1062,9 +1080,10 @@ def padrao_sugerido(texto: str) -> str:
     return " ".join(palavras[:2])[:40]
 
 
-def categorize(user_id: int, *texts: str | None) -> str:
+def categorize(user_id: int, *texts: str | None, regras=None) -> str:
     """Ordem de decisão: regras que o usuário ensinou > palavras-chave genéricas."""
-    return apply_rules(user_id, *texts) or auto_category(" ".join(t for t in texts if t))
+    return (apply_rules(user_id, *texts, regras=regras)
+            or auto_category(" ".join(t for t in texts if t)))
 
 
 def pending_suggestions(user_id: int, limit: int = 2):
@@ -1079,7 +1098,7 @@ def pending_suggestions(user_id: int, limit: int = 2):
                WHERE user_id = ? AND tipo = 'saida'
                  AND COALESCE(NULLIF(categoria, ''), 'Outros') = 'Outros'
                  AND COALESCE(NULLIF(estabelecimento, ''), descricao) IS NOT NULL
-                 AND date(COALESCE(data_transacao, created_at)) >= date('now', '-60 day')
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date('now', '-60 day')
                GROUP BY padrao
                HAVING COUNT(*) >= 3
                ORDER BY total DESC""",
@@ -1118,7 +1137,7 @@ def category_month_spending(user_id: int) -> dict[str, float]:
             """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS categoria, SUM(valor) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida'
-                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
                GROUP BY categoria""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchall()
@@ -1210,6 +1229,9 @@ def recategorize_outros(user_id: int) -> int:
     melhorar as palavras-chave ou de ensinar regras novas. Só mexe no que virar categoria de verdade;
     respeita as regras aprendidas (categorize() aplica regra antes das palavras-chave)."""
     changed = 0
+    # Uma leitura das regras para todas as linhas: antes abria uma conexão POR
+    # transação, e quem tem um ano de banco sincronizado esperava vários segundos.
+    regras = user_rules(user_id)
     with get_db() as db:
         rows = db.execute(
             """SELECT id, descricao, estabelecimento FROM transacoes
@@ -1218,7 +1240,7 @@ def recategorize_outros(user_id: int) -> int:
             (user_id,),
         ).fetchall()
         for r in rows:
-            cat = categorize(user_id, r["descricao"], r["estabelecimento"])
+            cat = categorize(user_id, r["descricao"], r["estabelecimento"], regras=regras)
             if cat and cat != "Outros":
                 db.execute("UPDATE transacoes SET categoria = ? WHERE id = ?", (cat, r["id"]))
                 changed += 1
@@ -1255,10 +1277,6 @@ def user_profile(user) -> str:
 
 def is_business_profile(profile: str) -> bool:
     return profile in {"mei", "lojista", "hibrido"}
-
-
-def is_personal_profile(profile: str) -> bool:
-    return profile in {"pf", "hibrido"}
 
 
 # A cada quantos dias o Herc lembra de importar o extrato, pra nada passar batido.
@@ -1346,31 +1364,20 @@ def months_until(deadline: str | None) -> int | None:
     return max(1, months)
 
 
-def _count_value(value: Any) -> int:
-    if value is None:
-        return 0
-    if isinstance(value, (list, tuple, set, dict)):
-        return len(value)
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
 
 def calc_transaction_totals(user_id: int):
     today = date.today()
     month_start, month_end = month_bounds(today)
     with get_db() as db:
         transactions = db.execute(
-            "SELECT * FROM transacoes WHERE user_id = ? ORDER BY date(COALESCE(data_transacao, created_at)) DESC",
+            "SELECT * FROM transacoes WHERE user_id = ? ORDER BY date(COALESCE(NULLIF(data_transacao, ''), created_at)) DESC",
             (user_id,),
         ).fetchall()
         month_income = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
-               AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+               AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
         # Compra no crédito não sai da conta agora — fica de fora do saldo e do
@@ -1379,7 +1386,7 @@ def calc_transaction_totals(user_id: int):
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
-               AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+               AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
         balance = db.execute(
@@ -1402,7 +1409,7 @@ def calc_transaction_totals(user_id: int):
             return float(db.execute(
                 """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
                    WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
-                   AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                   AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
                 (user_id, ini.isoformat(), fim.isoformat()),
             ).fetchone()["total"])
 
@@ -1420,7 +1427,7 @@ def calc_transaction_totals(user_id: int):
             """SELECT COALESCE(categoria, 'Outros') AS categoria,
                       SUM(CASE WHEN tipo = 'saida' THEN valor ELSE 0 END) AS total
                FROM transacoes
-               WHERE user_id = ? AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)
+               WHERE user_id = ? AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
                GROUP BY categoria
                ORDER BY total DESC""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
@@ -1440,7 +1447,7 @@ def calc_transaction_totals(user_id: int):
             (user_id,),
         ).fetchall()
         recent = db.execute(
-            "SELECT * FROM transacoes WHERE user_id = ? ORDER BY date(COALESCE(data_transacao, created_at)) DESC LIMIT 8",
+            "SELECT * FROM transacoes WHERE user_id = ? ORDER BY date(COALESCE(NULLIF(data_transacao, ''), created_at)) DESC LIMIT 8",
             (user_id,),
         ).fetchall()
 
@@ -1467,7 +1474,7 @@ def calc_transaction_totals(user_id: int):
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND categoria = 'Reserva'
-               AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+               AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
 
@@ -1761,14 +1768,14 @@ def calculate_business_summary(user_id: int):
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'entrada'
-               AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+               AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
         expenses_month = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida'
-               AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+               AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
         status_counts = db.execute(
@@ -2098,7 +2105,7 @@ def home():
     with get_db() as db:
         today_spent = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida' AND date(COALESCE(data_transacao, created_at)) = date(?)""",
+               WHERE user_id = ? AND tipo = 'saida' AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) = date(?)""",
             (user["id"], today_iso),
         ).fetchone()["total"]
         tx_count = db.execute(
@@ -2231,12 +2238,12 @@ def sugerir_guardar_mensal(user_id: int, meses: int = 6) -> dict[str, Any] | Non
     desde = (hoje - timedelta(days=31 * (meses + 1))).isoformat()
     with get_db() as db:
         rows = db.execute(
-            """SELECT strftime('%Y-%m', COALESCE(data_transacao, created_at)) AS mes,
+            """SELECT strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) AS mes,
                       SUM(CASE WHEN tipo = 'entrada' THEN valor ELSE 0 END) AS entrou,
                       SUM(CASE WHEN tipo = 'saida' AND no_credito = 0 THEN valor ELSE 0 END) AS saiu
                FROM transacoes
                WHERE user_id = ? AND fonte != 'ajuste'
-                 AND date(COALESCE(data_transacao, created_at)) >= date(?)
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)
                GROUP BY mes ORDER BY mes DESC""",
             (user_id, desde),
         ).fetchall()
@@ -2268,10 +2275,10 @@ def detectar_assinaturas(user_id: int, meses: int = 5) -> dict[str, Any]:
     with get_db() as db:
         rows = db.execute(
             """SELECT descricao, estabelecimento, valor, categoria,
-                      strftime('%Y-%m', COALESCE(data_transacao, created_at)) AS mes
+                      strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) AS mes
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
-                 AND date(COALESCE(data_transacao, created_at)) >= date(?)""",
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)""",
             (user_id, desde),
         ).fetchall()
 
@@ -2312,7 +2319,7 @@ def insight_semanal(user_id: int) -> dict[str, Any] | None:
             return float(db.execute(
                 """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                    WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
-                     AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                     AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
                 (user_id, ini, fim),
             ).fetchone()["t"])
         atual = gasto(ini_atual, fim_atual)
@@ -2321,7 +2328,7 @@ def insight_semanal(user_id: int) -> dict[str, Any] | None:
             """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
-                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
                GROUP BY cat ORDER BY t DESC LIMIT 1""",
             (user_id, ini_atual, fim_atual),
         ).fetchone()
@@ -2395,7 +2402,7 @@ def historico_mensal(user_id: int, meses: int = 12) -> list[dict[str, Any]]:
     hoje = date.today()
     with get_db() as db:
         rows = db.execute(
-            """SELECT strftime('%Y-%m', COALESCE(data_transacao, created_at)) AS mes,
+            """SELECT strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) AS mes,
                       COALESCE(SUM(CASE WHEN tipo='entrada' THEN valor END), 0) AS entrou,
                       COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=0 THEN valor END), 0) AS saiu,
                       COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=1 THEN valor END), 0) AS credito,
@@ -2429,7 +2436,7 @@ def comparar_categorias(user_id: int, mes: str, mes_anterior: str) -> list[dict[
                 """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
                      FROM transacoes
                     WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
-                      AND strftime('%Y-%m', COALESCE(data_transacao, created_at)) = ?
+                      AND strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) = ?
                     GROUP BY cat""", (user_id, m)).fetchall()}
         agora, antes = gastos(mes), gastos(mes_anterior)
 
@@ -2480,7 +2487,7 @@ def recado_da_semana(user_id: int, hoje: date | None = None) -> dict[str, Any] |
                 """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
                      FROM transacoes
                     WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
-                      AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)
+                      AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
                     GROUP BY cat""", (user_id, a.isoformat(), b.isoformat())).fetchall()}
 
         def totais(a, b):
@@ -2490,7 +2497,7 @@ def recado_da_semana(user_id: int, hoje: date | None = None) -> dict[str, Any] |
                           COUNT(*) AS n
                      FROM transacoes
                     WHERE user_id = ? AND fonte != 'ajuste'
-                      AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                      AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
                 (user_id, a.isoformat(), b.isoformat())).fetchone()
             return float(r["entrou"]), float(r["saiu"]), r["n"]
 
@@ -2539,19 +2546,19 @@ def calc_ir_preview(user_id: int, year: int) -> dict[str, Any]:
             f"""SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
                  AND categoria IN ({marks})
-                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, *IR_RENDA_CATS, ini, fim),
         ).fetchone()["t"]
         saude = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND categoria = 'Saúde'
-                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, ini, fim),
         ).fetchone()["t"]
         educ = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND categoria = 'Educação'
-                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, ini, fim),
         ).fetchone()["t"]
     renda = float(renda or 0)
@@ -2604,7 +2611,7 @@ def dashboard():
         prev_expenses = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
-                 AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user["id"], prev_start, prev_end),
         ).fetchone()["t"]
     exp = float(stats["month_expenses"])
@@ -2614,10 +2621,10 @@ def dashboard():
     if float(stats["month_income"]) <= 0:
         with get_db() as db:
             r = db.execute(
-                """SELECT valor, COALESCE(data_transacao, created_at) AS quando
+                """SELECT valor, COALESCE(NULLIF(data_transacao, ''), created_at) AS quando
                    FROM transacoes
                    WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
-                     AND date(COALESCE(data_transacao, created_at)) >= date(?)
+                     AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)
                    ORDER BY date(quando) DESC LIMIT 1""",
                 (user["id"], (date.today() - timedelta(days=10)).isoformat()),
             ).fetchone()
@@ -3844,15 +3851,27 @@ def listar_transacoes():
         query += " AND categoria = ?"
         params.append(categoria)
     if data_inicio:
-        query += " AND date(COALESCE(data_transacao, created_at)) >= date(?)"
+        query += " AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)"
         params.append(data_inicio)
     if data_fim:
-        query += " AND date(COALESCE(data_transacao, created_at)) <= date(?)"
+        query += " AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) <= date(?)"
         params.append(data_fim)
 
-    query += " ORDER BY datetime(COALESCE(data_transacao, created_at)) DESC"
+    query += " ORDER BY datetime(COALESCE(NULLIF(data_transacao, ''), created_at)) DESC"
+
+    # Sem limite, um ano de banco sincronizado vira uma página de ~10 MB: quase um
+    # minuto só de download no 4G, e o celular travando pra renderizar 3 mil linhas.
+    pagina = max(1, request.args.get("p", type=int) or 1)
     with get_db() as db:
-        txs = db.execute(query, params).fetchall()
+        total = db.execute(
+            query.replace("SELECT * FROM transacoes", "SELECT COUNT(*) AS n FROM transacoes", 1)
+                 .split(" ORDER BY ")[0],
+            params,
+        ).fetchone()["n"]
+        txs = db.execute(query + " LIMIT ? OFFSET ?",
+                         params + [POR_PAGINA, (pagina - 1) * POR_PAGINA]).fetchall()
+    ultima_pagina = max(1, -(-total // POR_PAGINA))
+    pagina = min(pagina, ultima_pagina)
     return render_template(
         "transacoes.html",
         user=user,
@@ -3866,6 +3885,10 @@ def listar_transacoes():
         expense_categories=[c for c in expense_category_names(user["id"]) if c != "Outros"],
         types=TRANSACTION_TYPES,
         novo=request.args.get("novo", type=int),
+        pagina=pagina,
+        ultima_pagina=ultima_pagina,
+        total=total,
+        por_pagina=POR_PAGINA,
     )
 
 
@@ -4428,15 +4451,16 @@ def _sync_pluggy(user, api_key, item_ids, esperar: bool, min_horas: float = 0):
         if c.get("type") != "CREDIT":
             continue
         cd = c.get("creditData") or {}
-        fecha, vence = cd.get("balanceCloseDate"), cd.get("balanceDueDate")
+        fecha = dia_de_data_api(cd.get("balanceCloseDate"))
+        vence = dia_de_data_api(cd.get("balanceDueDate"))
         if fecha or vence:
             with get_db() as db:
                 if fecha:
                     db.execute("UPDATE usuarios SET cartao_fechamento = ? WHERE id = ?",
-                               (int(str(fecha)[8:10]), user["id"]))
+                               (fecha, user["id"]))
                 if vence:
                     db.execute("UPDATE usuarios SET cartao_vencimento = ? WHERE id = ?",
-                               (int(str(vence)[8:10]), user["id"]))
+                               (vence, user["id"]))
             break
     agora = datetime.now().isoformat(timespec="seconds")
     hoje = date.today().isoformat()

@@ -1513,3 +1513,15 @@ html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
     font-size: 0.98rem;
     line-height: 1.6;
 }
+
+/* ---- Paginação da lista de movimentações ---- */
+.paginacao {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1.5px solid var(--border);
+}

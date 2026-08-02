@@ -1233,6 +1233,62 @@ with get_db() as db:
     _depois = db.execute("SELECT COUNT(*) AS n FROM transacoes").fetchone()["n"]
 check("e nao gravou nada", _depois == _antes, f"{_antes} -> {_depois}")
 
+secao("45. Revisão: performance e dados vindos de fora")
+
+# --- Data da API do banco: fatiar string na mão errava CALADO ---
+for _v, _esperado in [("2026-08-15", 15), ("2026-08-15T00:00:00.000Z", 15),
+                      ("2026-8-5", None), ("15/08/2026", None), ("", None),
+                      (None, None), ("2026-08-99", None)]:
+    check(f"dia_de_data_api({str(_v)[:24]!r}) = {_esperado}",
+          A.dia_de_data_api(_v) == _esperado, A.dia_de_data_api(_v))
+
+# --- Movimentação sem data não pode sumir do mês e continuar no saldo ---
+c_sd = novo_cliente("semdata@teste.com", nome="SemData")
+uid_sd = uid_de("semdata@teste.com")
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,confidence,
+                  data_transacao,no_credito) VALUES (?,'saida',100,'Normal','Mercado','ofx',95,
+                  date('now'),0)""", (uid_sd,))
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,confidence,
+                  data_transacao,no_credito) VALUES (?,'saida',999,'Sem data','Mercado','ofx',95,
+                  '',0)""", (uid_sd,))
+_st = A.calc_transaction_totals(uid_sd)
+check("data vazia nao some do mes (numeros fecham)",
+      abs(abs(_st["balance"]) - _st["month_expenses"]) < 0.01,
+      f"saldo {_st['balance']} vs mes {_st['month_expenses']}")
+
+# --- Categorizar em massa não pode abrir uma conexão por linha ---
+c_perf = novo_cliente("perf@teste.com", nome="Perf")
+uid_perf = uid_de("perf@teste.com")
+with get_db() as db:
+    for _i in range(300):
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'saida',10,?,'Outros','ofx',
+                      95,date('now'),0)""", (uid_perf, f"UBER TRIP {_i}"))
+_conta = {"n": 0}
+_orig_db = A.get_db
+A.get_db = lambda *a, **k: (_conta.__setitem__("n", _conta["n"] + 1) or _orig_db(*a, **k))
+try:
+    _mudou = A.recategorize_outros(uid_perf)
+finally:
+    A.get_db = _orig_db
+check("recategorizar 300 linhas abre poucas conexoes", _conta["n"] <= 3, _conta["n"])
+check("e continua categorizando certo", _mudou == 300, _mudou)
+
+# --- A lista de movimentações não pode virar uma página gigante ---
+_h_lista = c_perf.get("/transacoes")
+_tam = len(_h_lista.get_data())
+check("lista paginada nao passa de 500 KB", _tam < 500_000, f"{_tam/1024:.0f} KB")
+check(f"mostra no maximo {A.POR_PAGINA} por pagina",
+      _h_lista.get_data(as_text=True).count("data-confirm=") <= A.POR_PAGINA)
+check("tem navegacao entre paginas", "Mais antigas" in _h_lista.get_data(as_text=True))
+_h_p2 = c_perf.get("/transacoes?p=2").get_data(as_text=True)
+check("a segunda pagina traz outras linhas", "Anteriores" in _h_p2)
+_h_filtro = c_perf.get("/transacoes?q=UBER&p=1").get_data(as_text=True)
+check("trocar de pagina NAO perde o filtro", "q=UBER" in _h_filtro)
+for _p in ("999", "-5", "abc", "0"):
+    check(f"pagina invalida nao quebra: p={_p}", c_perf.get(f"/transacoes?p={_p}").status_code == 200)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
