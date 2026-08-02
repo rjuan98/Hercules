@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{% block title %}Meses · Hércules{% endblock %}
+{% block page_title %}Seus meses{% endblock %}
+{% block page_subtitle %}Como cada mês fechou — e o que mudou de um pro outro.{% endblock %}
+
+{% block content %}
+{% if not historico %}
+<section class="page-card">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Ainda não tenho meses pra comparar.</strong><br>
+            Assim que passar o primeiro mês com movimentação, ele aparece aqui — e a partir do
+            segundo eu já consigo te mostrar o que mudou.
+        </div>
+    </div>
+</section>
+{% else %}
+
+{# ---- A régua: cada mês lado a lado ---- #}
+<section class="page-card">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:4px;">Mês a mês</h2>
+    <p class="topbar-subtitle" style="margin-bottom:16px;">
+        Toque num mês pra ver o que mudou nele. Compras no crédito não entram no “saiu” —
+        elas saem quando a fatura é paga.
+    </p>
+
+    <ul class="data-list">
+        {% for m in historico %}
+        <li class="data-item mes-linha {% if m.mes == mes %}mes-ativo{% endif %}" style="padding:14px 16px;">
+            <a href="{{ url_for('meses', mes=m.mes) }}" style="display:block;">
+                <div class="note-header" style="align-items:baseline;">
+                    <p class="note-title">
+                        {{ m.nome }}
+                        {% if m.em_curso %}<span class="badge">em andamento</span>{% endif %}
+                    </p>
+                    <span class="helper-text" style="white-space:nowrap;">
+                        {% if m.sobrou >= 0 %}sobrou <strong style="color:var(--success);">{{ m.sobrou|money }}</strong>
+                        {% else %}faltou <strong style="color:var(--danger);">{{ (-m.sobrou)|money }}</strong>{% endif %}
+                    </span>
+                </div>
+
+                <div class="mes-barras">
+                    <div class="mes-barra">
+                        <span class="mes-barra-rotulo">entrou</span>
+                        <div class="mes-trilho"><div class="mes-preenche mes-entrou" style="width:{{ (m.entrou / teto * 100)|round(1) }}%;"></div></div>
+                        <span class="mes-barra-valor">{{ m.entrou|money }}</span>
+                    </div>
+                    <div class="mes-barra">
+                        <span class="mes-barra-rotulo">saiu</span>
+                        <div class="mes-trilho"><div class="mes-preenche mes-saiu" style="width:{{ (m.saiu / teto * 100)|round(1) }}%;"></div></div>
+                        <span class="mes-barra-valor">{{ m.saiu|money }}</span>
+                    </div>
+                </div>
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+
+{# ---- O mês escolhido contra o anterior ---- #}
+<section class="page-card" style="margin-top:18px;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:4px;">
+        {{ mes_nome|capitalize }} contra {{ anterior_nome }}
+    </h2>
+
+    {% if detalhe and detalhe.em_curso %}
+    <div class="auth-note" style="margin-top:12px;">
+        ⏳ <strong>{{ mes_nome|capitalize }} ainda não acabou.</strong> Comparar um mês pela metade
+        com um mês inteiro sempre faz parecer que você gastou menos — leve isso em conta.
+    </div>
+    {% endif %}
+
+    {% if not detalhe_ant %}
+    <p class="subtitle" style="margin-top:12px;">
+        Não tenho {{ anterior_nome }} pra comparar. Escolha um mês que tenha o anterior registrado.
+    </p>
+    {% elif not linhas %}
+    <p class="subtitle" style="margin-top:12px;">Nenhum gasto registrado nos dois meses.</p>
+    {% else %}
+
+    <div class="metric-grid cols-3" style="margin-top:14px;">
+        <article class="glass-card metric-card">
+            <p class="metric-label">Entrou</p>
+            <p class="metric-value">{{ detalhe.entrou|money }}</p>
+            <p class="metric-footnote">
+                {% set d = detalhe.entrou - detalhe_ant.entrou %}
+                {% if d > 0.5 %}<span style="color:var(--success);">{{ d|money }} a mais</span>
+                {% elif d < -0.5 %}<span style="color:var(--danger);">{{ (-d)|money }} a menos</span>
+                {% else %}igual ao mês anterior{% endif %}
+            </p>
+        </article>
+        <article class="glass-card metric-card">
+            <p class="metric-label">Saiu</p>
+            <p class="metric-value">{{ detalhe.saiu|money }}</p>
+            <p class="metric-footnote">
+                {% set d = detalhe.saiu - detalhe_ant.saiu %}
+                {% if d > 0.5 %}<span style="color:var(--danger);">{{ d|money }} a mais</span>
+                {% elif d < -0.5 %}<span style="color:var(--success);">{{ (-d)|money }} a menos</span> 👏
+                {% else %}igual ao mês anterior{% endif %}
+            </p>
+        </article>
+        <article class="glass-card metric-card">
+            <p class="metric-label">Sobrou</p>
+            <p class="metric-value" style="color:{{ 'var(--success)' if detalhe.sobrou >= 0 else 'var(--danger)' }};">{{ detalhe.sobrou|money }}</p>
+            <p class="metric-footnote">Contra {{ detalhe_ant.sobrou|money }} no mês anterior.</p>
+        </article>
+    </div>
+
+    {% if detalhe.credito or detalhe_ant.credito %}
+    <p class="helper-text" style="margin-top:12px;">
+        💳 Fora isso, você comprou <strong>{{ detalhe.credito|money }}</strong> no cartão neste mês
+        (contra {{ detalhe_ant.credito|money }} no anterior). Isso não está no “saiu” porque sai da
+        conta quando a fatura é paga.
+    </p>
+    {% endif %}
+
+    <h3 class="topbar-title" style="font-size:1rem; margin:22px 0 4px;">O que mais mudou</h3>
+    <p class="helper-text" style="margin:0 0 10px;">
+        Aqui entra <strong>todo</strong> o gasto, inclusive o do cartão — a ideia é ver pra onde o
+        dinheiro foi, não quando ele saiu da conta.
+    </p>
+    <ul class="data-list">
+        {% for l in linhas %}
+        <li class="data-item" style="padding:12px 16px;">
+            <div class="note-header" style="align-items:baseline;">
+                <p class="note-title">{{ l.categoria }}</p>
+                <span style="white-space:nowrap; font-weight:800;
+                    color:{% if l.delta > 0.5 %}var(--danger){% elif l.delta < -0.5 %}var(--success){% else %}var(--muted){% endif %};">
+                    {% if l.delta > 0.5 %}▲ {{ l.delta|money }}
+                    {% elif l.delta < -0.5 %}▼ {{ (-l.delta)|money }}
+                    {% else %}sem mudança{% endif %}
+                </span>
+            </div>
+            <div class="note-meta">
+                <span>{{ l.antes|money }} → <strong>{{ l.agora|money }}</strong></span>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>
+{% endif %}
+{% endblock %}

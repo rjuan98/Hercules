@@ -1034,6 +1034,72 @@ for _rota in _rotas:
 check(f"{len(_rotas)} telas sem entidade HTML dentro de <script>",
       not _quebradas, ", ".join(sorted(set(_quebradas))))
 
+secao("40. Meses: histórico e comparação")
+check("nome do mes em portugues", A.nome_do_mes("2026-07") == "julho de 2026", A.nome_do_mes("2026-07"))
+check("mes anterior atravessa o ano", A.mes_anterior_a("2026-01") == "2025-12")
+check("mes anterior normal", A.mes_anterior_a("2026-08") == "2026-07")
+
+c_ms = novo_cliente("meses@teste.com", nome="Mes")
+uid_ms = uid_de("meses@teste.com")
+check("sem historico a tela nao quebra", c_ms.get("/meses").status_code == 200)
+check("e avisa que nao tem o que comparar",
+      "Ainda não tenho meses" in c_ms.get("/meses").get_data(as_text=True))
+
+def _no_mes(uid, tipo, valor, mes, dia=10, cat="Outros", credito=0):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,?,?,'manual',100,?,?)""",
+                   (uid, tipo, valor, f"{cat} {mes}", cat, f"{mes}-{dia:02d}", credito))
+
+_no_mes(uid_ms, "entrada", 3000, "2026-05", cat="Salário")
+_no_mes(uid_ms, "saida", 800, "2026-05", cat="Mercado")
+_no_mes(uid_ms, "saida", 500, "2026-05", cat="Transporte")
+_no_mes(uid_ms, "entrada", 3000, "2026-06", cat="Salário")
+_no_mes(uid_ms, "saida", 950, "2026-06", cat="Mercado")
+_no_mes(uid_ms, "saida", 100, "2026-06", cat="Transporte")
+_no_mes(uid_ms, "saida", 700, "2026-06", cat="Lazer", credito=1)   # credito nao conta no "saiu"
+
+_hist = {m["mes"]: m for m in A.historico_mensal(uid_ms)}
+check("lista os meses com movimento", set(_hist) >= {"2026-05", "2026-06"}, list(_hist))
+check("soma o que entrou", _hist["2026-06"]["entrou"] == 3000)
+check("credito FICA DE FORA do que saiu", _hist["2026-06"]["saiu"] == 1050, _hist["2026-06"]["saiu"])
+check("mas o credito e' contabilizado a parte", _hist["2026-06"]["credito"] == 700)
+check("calcula a sobra", _hist["2026-06"]["sobrou"] == 1950)
+check("mais novo primeiro", A.historico_mensal(uid_ms)[0]["mes"] >= A.historico_mensal(uid_ms)[-1]["mes"])
+
+_cmp = {l["categoria"]: l for l in A.comparar_categorias(uid_ms, "2026-06", "2026-05")}
+check("compara categoria que subiu", _cmp["Mercado"]["delta"] == 150, _cmp["Mercado"])
+check("compara categoria que caiu", _cmp["Transporte"]["delta"] == -400)
+# A comparacao por categoria inclui credito (igual ao grafico do Resumo), mas o
+# "saiu" exclui. A tela diz isso em vez de deixar os numeros nao fecharem.
+check("ordena pela MAIOR mudanca, nao pelo maior valor",
+      A.comparar_categorias(uid_ms, "2026-06", "2026-05")[0]["categoria"] == "Lazer",
+      A.comparar_categorias(uid_ms, "2026-06", "2026-05")[0])
+check("a comparacao por categoria INCLUI o cartao",
+      _cmp["Lazer"]["agora"] == 700)
+check("e a tela explica a diferenca",
+      "inclusive o do cartão" in c_ms.get("/meses?mes=2026-06").get_data(as_text=True))
+
+_h_ms = c_ms.get("/meses?mes=2026-06").get_data(as_text=True)
+check("a tela mostra o mes escolhido", "junho de 2026" in _h_ms)
+check("e contra qual esta comparando", "maio de 2026" in _h_ms)
+check("mostra o que mais mudou", "O que mais mudou" in _h_ms and "Transporte" in _h_ms)
+check("desenha a regua dos meses", "mes-preenche" in _h_ms)
+
+check("mes invalido na URL nao quebra", c_ms.get("/meses?mes=lixo").status_code == 200)
+check("mes invalido cai num mes real", "junho de 2026" in c_ms.get("/meses?mes=../etc").get_data(as_text=True))
+check("um usuario nao ve os meses do outro",
+      "junho de 2026" not in c1.get("/meses?mes=2026-06").get_data(as_text=True)
+      or A.historico_mensal(uid1))
+check("link no menu", "/meses" in c1.get("/").get_data(as_text=True))
+
+# mes em andamento nao pode ser comparado como se tivesse fechado
+_atual = date.today().strftime("%Y-%m")
+_no_mes(uid_ms, "saida", 50, _atual, dia=1, cat="Mercado")
+check("marca o mes corrente como em andamento",
+      next(m for m in A.historico_mensal(uid_ms) if m["mes"] == _atual)["em_curso"] is True)
+check("e a tela avisa", "ainda não acabou" in c_ms.get(f"/meses?mes={_atual}").get_data(as_text=True))
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

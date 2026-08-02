@@ -2554,6 +2554,77 @@ def insight_semanal(user_id: int) -> dict[str, Any] | None:
     }
 
 
+MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+            "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+
+
+def nome_do_mes(chave: str) -> str:
+    """'2026-07' -> 'julho de 2026'."""
+    try:
+        ano, mes = chave.split("-")
+        return f"{MESES_PT[int(mes) - 1]} de {ano}"
+    except (ValueError, IndexError):
+        return chave
+
+
+def historico_mensal(user_id: int, meses: int = 12) -> list[dict[str, Any]]:
+    """Entrou, saiu e sobrou de cada mês — o histórico que dá pra comparar.
+
+    Crédito fica de fora do 'saiu' pelo mesmo motivo do resto do app: a compra
+    parcelada não sai da conta no mês em que foi feita."""
+    hoje = date.today()
+    with get_db() as db:
+        rows = db.execute(
+            """SELECT strftime('%Y-%m', COALESCE(data_transacao, created_at)) AS mes,
+                      COALESCE(SUM(CASE WHEN tipo='entrada' THEN valor END), 0) AS entrou,
+                      COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=0 THEN valor END), 0) AS saiu,
+                      COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=1 THEN valor END), 0) AS credito,
+                      COUNT(*) AS n
+                 FROM transacoes
+                WHERE user_id = ? AND fonte != 'ajuste'
+                GROUP BY mes ORDER BY mes DESC LIMIT ?""",
+            (user_id, meses),
+        ).fetchall()
+
+    atual = hoje.strftime("%Y-%m")
+    saida = []
+    for r in rows:
+        entrou, saiu = float(r["entrou"]), float(r["saiu"])
+        saida.append({
+            "mes": r["mes"], "nome": nome_do_mes(r["mes"]),
+            "entrou": entrou, "saiu": saiu, "credito": float(r["credito"]),
+            "sobrou": entrou - saiu, "movimentos": r["n"],
+            # O mês corrente ainda não acabou: comparar ele com meses inteiros
+            # engana, então a tela avisa em vez de fingir que é comparável.
+            "em_curso": r["mes"] == atual,
+        })
+    return saida
+
+
+def comparar_categorias(user_id: int, mes: str, mes_anterior: str) -> list[dict[str, Any]]:
+    """Por categoria, um mês contra o outro — ordenado pela maior mudança."""
+    with get_db() as db:
+        def gastos(m):
+            return {r["cat"]: float(r["t"] or 0) for r in db.execute(
+                """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
+                     FROM transacoes
+                    WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+                      AND strftime('%Y-%m', COALESCE(data_transacao, created_at)) = ?
+                    GROUP BY cat""", (user_id, m)).fetchall()}
+        agora, antes = gastos(mes), gastos(mes_anterior)
+
+    linhas = [{"categoria": c, "agora": agora.get(c, 0.0), "antes": antes.get(c, 0.0),
+               "delta": agora.get(c, 0.0) - antes.get(c, 0.0)}
+              for c in set(agora) | set(antes)]
+    linhas.sort(key=lambda l: abs(l["delta"]), reverse=True)
+    return linhas
+
+
+def mes_anterior_a(chave: str) -> str:
+    ano, mes = (int(x) for x in chave.split("-"))
+    return f"{ano - 1}-12" if mes == 1 else f"{ano}-{mes - 1:02d}"
+
+
 def semana_fechada(hoje: date | None = None) -> tuple[date, date]:
     """A última semana que REALMENTE acabou (segunda a domingo).
 
@@ -3327,6 +3398,31 @@ def marcar_dica(key):
                 (user["id"], key),
             )
     return redirect(request.referrer or url_for("home"))
+
+
+@app.route("/meses")
+@login_required
+def meses():
+    user = current_user()
+    historico = historico_mensal(user["id"])
+    fechados = [m for m in historico if not m["em_curso"]]
+
+    escolhido = sanitize_text(request.args.get("mes"))
+    if not re.fullmatch(r"\d{4}-\d{2}", escolhido or ""):
+        escolhido = (fechados[0]["mes"] if fechados else
+                     historico[0]["mes"] if historico else date.today().strftime("%Y-%m"))
+
+    anterior = mes_anterior_a(escolhido)
+    return render_template(
+        "meses.html", user=user,
+        historico=historico,
+        teto=max([m["saiu"] for m in historico] + [m["entrou"] for m in historico] + [1.0]),
+        mes=escolhido, mes_nome=nome_do_mes(escolhido),
+        anterior=anterior, anterior_nome=nome_do_mes(anterior),
+        linhas=comparar_categorias(user["id"], escolhido, anterior),
+        detalhe=next((m for m in historico if m["mes"] == escolhido), None),
+        detalhe_ant=next((m for m in historico if m["mes"] == anterior), None),
+    )
 
 
 @app.route("/recado/visto", methods=["POST"])

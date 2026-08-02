@@ -1481,3 +1481,20 @@ html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
     box-shadow: 5px 5px 0 var(--primary-deep);
     background: var(--surface);
 }
+
+/* ---- Meses: a régua de comparação ---- */
+.mes-linha { transition: border-color .18s ease, transform .18s ease; }
+.mes-linha:hover { transform: translateX(2px); }
+.mes-ativo { border-color: var(--primary-deep); box-shadow: 3px 3px 0 var(--primary-deep); }
+.mes-barras { display: grid; gap: 6px; margin-top: 10px; }
+.mes-barra { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center; }
+.mes-barra-rotulo { font-size: .78rem; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.mes-barra-valor { font-size: .9rem; font-weight: 800; white-space: nowrap; }
+.mes-trilho { height: 10px; border-radius: 999px; background: var(--surface-soft); border: 1.5px solid var(--border); overflow: hidden; }
+.mes-preenche { height: 100%; border-radius: 999px; }
+.mes-entrou { background: var(--success); }
+.mes-saiu { background: var(--primary); }
+@media (max-width: 520px) {
+    .mes-barra { grid-template-columns: 46px 1fr; }
+    .mes-barra-valor { grid-column: 2; justify-self: end; }
+}
