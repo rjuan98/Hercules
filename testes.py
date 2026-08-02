@@ -1353,6 +1353,74 @@ check("mas da pra desligar de proposito", 'SECURE_COOKIES") != "0"' in _APP_SRC)
 check("em dev (sem hospedagem) fica desligado, senao nao da pra testar local",
       A.app.config.get("SESSION_COOKIE_SECURE", False) is False)
 
+secao("49. Cartão: estorno não é pagamento de fatura")
+# No cartao os dois vem NEGATIVOS e significam coisas opostas. Antes, todo
+# negativo era descartado — a compra devolvida continuava na fatura, sem erro
+# nenhum na tela. E' a pior classe de bug: o app funciona e mente.
+for _d, _esperado in [("PAGAMENTO FATURA", True), ("Pagamento recebido", True),
+                      ("PAGTO DEBITO AUTOMATICO", True), ("PGTO CARTAO", True),
+                      ("ESTORNO MAGAZINE LUIZA", False), ("DEVOLUCAO AMERICANAS", False),
+                      ("CANCELAMENTO COMPRA", False), ("", False)]:
+    check(f"pagamento de fatura? {_d[:26]!r} = {_esperado}",
+          A.e_pagamento_de_fatura(_d) is _esperado)
+
+_TX_CARTAO = [
+    {"id": "e1", "description": "MAGAZINE LUIZA", "amount": 500.0, "date": "2026-08-01"},
+    {"id": "e2", "description": "ESTORNO MAGAZINE LUIZA", "amount": -500.0, "date": "2026-08-03"},
+    {"id": "e3", "description": "PAGAMENTO FATURA", "amount": -1200.0, "date": "2026-08-10"},
+    {"id": "e4", "description": "PADARIA", "amount": 30.0, "date": "2026-08-04"},
+]
+_get_orig = A._pluggy_get
+A._pluggy_get = lambda k, p, q=None: {"results": _TX_CARTAO}
+try:
+    _itens = A.pluggy_fetch_items("k", [{"id": "c1", "type": "CREDIT"}], "2026-07-01")
+finally:
+    A._pluggy_get = _get_orig
+_por_desc = {i["descricao"]: i for i in _itens}
+check("compra no cartao vira saida", _por_desc["MAGAZINE LUIZA"]["tipo"] == "saida")
+check("estorno vira ENTRADA (pra abater a fatura)",
+      _por_desc.get("ESTORNO MAGAZINE LUIZA", {}).get("tipo") == "entrada")
+check("pagamento da fatura e' ignorado (ja saiu da conta)",
+      "PAGAMENTO FATURA" not in _por_desc)
+check("tudo marcado como credito", all(i["no_credito"] for i in _itens))
+
+c_est = novo_cliente("estorno@teste.com", nome="Est")
+uid_est = uid_de("estorno@teste.com")
+with get_db() as db:
+    for _i in _itens:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,?,'Outros','ofx',95,?,1)""",
+                   (uid_est, _i["tipo"], _i["valor"], _i["descricao"], date.today().isoformat()))
+_st_est = A.calc_transaction_totals(uid_est)
+check("a fatura ABATE o estorno (30, nao 530)",
+      abs(_st_est["fatura_credito_mes"] - 30) < 0.01, _st_est["fatura_credito_mes"])
+check("estorno NAO vira renda do mes", _st_est["month_income"] == 0, _st_est["month_income"])
+check("e nao mexe no saldo da conta", _st_est["balance"] == 0, _st_est["balance"])
+_hist_est = {m["mes"]: m for m in A.historico_mensal(uid_est)}
+check("nem aparece como 'entrou' no mes a mes",
+      _hist_est[date.today().strftime("%Y-%m")]["entrou"] == 0)
+
+secao("50. Ciclo da fatura: sem buraco e sem sobreposição")
+# Buraco = compra some da fatura. Sobreposicao = compra cobrada duas vezes.
+_falhas_ciclo = []
+for _fecha in range(1, 32):
+    _dia = date(2026, 1, 1)
+    while _dia <= date(2027, 12, 31):
+        _ini, _fim = A.ciclo_fatura(_dia, _fecha)
+        if not (_ini <= _dia <= _fim):
+            _falhas_ciclo.append((_fecha, _dia, "dia fora da propria fatura"))
+        if A.ciclo_fatura(_fim + timedelta(days=1), _fecha)[0] != _fim + timedelta(days=1):
+            _falhas_ciclo.append((_fecha, _dia, "buraco ou sobreposicao"))
+        _dia += timedelta(days=1)
+check("730 dias x 31 fechamentos: todo dia em exatamente uma fatura",
+      not _falhas_ciclo, str(_falhas_ciclo[:2]))
+check("compra NO DIA do fechamento entra na fatura que fecha",
+      A.ciclo_fatura(date(2026, 8, 20), 20)[1] == date(2026, 8, 20))
+check("um dia depois ja e' a proxima",
+      A.ciclo_fatura(date(2026, 8, 21), 20)[0] == date(2026, 8, 21))
+check("fechamento 31 em fevereiro cai no ultimo dia",
+      A.ciclo_fatura(date(2026, 2, 28), 31)[1] == date(2026, 2, 28))
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

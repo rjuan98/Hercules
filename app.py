@@ -792,10 +792,24 @@ def pluggy_investimentos(api_key: str, item_ids: list[str]) -> float:
     return total
 
 
+# Como os bancos brasileiros escrevem "paguei a fatura" no extrato do cartão
+_PAGAMENTO_FATURA = ("pagamento", "pagto", "pgto", "pag fatura", "pag. fatura")
+
+
+def e_pagamento_de_fatura(descricao: str) -> bool:
+    """Distingue PAGAR A FATURA de ESTORNAR UMA COMPRA — no cartão, os dois vêm
+    com valor negativo, mas significam coisas opostas.
+
+    Pagar a fatura não é movimento do cartão (o dinheiro sai da conta, e isso já
+    está registrado lá). Estorno é uma compra que voltou: tem que ABATER a fatura,
+    senão o app cobra da pessoa uma compra que ela devolveu."""
+    return any(p in _strip_accents(descricao or "").lower() for p in _PAGAMENTO_FATURA)
+
+
 def pluggy_fetch_items(api_key: str, contas: list[dict], since: str) -> list[dict[str, Any]]:
     """Transações das contas informadas desde `since` (YYYY-MM-DD), no formato do import.
     Sinal do valor: em conta de banco, negativo = gasto; em cartão de crédito é INVERTIDO
-    (positivo = compra/gasto, negativo = pagamento/estorno da fatura, que pulamos)."""
+    (positivo = compra, negativo = pagamento da fatura OU estorno de compra)."""
     items = []
     for conta in contas:
         conta_id = conta.get("id")
@@ -813,13 +827,16 @@ def pluggy_fetch_items(api_key: str, contas: list[dict], since: str) -> list[dic
             amount = t.get("amount")
             if amount is None or amount == 0:
                 continue
+            desc = t.get("description") or t.get("descriptionRaw") or "Movimentação"
             if is_credit:
-                if amount <= 0:
-                    continue  # pagamento/estorno da fatura, não é compra
-                tipo = "saida"
+                if amount > 0:
+                    tipo = "saida"                       # compra
+                elif e_pagamento_de_fatura(desc):
+                    continue                             # pagou a fatura: já saiu da conta
+                else:
+                    tipo = "entrada"                     # estorno: abate a fatura
             else:
                 tipo = "entrada" if amount > 0 else "saida"
-            desc = t.get("description") or t.get("descriptionRaw") or "Movimentação"
             # Parcelamento: a Pluggy manda "3 de 12" no metadado do cartão
             meta = t.get("creditCardMetadata") or {}
             p_num, p_total = meta.get("installmentNumber"), meta.get("totalInstallments")
@@ -920,7 +937,7 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
         ).fetchone() is not None
     if key == "javali":
         row = db.execute(
-            """SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN valor ELSE 0 END), 0) AS e,
+            """SELECT COALESCE(SUM(CASE WHEN tipo='entrada' AND no_credito=0 THEN valor ELSE 0 END), 0) AS e,
                       COALESCE(SUM(CASE WHEN tipo='saida' THEN valor ELSE 0 END), 0) AS s,
                       COUNT(*) AS n
                FROM transacoes
@@ -1405,7 +1422,7 @@ def calc_transaction_totals(user_id: int):
         month_income = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
-               WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
+               WHERE user_id = ? AND tipo = 'entrada' AND no_credito = 0 AND fonte != 'ajuste'
                AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
@@ -1436,9 +1453,10 @@ def calc_transaction_totals(user_id: int):
 
         def _soma_credito(ini, fim):
             return float(db.execute(
-                """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
-                   WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
-                   AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
+                """SELECT COALESCE(SUM(CASE WHEN tipo = 'saida' THEN valor ELSE -valor END), 0) AS total
+                     FROM transacoes
+                    WHERE user_id = ? AND no_credito = 1
+                      AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
                 (user_id, ini.isoformat(), fim.isoformat()),
             ).fetchone()["total"])
 
@@ -1796,7 +1814,7 @@ def calculate_business_summary(user_id: int):
         revenue_month = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
-               WHERE user_id = ? AND tipo = 'entrada'
+               WHERE user_id = ? AND tipo = 'entrada' AND no_credito = 0
                AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
@@ -2268,7 +2286,7 @@ def sugerir_guardar_mensal(user_id: int, meses: int = 6) -> dict[str, Any] | Non
     with get_db() as db:
         rows = db.execute(
             """SELECT strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) AS mes,
-                      SUM(CASE WHEN tipo = 'entrada' THEN valor ELSE 0 END) AS entrou,
+                      SUM(CASE WHEN tipo = 'entrada' AND no_credito = 0 THEN valor ELSE 0 END) AS entrou,
                       SUM(CASE WHEN tipo = 'saida' AND no_credito = 0 THEN valor ELSE 0 END) AS saiu
                FROM transacoes
                WHERE user_id = ? AND fonte != 'ajuste'
@@ -2432,7 +2450,7 @@ def historico_mensal(user_id: int, meses: int = 12) -> list[dict[str, Any]]:
     with get_db() as db:
         rows = db.execute(
             """SELECT strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) AS mes,
-                      COALESCE(SUM(CASE WHEN tipo='entrada' THEN valor END), 0) AS entrou,
+                      COALESCE(SUM(CASE WHEN tipo='entrada' AND no_credito=0 THEN valor END), 0) AS entrou,
                       COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=0 THEN valor END), 0) AS saiu,
                       COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=1 THEN valor END), 0) AS credito,
                       COUNT(*) AS n
@@ -2521,7 +2539,7 @@ def recado_da_semana(user_id: int, hoje: date | None = None) -> dict[str, Any] |
 
         def totais(a, b):
             r = db.execute(
-                """SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN valor END), 0) AS entrou,
+                """SELECT COALESCE(SUM(CASE WHEN tipo='entrada' AND no_credito=0 THEN valor END), 0) AS entrou,
                           COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=0 THEN valor END), 0) AS saiu,
                           COUNT(*) AS n
                      FROM transacoes
@@ -2652,7 +2670,7 @@ def dashboard():
             r = db.execute(
                 """SELECT valor, COALESCE(NULLIF(data_transacao, ''), created_at) AS quando
                    FROM transacoes
-                   WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
+                   WHERE user_id = ? AND tipo = 'entrada' AND no_credito = 0 AND fonte != 'ajuste'
                      AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)
                    ORDER BY date(quando) DESC LIMIT 1""",
                 (user["id"], (hoje_br() - timedelta(days=10)).isoformat()),

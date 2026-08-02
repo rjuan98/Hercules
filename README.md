@@ -32,9 +32,10 @@ você configurar as chaves.
 python testes.py
 ```
 
-São **381 verificações** contra um banco temporário e isolado — não encostam nos seus
-dados. Cobrem desde as contas de dinheiro até isolamento entre usuários, e já pegaram
-dois bugs que teriam quebrado a instalação de todo mundo.
+São **450 verificações** contra um banco temporário e isolado — não encostam nos seus
+dados. Cobrem desde as contas de dinheiro até isolamento entre usuários, fuso horário,
+concorrência e o ciclo da fatura, e já pegaram bugs que teriam quebrado a instalação de
+todo mundo.
 
 Se algo ficar vermelho, não suba.
 
@@ -86,7 +87,7 @@ Nada abaixo é obrigatório para rodar local. Cada chave liga uma funcionalidade
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | entrar com o Google | desligado |
 | `ANTHROPIC_API_KEY` | ler nota fiscal por foto | desligado |
 | `ADMIN_EMAIL` | tela `/saude` (manutenção) | desligado — a rota dá 404 |
-| `SECURE_COOKIES` | cookie só por HTTPS | automático no Render |
+| `SECURE_COOKIES` | cookie só por HTTPS | liga sozinho em hospedagem |
 
 Deploy (PythonAnywhere e Render), backup e restauração estão no **[DEPLOY.md](DEPLOY.md)**.
 
