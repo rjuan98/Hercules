@@ -179,7 +179,7 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="button button-outline">{% if goal['ativo'] %}Pausar{% else %}Ativar{% endif %}</button>
                 </form>
-                <form method="POST" action="{{ url_for('delete_goal', goal_id=goal['id']) }}" data-confirm="Excluir a meta '{{ goal['nome'] }}'?">
+                <form method="POST" action="{{ url_for('delete_goal', goal_id=goal['id']) }}" data-confirm="Excluir a meta &#39;{{ goal['nome'] }}&#39;?{% if goal['valor_atual'] and goal['valor_atual'] > 0 %} Atenção: os {{ goal['valor_atual']|money_texto }} que você já guardou continuam saídos do saldo — apagar a meta não devolve esse dinheiro ao seu saldo.{% endif %}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="button button-danger">Excluir</button>
                 </form>

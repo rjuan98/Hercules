@@ -2067,6 +2067,59 @@ check("e devolve o formulário se a navegação não acontecer", "12000" in _h_b
 check("formulário com confirmação não é afetado", "hasAttribute('data-confirm')" in _h_base)
 
 
+secao("71. Apagar coisa que outra coisa aponta")
+c_del = novo_cliente("apagar@teste.com", nome="Del")
+uid_del = uid_de("apagar@teste.com")
+
+# Nota cria transacao vinculada. Apagar a nota tem que levar a transacao junto,
+# senao o saldo fica com um valor que nao tem mais origem nenhuma.
+c_del.post("/notas/nova", data={"csrf_token": "t", "descricao": "Venda de bolo",
+                                "valor": "250,00", "tipo": "entrada",
+                                "categoria": "Serviços", "status": "Autorizada"})
+with get_db() as db:
+    _nid = db.execute("SELECT id FROM notas WHERE user_id=?", (uid_del,)).fetchone()["id"]
+check("a nota criou a transação vinculada",
+      abs(A.calc_transaction_totals(uid_del)["balance"] - 250) < 0.01)
+c_del.post(f"/notas/{_nid}/delete", data={"csrf_token": "t"})
+check("apagar a nota leva a transação junto (sem valor órfão no saldo)",
+      abs(A.calc_transaction_totals(uid_del)["balance"]) < 0.01,
+      A.calc_transaction_totals(uid_del)["balance"])
+
+# Guardar numa meta cria uma SAIDA. Apagar a meta NAO devolve o dinheiro — e a
+# pessoa espera que devolva. Nao mudei o comportamento (mexer em dinheiro dos
+# outros por palpite e' pior), mas o aviso passa a dizer isso antes.
+c_del.post("/metas", data={"csrf_token": "t", "nome": "Viagem", "meta_valor": "2000"})
+with get_db() as db:
+    _mid = db.execute("SELECT id FROM metas WHERE user_id=?", (uid_del,)).fetchone()["id"]
+_h_metas = c_del.get("/metas").get_data(as_text=True)
+check("meta sem dinheiro: aviso simples",
+      "não devolve esse dinheiro" not in re.search(r'data-confirm="([^"]*Viagem[^"]*)"',
+                                                   _h_metas).group(1))
+c_del.post(f"/metas/{_mid}/aporte", data={"csrf_token": "t", "valor": "300"})
+_aviso = re.search(r'data-confirm="([^"]*Viagem[^"]*)"',
+                   c_del.get("/metas").get_data(as_text=True)).group(1)
+check("meta COM dinheiro avisa que não devolve", "não devolve esse dinheiro" in _aviso)
+check("e diz quanto", "R$ 300,00" in _aviso, _aviso[:90])
+
+# Apagar categoria apaga junto o que a pessoa ensinou: ela so descobre quando o
+# gasto seguinte cai em "Outros".
+c_del.post("/categorias", data={"csrf_token": "t", "nome": "Doces", "limite_mensal": "200"})
+_aviso_cat = re.search(r'data-confirm="([^"]*Doces[^"]*)"',
+                       c_del.get("/categorias").get_data(as_text=True)).group(1)
+check("apagar categoria avisa que o aprendizado some", "é esquecido" in _aviso_cat)
+
+# `money` devolve <span> por causa do olhinho; dentro de atributo isso vira
+# marcacao quebrada. Eu mesmo cometi esse erro escrevendo o aviso acima.
+check("existe filtro de valor pelado pra atributo", "money_texto" in _APP_SRC_2)
+_em_atributo = []
+for _arq in __import__("glob").glob(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                 "templates", "*.html")):
+    for _m in re.finditer(r'\w+="[^"]*\|\s*money\s*[}|][^"]*"', open(_arq, encoding="utf-8").read()):
+        _em_atributo.append(os.path.basename(_arq))
+check("nenhum |money dentro de atributo HTML em nenhum template",
+      not _em_atributo, str(set(_em_atributo)))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

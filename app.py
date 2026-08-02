@@ -1917,6 +1917,9 @@ def calculate_business_summary(user_id: int):
 # Jinja
 # ------------------------
 app.jinja_env.filters["money"] = money_html
+# Dentro de atributo HTML (data-confirm, title, alt) o <span> do money_html vira
+# marcação quebrada. Aqui vai o valor pelado.
+app.jinja_env.filters["money_texto"] = money
 app.jinja_env.globals["padrao_sugerido"] = padrao_sugerido
 app.jinja_env.filters["format_date"] = format_date
 app.jinja_env.filters["month_label"] = month_label

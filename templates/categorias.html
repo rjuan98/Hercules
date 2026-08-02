@@ -94,7 +94,7 @@
                     <button type="submit" class="button button-outline">{% if o.limite > 0 %}Atualizar{% else %}Definir limite{% endif %}</button>
                 </form>
                 {% if o.propria %}
-                <form method="POST" action="{{ url_for('delete_categoria', cat_id=o.id) }}" data-confirm="Excluir a categoria '{{ o.nome }}'? As movimentações continuam existindo.">
+                <form method="POST" action="{{ url_for('delete_categoria', cat_id=o.id) }}" data-confirm="Excluir a categoria &#39;{{ o.nome }}&#39;? As movimentações continuam com esse nome, mas o que você ensinou ao Hércules sobre ela é esquecido.">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="button button-danger">Excluir</button>
                 </form>
