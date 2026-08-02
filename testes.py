@@ -1500,6 +1500,38 @@ check("nenhuma linha perdida",
       _antes == _depois, {t: (_antes[t], _depois[t]) for t in _antes if _antes[t] != _depois[t]})
 check("nenhuma chave estrangeira quebrada", not _fk, str(_fk[:2]))
 
+secao("54. Primeira tela: MEI começa pela nota, não pelo banco")
+# Feedback real: a primeira testadora (MEI) travou tentando conectar o banco —
+# o passo mais alto E o mais dispensável — antes de usar o que ela abriu o app
+# pra fazer. Ela nem precisava do banco pra guardar nota.
+c_novo_mei = novo_cliente("estreia-mei@teste.com", nome="Ana", perfil="mei")
+_h_estreia = c_novo_mei.get("/").get_data(as_text=True)
+check("MEI na estreia e' convidado a guardar NOTA",
+      "Guardar minha primeira nota" in _h_estreia)
+check("e o convite diz que funciona sem configurar nada",
+      "sem configurar nada" in _h_estreia)
+check("a nota vem ANTES do banco na tela",
+      _h_estreia.index("primeira nota") < _h_estreia.index("Conectar banco")
+      if "Conectar banco" in _h_estreia else True)
+check("o banco continua disponivel (ela QUER conectar depois)",
+      "/pluggy/conectar" in _h_estreia or not A.pluggy_configured())
+check("mas assumido como extra", "isso é <strong>extra</strong>" in _h_estreia
+      or not A.pluggy_configured())
+
+c_novo_pf = novo_cliente("estreia-pf@teste.com", nome="Bia", perfil="pf")
+_h_pf = c_novo_pf.get("/").get_data(as_text=True)
+check("PF na estreia NAO ve papo de nota", "primeira nota" not in _h_pf)
+check("PF segue com o convite de sempre",
+      "quanto você tem na conta hoje" in _h_pf or "conectar seu banco" in _h_pf)
+
+# O erro que travou ela de verdade veio do Meu Pluggy, nao do Hercules:
+# link de confirmacao aberto em aparelho diferente de onde foi pedido.
+_h_ajuda2 = _an.get("/ajuda").get_data(as_text=True)
+check("ajuda avisa do link que so abre no mesmo aparelho",
+      "mesmo celular e no mesmo navegador" in _h_ajuda2)
+check("e explica o cenario dos dois aparelhos",
+      "outro" in _h_ajuda2 and "telefone" in _h_ajuda2)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

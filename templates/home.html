@@ -55,7 +55,55 @@
 {% endif %}
 
 {# ---- Um recado por vez: boas-vindas > lembrete de extrato (só sem Pluggy) > ensinar categoria > dica ---- #}
-{% if onboarding %}
+{% set eh_negocio = session.get('perfil', 'pf') in ['mei', 'lojista', 'hibrido'] %}
+{% if onboarding and eh_negocio %}
+{# Quem tem MEI abre o app por causa da NOTA. Mandar essa pessoa conectar banco
+   primeiro é pôr o degrau mais alto — e o mais dispensável — na frente do único
+   que já resolve alguma coisa hoje. O banco continua aqui, logo abaixo. #}
+<section class="page-card suggestion-card" style="margin-bottom:18px;">
+    <div class="hercules-greeting" style="margin-bottom:14px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Bem-vindo! Vamos pela parte mais útil? 🦁</strong><br>
+            <strong>Guarde uma nota</strong> — é só tirar foto. É isso que monta seu faturamento do
+            ano e te dá o dossiê pro contador. <strong>Funciona agora, sem configurar nada.</strong>
+        </div>
+    </div>
+
+    <a href="{{ url_for('nova_nota') }}" class="button button-primary" style="width:100%;">
+        <i data-lucide="camera"></i> Guardar minha primeira nota
+    </a>
+
+    {% if pluggy_ativo and not pluggy_tem_banco %}
+    <div class="auth-note" style="margin-top:16px;">
+        🏦 <strong>Quer que eu veja seus gastos sozinho também?</strong> Dá pra conectar o banco —
+        mas isso é <strong>extra</strong>, leva uns 10 minutos e passa por um cadastro fora daqui.
+        Faça quando tiver paciência; o app já é útil sem.
+        <div class="page-actions" style="justify-content:flex-start; margin-top:12px;">
+            <a href="{{ url_for('pluggy_conectar') }}" class="button button-outline">
+                <i data-lucide="link"></i> Conectar banco
+            </a>
+            <a href="{{ url_for('ajuda') }}" class="button button-outline">
+                <i data-lucide="circle-help"></i> Ver o passo a passo
+            </a>
+        </div>
+    </div>
+    {% endif %}
+
+    <details class="form-advanced" style="margin-top:14px;">
+        <summary>Prefiro começar pelo meu saldo</summary>
+        <form method="POST" action="{{ url_for('saldo_inicial') }}" class="suggestion-actions" style="margin-top:10px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="money-input" style="flex:1;">
+                <span class="money-prefix">R$</span>
+                <input type="text" name="valor" data-money placeholder="0,00" required inputmode="decimal">
+            </div>
+            <button type="submit" class="button button-outline">Esse é meu saldo</button>
+        </form>
+    </details>
+</section>
+
+{% elif onboarding %}
 <section class="page-card suggestion-card" style="margin-bottom:18px;">
     <div class="hercules-greeting" style="margin-bottom:14px;">
         <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
