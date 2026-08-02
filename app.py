@@ -1503,12 +1503,14 @@ def calc_transaction_totals(user_id: int):
             if valor_ant > 0:
                 fatura_fechada = {"valor": valor_ant, "fechou_em": fim_ant}
         monthly_by_category = db.execute(
-            """SELECT COALESCE(categoria, 'Outros') AS categoria,
-                      SUM(CASE WHEN tipo = 'saida' THEN valor ELSE 0 END) AS total
-               FROM transacoes
-               WHERE user_id = ? AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
-               GROUP BY categoria
-               ORDER BY total DESC""",
+            """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS categoria,
+                      SUM(valor) AS total
+                 FROM transacoes
+                WHERE user_id = ? AND tipo = 'saida'
+                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
+                GROUP BY categoria
+               HAVING total > 0
+                ORDER BY total DESC""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchall()
         upcoming_commitments = db.execute(
@@ -1590,6 +1592,10 @@ def calc_transaction_totals(user_id: int):
     # Com reserva: o que dá para gastar sem comprometer o que precisa ser guardado
     spendable_month = remaining_month - reserve_remaining_month
     available_today = max(0.0, spendable_month / days_left_in_month())
+    # Abaixo disso o número deixa de ser conselho e vira piada: com R$ 0,50 na
+    # conta o app dizia "pode gastar R$ 0,02 hoje". Melhor admitir que não dá
+    # pra dividir do que fingir precisão.
+    diaria_util = available_today >= 1.0
     available_today_no_reserve = max(0.0, remaining_month / days_left_in_month())
 
     # Previsão: guardando o necessário por mês, quando a meta fica completa
@@ -1637,6 +1643,7 @@ def calc_transaction_totals(user_id: int):
         "remaining_month": float(remaining_month),
         "spendable_month": float(spendable_month),
         "available_today": float(available_today),
+        "diaria_util": diaria_util,
         "available_today_no_reserve": float(available_today_no_reserve),
         "reserve_monthly_needed": float(reserve_monthly_needed),
         "reserve_saved_month": float(reserve_saved_month),

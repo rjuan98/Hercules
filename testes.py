@@ -1843,6 +1843,54 @@ check("o formulário avisa o limite antes de colar",
       'maxlength="200"' in c_imp.get("/transacoes/nova").get_data(as_text=True))
 
 
+_css_src_2 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "static", "styles.css"), encoding="utf-8").read()
+
+secao("65. Mais achados dos testadores")
+c_g = novo_cliente("grafico@teste.com", nome="Gil")
+uid_g = uid_de("grafico@teste.com")
+with get_db() as db:
+    for _t, _v, _cat in [("entrada", 50, "Salário"), ("entrada", 50, "Transferência recebida"),
+                         ("saida", 197, "Outros"), ("saida", 25, "Alimentação")]:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,?,?,'manual',100,
+                      date('now'),0)""", (uid_g, _t, _v, _cat, _cat))
+_cats = {r["categoria"]: r["total"] for r in A.calc_transaction_totals(uid_g)["monthly_by_category"]}
+# O grafico somava so as saidas mas agrupava TODA categoria: entrada entrava com
+# R$ 0,00 e poluia a legenda ("Salário 0%", "Transferência recebida 0%")
+check("categoria de ENTRADA nao aparece no gráfico de saídas",
+      "Salário" not in _cats and "Transferência recebida" not in _cats, list(_cats))
+check("as saídas continuam certas", _cats.get("Outros") == 197 and _cats.get("Alimentação") == 25)
+check("nenhuma categoria com zero na legenda", all(v > 0 for v in _cats.values()))
+
+# "tem R$ 0,50 na conta e ele diz que posso gastar R$ 0,02 hoje"
+c_p = novo_cliente("pouco@teste.com", nome="Léo")
+uid_p = uid_de("pouco@teste.com")
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'entrada',0.50,'saldo','Outros',
+                  'ajuste',100,date('now'),0)""", (uid_p,))
+_st_p = A.calc_transaction_totals(uid_p)
+check("com saldo minusculo, a diaria e' marcada como inutil", _st_p["diaria_util"] is False)
+_h_p = so_texto(c_p.get("/").get_data(as_text=True))
+check("a home NAO promete centavos por dia", "pode gastar hoje R$ 0,02" not in _h_p)
+check("e explica em vez de calar", "curto demais pra dividir" in _h_p)
+check("o Resumo mostra travessão no lugar do número",
+      "não ajudaria em nada" in c_p.get("/dashboard").get_data(as_text=True))
+
+# com saldo de verdade a diaria volta a aparecer — a checagem nao pode comer o util
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'entrada',3000,'salario','Salário',
+                  'manual',100,date('now'),0)""", (uid_p,))
+check("com saldo normal, a diária volta", A.calc_transaction_totals(uid_p)["diaria_util"] is True)
+
+# "tudo saiu da tela, pro celular e' bom prender a formatacao"
+check("o saldo encolhe conforme a largura do cartão", "11cqi" in _css_src_2)
+check("com queda pra quem nao suporta container query",
+      "@supports not (font-size: 1cqi)" in _css_src_2)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

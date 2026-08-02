@@ -74,9 +74,11 @@
     </article>
     <article class="glass-card metric-card">
         <p class="metric-label">Pode gastar hoje</p>
-        <p class="metric-value">{{ stats['available_today']|money }}</p>
+        <p class="metric-value">{% if stats['diaria_util'] %}{{ stats['available_today']|money }}{% else %}—{% endif %}</p>
         <p class="metric-footnote">
-            {% if stats['reserve_remaining_month'] > 0 %}
+            {% if not stats['diaria_util'] %}
+                Dividir o que sobrou pelos dias que faltam daria centavos — não ajudaria em nada.
+            {% elif stats['reserve_remaining_month'] > 0 %}
                 Já separando {{ stats['reserve_remaining_month']|money }} para a reserva este mês.
             {% else %}
                 Mantendo o mês previsível até o fim.

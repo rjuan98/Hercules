@@ -239,7 +239,8 @@
             <p class="metric-footnote">
                 {% if onboarding %}Assim que entrar movimentação, seu saldo aparece aqui.
                 {% else %}{{ status_emoji }} {% if stats['balance'] >= 0 %}No azul{% else %}Atenção: no vermelho{% endif %}
-                · pode gastar hoje <strong style="color:var(--primary-deep);">{{ can_spend_today|money }}</strong>{% endif %}
+                {% if stats['diaria_util'] %}· pode gastar hoje <strong style="color:var(--primary-deep);">{{ can_spend_today|money }}</strong>
+                {% else %}· o saldo está curto demais pra dividir pelo mês{% endif %}{% endif %}
             </p>
             {% if stats['saldo_investido'] %}
             <p class="metric-footnote" style="margin-top:4px;">

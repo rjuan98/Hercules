@@ -446,12 +446,22 @@ button { cursor: pointer; }
 /* Saldo em destaque na Início — o número que a pessoa abre o app pra ver */
 .balance-big {
     margin: 8px 0 6px;
-    font-size: clamp(2.3rem, 7vw, 3.2rem);
-    line-height: 1.02;
+    /* O tamanho acompanha a LARGURA DISPONÍVEL (cqi), não a da tela: num cartão
+       estreito o número diminui em vez de sair pela direita. Um testador viu o
+       saldo vazar pra fora do celular — em número grande isso é regra, não exceção. */
+    font-size: clamp(1.7rem, 11cqi, 3.2rem);
+    line-height: 1.05;
     letter-spacing: -0.03em;
     font-weight: 900;
     font-variant-numeric: tabular-nums;
     color: var(--primary-deep);
+    overflow-wrap: anywhere;
+}
+/* container-type habilita o cqi acima; `inline-size` não afeta a altura. */
+.balance-hero { container-type: inline-size; }
+/* Navegador sem suporte a container query cai neste tamanho, que já cabe. */
+@supports not (font-size: 1cqi) {
+    .balance-big { font-size: clamp(1.7rem, 7vw, 3.2rem); }
 }
 .progress-ring strong {
     font-size: 1.7rem;
