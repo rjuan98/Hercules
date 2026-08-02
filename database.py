@@ -255,6 +255,17 @@ def init_db():
 
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS tentativas_login (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            ip TEXT,
+            quando TEXT NOT NULL,
+            sucesso INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS passkeys (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -357,6 +368,8 @@ def init_db():
     # Índices que dependem de colunas criadas nas migrações acima (banco novo não tem
     # essas colunas na CREATE TABLE original, então o índice só pode vir depois).
     conn.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_user_fitid ON transacoes(user_id, fitid)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tentativas_email ON tentativas_login(email, quando)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tentativas_ip ON tentativas_login(ip, quando)")
 
     conn.commit()
     conn.close()

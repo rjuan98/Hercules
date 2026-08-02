@@ -123,6 +123,23 @@ Esse mesmo código está no `erros.log`, junto do traceback completo — é assi
 você acha o erro dele no meio dos outros. O log **não guarda** o que a pessoa
 digitou (valor, descrição, senha), só onde quebrou.
 
+## Segurança — o que está ligado
+
+| Proteção | Como funciona |
+|---|---|
+| Senha | `scrypt` com sal próprio por senha (padrão do Werkzeug 3.x) |
+| Força bruta | 5 erros por e-mail ou 20 por IP travam o login por 15 min |
+| Senha fraca | mínimo 8 caracteres, recusa as óbvias, o próprio nome e o e-mail |
+| Sessão | cookie HttpOnly + SameSite + Secure; sessão nova a cada login |
+| CSRF | token em todo POST, trocado no login |
+| Cabeçalhos | CSP, `X-Frame-Options: DENY`, `nosniff`, Referrer-Policy, HSTS |
+| Isolamento | toda consulta filtra por `user_id`; testado contra acesso cruzado |
+| Exclusão | apagar a conta apaga tudo em cascata, sem sobra |
+
+O que **não** existe: pentest profissional, auditoria formal, criptografia
+individual dos dados em repouso. Isso está dito sem rodeio em `/privacidade`,
+dentro do app.
+
 ## Teste rápido no celular sem deploy (mesma rede Wi-Fi)
 
 ```

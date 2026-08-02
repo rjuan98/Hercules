@@ -44,7 +44,7 @@ def so_texto(html):
     import re as _re
     return _re.sub(r"\s+", " ", _re.sub(r"<[^>]+>", "", html))
 
-def novo_cliente(email, senha="senha123", nome="Fulano", perfil="pf"):
+def novo_cliente(email, senha="tijolo-forte-42", nome="Fulano", perfil="pf"):
     c = A.app.test_client()
     with c.session_transaction() as s:
         s["csrf_token"] = "t"
@@ -100,7 +100,7 @@ with c_bad.session_transaction() as s: s["csrf_token"] = "t"
 r = c_bad.post("/login", data={"csrf_token": "t", "email": "a@teste.com", "senha": "errada"}, follow_redirects=True)
 check("senha errada nao entra", b"Entrar" in r.data or "entrar" in r.get_data(as_text=True).lower())
 r = c1.post("/register", data={"csrf_token": "t", "nome": "X", "email": "a@teste.com",
-                               "senha": "outra123", "perfil": "pf"}, follow_redirects=True)
+                               "senha": "tijolo-outro-77", "perfil": "pf"}, follow_redirects=True)
 check("email duplicado barrado", "já está cadastrado" in r.get_data(as_text=True))
 
 secao("4. CSRF")
@@ -870,7 +870,7 @@ _cli_erro.get("/quebra-de-proposito")
 _log2 = A.ERROS_LOG.read_text(encoding="utf-8")
 check("o log NAO grava o que a pessoa digitou",
       "SEGREDO DO USUARIO" not in _log2 and "777,77" not in _log2)
-check("o log NAO grava senha", "senha123" not in _log2)
+check("o log NAO grava senha", "tijolo-forte-42" not in _log2)
 
 secao("36. Saúde do app: trancada por padrão (segurança)")
 check("sem ADMIN_EMAIL ninguem e' admin", A.ADMIN_EMAIL == "" and not A.eh_admin(None))
@@ -1531,6 +1531,150 @@ check("ajuda avisa do link que so abre no mesmo aparelho",
       "mesmo celular e no mesmo navegador" in _h_ajuda2)
 check("e explica o cenario dos dois aparelhos",
       "outro" in _h_ajuda2 and "telefone" in _h_ajuda2)
+
+secao("55. Força bruta no login")
+# Sem limite, quem souber o e-mail testa senha pra sempre. E' o ataque mais
+# realista contra um app pequeno — nao precisa de falha nenhuma no codigo.
+c_bf = A.app.test_client()
+with get_db() as db:
+    db.execute("DELETE FROM tentativas_login")
+
+def _tenta(cli, email, senha):
+    with cli.session_transaction() as s:
+        s["csrf_token"] = "t"
+    return cli.post("/login", data={"csrf_token": "t", "email": email, "senha": senha},
+                    follow_redirects=True).get_data(as_text=True)
+
+_alvo = "a@teste.com"
+_bloqueou_em = None
+for _i in range(1, 9):
+    _resp = _tenta(c_bf, _alvo, f"chute{_i}")
+    if "Muitas tentativas" in _resp:
+        _bloqueou_em = _i
+        break
+check("o app trava o ataque", _bloqueou_em is not None, "nunca travou!")
+check(f"trava em {A.LOGIN_MAX_TENTATIVAS} tentativas ou menos",
+      _bloqueou_em and _bloqueou_em <= A.LOGIN_MAX_TENTATIVAS + 1, _bloqueou_em)
+
+# Travado, nem a senha CERTA entra — senao bastaria acertar na 6a tentativa
+check("travado, nem a senha certa passa",
+      "Muitas tentativas" in _tenta(c_bf, _alvo, "tijolo-forte-42"))
+check("e continua deslogado", c_bf.get("/", follow_redirects=False).status_code == 302)
+
+# Dizer "esse e-mail nao existe" entrega quem tem conta aqui
+with get_db() as db:
+    db.execute("DELETE FROM tentativas_login")
+_c_x = A.app.test_client()
+_msg_inexistente = _tenta(_c_x, "naoexiste@lugar.nenhum", "qualquer")
+_c_y = A.app.test_client()
+with get_db() as db:
+    db.execute("DELETE FROM tentativas_login")
+_msg_senha_errada = _tenta(_c_y, _alvo, "errada-mesmo")
+check("nao revela se o e-mail existe",
+      ("E-mail ou senha inválidos" in _msg_inexistente)
+      and ("E-mail ou senha inválidos" in _msg_senha_errada))
+
+with get_db() as db:
+    db.execute("DELETE FROM tentativas_login")
+    _n = db.execute("SELECT COUNT(*) AS n FROM tentativas_login").fetchone()["n"]
+check("a tabela de tentativas e' limpavel", _n == 0)
+check("login limpo volta a funcionar",
+      "Muitas tentativas" not in _tenta(A.app.test_client(), _alvo, "tijolo-forte-42"))
+
+secao("56. Senha fraca não passa")
+for _s, _deve_recusar in [("12345678", True), ("senha123", True), ("password", True),
+                          ("1234", True), ("aaaaaaaa", True), ("00000000", True),
+                          ("tijolo-forte-42", False), ("MinhaLoja2026", False),
+                          ("gato azul na janela", False)]:
+    _r = A.senha_fraca(_s)
+    check(f"{'recusa' if _deve_recusar else 'aceita'}: {_s!r}",
+          (_r is not None) == _deve_recusar, _r)
+check("recusa senha igual ao e-mail", A.senha_fraca("mariana", "mariana@x.com") is not None)
+check("recusa senha igual ao nome", A.senha_fraca("mariana", "", "Mariana Silva") is not None)
+check("o minimo subiu de 6 pra 8", A.SENHA_MINIMA == 8)
+check("o formulario tambem exige 8",
+      'minlength="8"' in _an.get("/register").get_data(as_text=True))
+
+_c_fraca = A.app.test_client()
+with _c_fraca.session_transaction() as s: s["csrf_token"] = "t"
+_r_fraca = _c_fraca.post("/register", data={"csrf_token": "t", "nome": "X", "email": "fraca@t.com",
+                                            "senha": "123456", "perfil": "pf"}, follow_redirects=True)
+check("cadastro com senha fraca e' barrado no servidor (nao so no HTML)",
+      uid_de("fraca@t.com") is None)
+
+secao("57. Cabeçalhos de segurança")
+_h = _an.get("/login").headers
+check("CSP presente", "Content-Security-Policy" in _h)
+check("CSP bloqueia script de fora (menos a Pluggy)",
+      "script-src 'self' 'unsafe-inline' https://cdn.pluggy.ai" in _h.get("Content-Security-Policy", ""))
+check("ninguem embute o app num iframe (clickjacking)",
+      _h.get("X-Frame-Options") == "DENY"
+      and "frame-ancestors 'none'" in _h.get("Content-Security-Policy", ""))
+check("navegador nao adivinha tipo de arquivo", _h.get("X-Content-Type-Options") == "nosniff")
+check("nao vaza a URL no Referer", _h.get("Referrer-Policy") == "strict-origin-when-cross-origin")
+check("camera/microfone/localizacao negados", "camera=()" in _h.get("Permissions-Policy", ""))
+check("os cabecalhos valem nas telas logadas tambem",
+      "Content-Security-Policy" in c1.get("/").headers)
+
+secao("58. O CSP não pode quebrar nenhuma tela")
+# CSP errado quebra calado: o script nao roda, a fonte nao carrega, o icone some.
+# Confere cada recurso de cada tela contra a politica, em vez de confiar no olho.
+import re
+from urllib.parse import urlparse as _urlparse
+_pol = {}
+for _parte in A._CSP.split("; "):
+    _k, _, _v = _parte.partition(" ")
+    _pol[_k] = set(_v.split())
+
+def _csp_permite(url, diretiva):
+    fontes = _pol.get(diretiva) or _pol["default-src"]
+    if not url or url.startswith(("#", "mailto:", "tel:", "javascript:")):
+        return True
+    p = _urlparse(url)
+    if p.scheme in ("data", "blob"):
+        return f"{p.scheme}:" in fontes
+    if not p.netloc:
+        return "'self'" in fontes
+    return f"{p.scheme}://{p.netloc}" in fontes
+
+_telas_csp = ["/login", "/register", "/", "/dashboard", "/meses", "/transacoes", "/transacoes/nova",
+              "/compromissos", "/categorias", "/metas", "/dividas", "/ir", "/trabalhos", "/notas",
+              "/notas/nova", "/settings", "/ajuda", "/recado", "/privacidade", "/importar"]
+_bloqueados, _conferidos = [], 0
+for _rota in _telas_csp:
+    _html = c1.get(_rota).get_data(as_text=True)
+    for _tag, _attr, _dir in [("script", "src", "script-src"), ("img", "src", "img-src"),
+                              ("iframe", "src", "frame-src")]:
+        for _m in re.finditer(rf'<{_tag}[^>]*\b{_attr}="([^"]+)"', _html):
+            _conferidos += 1
+            if not _csp_permite(_m.group(1), _dir):
+                _bloqueados.append((_rota, _dir, _m.group(1)[:60]))
+    for _m in re.finditer(r'<link[^>]*rel="stylesheet"[^>]*href="([^"]+)"', _html):
+        _conferidos += 1
+        if not _csp_permite(_m.group(1), "style-src"):
+            _bloqueados.append((_rota, "style-src", _m.group(1)[:60]))
+check(f"{len(_telas_csp)} telas, {_conferidos} recursos: nenhum bloqueado pelo CSP",
+      not _bloqueados, str(sorted(set(_bloqueados))[:3]))
+# Se voltar a carregar de CDN, a tela quebra quando o CDN cair — e vaza visita
+check("nada carregado de fora, fora Pluggy e as fontes",
+      all(d in ("cdn.pluggy.ai", "fonts.googleapis.com", "fonts.gstatic.com")
+          for d in re.findall(r'(?:src|href)="https://([^/"]+)',
+                              c1.get("/login").get_data(as_text=True) + c1.get("/").get_data(as_text=True))))
+check("o icone do Google e' servido daqui (nao avisa o Google a cada visita)",
+      "www.google.com" not in _an.get("/login").get_data(as_text=True))
+
+secao("59. Sessão nova a cada login")
+# Sessao reaproveitada deixa dado do visitante anterior sobreviver ao login
+_c_ses = A.app.test_client()
+with _c_ses.session_transaction() as s:
+    s["lixo_antigo"] = "nao deveria sobreviver"
+    s["csrf_token"] = "plantado"
+_c_ses.post("/login", data={"csrf_token": "plantado", "email": _alvo, "senha": "tijolo-forte-42"},
+            follow_redirects=True)
+with _c_ses.session_transaction() as s:
+    check("dado plantado antes do login e' descartado", "lixo_antigo" not in s)
+    check("o token de CSRF e' trocado no login", s.get("csrf_token") != "plantado")
+    check("e o login funcionou", s.get("user_id") is not None)
 
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")

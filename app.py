@@ -1898,6 +1898,40 @@ app.jinja_env.globals["income_categories"] = INCOME_CATEGORIES
 app.jinja_env.globals["date"] = date
 
 
+# A Pluggy injeta o widget de conexão; o resto vem tudo daqui de casa.
+# 'unsafe-inline' em script é uma concessão real: o app tem scripts inline em 10
+# telas. Mesmo assim o CSP ainda barra script vindo de domínio estranho, que é o
+# vetor de XSS que importa aqui.
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://cdn.pluggy.ai",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "connect-src 'self' https://api.pluggy.ai",
+    "frame-src https://cdn.pluggy.ai https://connect.pluggy.ai",
+    "form-action 'self'",
+    "base-uri 'self'",          # impede <base> injetado redirecionar formulários
+    "object-src 'none'",
+    "frame-ancestors 'none'",   # ninguém embute o Hércules num iframe
+])
+
+
+@app.after_request
+def cabecalhos_de_seguranca(resp):
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    # Sem isso, o endereço da página vaza no Referer ao clicar num link externo
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("Permissions-Policy",
+                            "geolocation=(), microphone=(), camera=(), payment=()")
+    if app.config.get("SESSION_COOKIE_SECURE"):
+        resp.headers.setdefault("Strict-Transport-Security",
+                                "max-age=31536000; includeSubDomains")
+    return resp
+
+
 @app.before_request
 def rotina_diaria():
     """Uma vez por dia, por usuário: garante o backup e anota que a pessoa voltou.
@@ -2026,6 +2060,38 @@ init_db()
 # ------------------------
 # Auth
 # ------------------------
+SENHA_MINIMA = 8
+# As que aparecem em toda lista de senha vazada. Não é uma lista completa —
+# é pra impedir a escolha preguiçosa de quem está com pressa no cadastro.
+_SENHAS_OBVIAS = {
+    "12345678", "123456789", "1234567890", "123456", "senha123", "senha1234",
+    "password", "password1", "qwerty123", "abc12345", "11111111", "00000000",
+    "mudar123", "hercules", "brasil123", "10203040", "1q2w3e4r", "admin123",
+}
+
+
+def senha_fraca(senha: str, email: str = "", nome: str = "") -> str | None:
+    """Devolve o motivo da recusa, ou None se a senha serve.
+
+    O app guarda dinheiro e nota fiscal: uma senha de 6 dígitos numéricos sai
+    em minutos numa lista de vazamento. Não exijo símbolo nem maiúscula — regra
+    difícil faz a pessoa escrever a senha num papel colado no monitor."""
+    if len(senha) < SENHA_MINIMA:
+        return f"A senha precisa de pelo menos {SENHA_MINIMA} caracteres."
+    baixa = senha.lower()
+    if baixa in _SENHAS_OBVIAS:
+        return "Essa senha é das mais usadas do mundo — escolha outra."
+    if senha.isdigit():
+        return "Só números é fácil de descobrir. Misture letras."
+    if len(set(baixa)) <= 2:
+        return "Essa senha repete o mesmo caractere. Escolha outra."
+    if email and baixa == email.split("@")[0].lower():
+        return "A senha não pode ser o seu e-mail."
+    if nome and len(nome) >= 4 and baixa == nome.split(" ")[0].lower():
+        return "A senha não pode ser o seu nome."
+    return None
+
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -2039,8 +2105,9 @@ def register():
         if not nome or not email or not senha:
             flash("Preencha todos os campos.")
             return redirect(url_for("register"))
-        if len(senha) < 6:
-            flash("A senha precisa ter pelo menos 6 caracteres.")
+        problema = senha_fraca(senha, email, nome)
+        if problema:
+            flash(problema)
             return redirect(url_for("register"))
         try:
             with get_db() as db:
@@ -2063,17 +2130,82 @@ def login():
     if request.method == "POST":
         email = sanitize_text(request.form.get("email")).lower()
         senha = request.form.get("senha", "")
+
+        faltam = login_bloqueado(email)
+        if faltam:
+            flash(f"Muitas tentativas seguidas. Por segurança, espere {faltam} minuto"
+                  f"{'s' if faltam > 1 else ''} e tente de novo.")
+            return redirect(url_for("login"))
+
         with get_db() as db:
             user = db.execute("SELECT * FROM usuarios WHERE email = ?", (email,)).fetchone()
         if user and check_password_hash(user["senha"], senha):
+            registrar_tentativa(email, True)
             _start_session(user)
             return redirect(url_for("home"))
+        registrar_tentativa(email, False)
+        # Mensagem igual para e-mail inexistente e senha errada: dizer qual dos dois
+        # falhou entrega a lista de quem tem conta aqui.
         flash("E-mail ou senha inválidos.")
         return redirect(url_for("login"))
     return render_template("login.html", google_login_enabled=oauth is not None)
 
 
+# Força bruta: sem isso, quem souber o e-mail tenta senha pra sempre. São os
+# números que travam um ataque sem atrapalhar quem só errou a senha duas vezes.
+LOGIN_MAX_TENTATIVAS = 5          # por e-mail
+LOGIN_MAX_POR_IP = 20             # por origem (protege a lista toda de usuários)
+LOGIN_JANELA_MIN = 15
+
+
+def _ip_do_pedido() -> str:
+    return (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or request.remote_addr or "?")
+
+
+def registrar_tentativa(email: str, sucesso: bool) -> None:
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO tentativas_login (email, ip, quando, sucesso) VALUES (?, ?, ?, ?)",
+            (email[:120], _ip_do_pedido()[:45], agora_br().isoformat(timespec="seconds"),
+             1 if sucesso else 0),
+        )
+        # Não deixa a tabela crescer pra sempre — só as últimas 24h interessam
+        db.execute("DELETE FROM tentativas_login WHERE quando < ?",
+                   ((agora_br() - timedelta(hours=24)).isoformat(timespec="seconds"),))
+
+
+def login_bloqueado(email: str) -> int:
+    """Minutos que faltam pra poder tentar de novo (0 = liberado)."""
+    desde = (agora_br() - timedelta(minutes=LOGIN_JANELA_MIN)).isoformat(timespec="seconds")
+    with get_db() as db:
+        por_email = db.execute(
+            """SELECT COUNT(*) AS n, MAX(quando) AS ultima FROM tentativas_login
+                WHERE email = ? AND sucesso = 0 AND quando >= ?""",
+            (email[:120], desde),
+        ).fetchone()
+        por_ip = db.execute(
+            """SELECT COUNT(*) AS n, MAX(quando) AS ultima FROM tentativas_login
+                WHERE ip = ? AND sucesso = 0 AND quando >= ?""",
+            (_ip_do_pedido()[:45], desde),
+        ).fetchone()
+
+    for linha, teto in ((por_email, LOGIN_MAX_TENTATIVAS), (por_ip, LOGIN_MAX_POR_IP)):
+        if linha["n"] >= teto and linha["ultima"]:
+            try:
+                fim = datetime.fromisoformat(linha["ultima"]) + timedelta(minutes=LOGIN_JANELA_MIN)
+            except ValueError:
+                continue
+            faltam = (fim - agora_br()).total_seconds() / 60
+            if faltam > 0:
+                return max(1, int(faltam) + 1)
+    return 0
+
+
 def _start_session(user) -> None:
+    # Sessão nova a cada login: nada do visitante anterior sobrevive
+    session.clear()
+    session["csrf_token"] = secrets.token_urlsafe(32)
     session.permanent = True
     session["user_id"] = user["id"]
     session["nome"] = user["nome"]
@@ -2883,8 +3015,9 @@ def settings():
             if not check_password_hash(user["senha"], senha_atual):
                 flash("Senha atual incorreta.")
                 return redirect(url_for("settings"))
-            if len(nova_senha) < 6:
-                flash("A nova senha precisa ter pelo menos 6 caracteres.")
+            problema = senha_fraca(nova_senha, user["email"], user["nome"])
+            if problema:
+                flash(problema)
                 return redirect(url_for("settings"))
             if nova_senha != confirmar:
                 flash("A confirmação não bate com a nova senha.")

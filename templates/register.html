@@ -36,7 +36,7 @@
         {% if google_login_enabled %}
         {# Caminho mais fácil primeiro: um toque, sem senha pra lembrar #}
         <a class="button button-primary google-button" href="{{ url_for('google_login') }}" style="width:100%;">
-            <img src="https://www.google.com/favicon.ico" alt="Google" width="18" height="18"> Criar conta com o Google
+            <img src="{{ url_for('static', filename='google.svg') }}" alt="" width="18" height="18"> Criar conta com o Google
         </a>
         <p class="helper-text" style="text-align:center; margin-top:8px;">Um toque, sem senha pra criar nem lembrar.</p>
         <div class="or-separator"><span>ou preencha abaixo</span></div>
@@ -54,7 +54,7 @@
             </div>
             <div class="form-group">
                 <label for="senha">Senha</label>
-                <input id="senha" type="password" name="senha" placeholder="Crie uma senha (mínimo 6 caracteres)" required minlength="6" autocomplete="new-password">
+                <input id="senha" type="password" name="senha" placeholder="Crie uma senha (mínimo 8 caracteres)" required minlength="8" autocomplete="new-password">
             </div>
             <div class="form-group">
                 <label for="perfil">Como você quer usar o Hércules?</label>
