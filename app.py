@@ -1109,6 +1109,13 @@ HERC_TIPS = {
                         "é o quanto dos próximos meses já está reservado. 📅",
     "primeira_sync": "Seus gastos agora entram sozinhos do banco. Você não precisa anotar nada — "
                      "só olhar de vez em quando. 🦁",
+    # Trilha do MEI
+    "mei_primeira_nota": "Guardei sua nota. No <strong>Painel MEI</strong> ela já entra no seu faturamento "
+                         "do ano — e no fim do ano você baixa tudo junto pro contador, num arquivo só. 🏪",
+    "mei_sem_nota": "Você é MEI: sempre que emitir uma nota, guarde em <strong>Notas</strong>. É isso que "
+                    "monta seu faturamento do ano e te avisa antes de chegar no limite. 🏪",
+    "mei_limite": "Atenção: seu faturamento do ano já passou de 80% do limite do MEI. Vale conversar com "
+                  "seu contador antes de estourar. ⚠️",
 }
 
 
@@ -2258,10 +2265,25 @@ def home():
                    FROM transacoes WHERE user_id = ?""",
                 (user["id"],),
             ).fetchone()
+        # Trilha do MEI: o faturamento vem das NOTAS, então avisa quem ainda não guardou nenhuma
+        mei_nota = mei_sem_nota = mei_limite = 0
+        if is_business_profile(user_profile(user)):
+            with get_db() as db:
+                n_notas = db.execute(
+                    "SELECT COUNT(*) AS n FROM notas WHERE user_id = ?", (user["id"],)
+                ).fetchone()["n"]
+            mei_nota = 1 if n_notas else 0
+            mei_sem_nota = 0 if n_notas else 1
+            faturado = calc_mei_faturamento(user["id"], date.today().year)
+            mei_limite = 1 if faturado >= MEI_LIMITE_ANUAL * 0.8 else 0
+
         candidatas = [
+            ("mei_limite", mei_limite),
             ("primeira_parcela", f["tem_parcela"]),
             ("primeiro_credito", f["tem_credito"]),
             ("tem_outros", f["tem_outros"]),
+            ("mei_primeira_nota", mei_nota),
+            ("mei_sem_nota", mei_sem_nota),
             ("primeira_sync", f["tem_sync"]),
             ("registro_rapido", 1),
         ]
@@ -2504,8 +2526,13 @@ def calc_ir_preview(user_id: int, year: int) -> dict[str, Any]:
 @login_required
 def previa_ir():
     user = current_user()
-    ir = calc_ir_preview(user["id"], date.today().year)
-    return render_template("ir.html", user=user, ir=ir)
+    ano = date.today().year
+    ir = calc_ir_preview(user["id"], ano)
+    # MEI fatura por NOTA, não por transação — sem isso a tela diria "sua renda é R$ 0"
+    # pra quem faturou o ano inteiro. Melhor mostrar separado e mandar pro Painel MEI.
+    ehmei = is_business_profile(user_profile(user))
+    ir["faturamento_mei"] = calc_mei_faturamento(user["id"], ano) if ehmei else 0.0
+    return render_template("ir.html", user=user, ir=ir, ehmei=ehmei)
 
 
 @app.route("/dashboard")

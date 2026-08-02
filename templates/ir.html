@@ -9,7 +9,13 @@
         <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
         <div class="hercules-bubble">
             <strong>Seu retrato de imposto em {{ ir.year }}.</strong><br>
-            {% if not ir.tem_dados %}
+            {% if ehmei and ir.faturamento_mei %}
+            Você emitiu <strong>{{ ir.faturamento_mei|money }}</strong> em notas este ano — mas
+            <strong>esse é o faturamento do negócio</strong>, que segue as regras do MEI e não é a
+            mesma coisa que a sua renda pessoal. Veja ele no
+            <a href="{{ url_for('painel_mei') }}" style="color:var(--primary-deep); font-weight:800;">Painel MEI</a>.
+            Aqui embaixo eu cuido do lado <strong>pessoal</strong>.
+            {% elif not ir.tem_dados %}
                 Assim que você tiver renda e gastos de saúde/educação lançados no ano, eu mostro aqui o que dá pra deduzir.
             {% elif ir.precisa_declarar %}
                 Sua renda tributável no ano já passou de <strong>{{ ir.limite_declaracao|money }}</strong> — nesse caso costuma ser obrigatório declarar.
@@ -51,6 +57,15 @@
         Categorize seus gastos como <strong>Saúde</strong> e <strong>Educação</strong> que eu somo tudo — e guarde os comprovantes com você.
         {% endif %}
     </p>
+    {% if ehmei %}
+    <div class="auth-note" style="margin-top:14px;">
+        🏪 <strong>Você é MEI, então tem duas contas separadas:</strong> a do negócio (faturamento, DAS,
+        limite anual — tudo no <a href="{{ url_for('painel_mei') }}" style="color:var(--primary-deep); font-weight:800;">Painel MEI</a>)
+        e a sua, pessoa física. Boa parte do lucro do MEI costuma ser isenta de imposto pessoal, mas a
+        regra depende do tipo de atividade e da sua contabilidade — <strong>essa é uma conta pra fazer
+        com o contador</strong>, e eu não arrisco chutar.
+    </div>
+    {% endif %}
     <div class="auth-note" style="margin-top:14px;">
         ⚠️ Isto é uma <strong>estimativa</strong> pra você se planejar e não deixar dedução na mesa. <strong>Não é o cálculo oficial</strong> e não substitui um contador nem o programa da Receita. Os limites acima são valores de referência — confirme os do ano vigente.
     </div>

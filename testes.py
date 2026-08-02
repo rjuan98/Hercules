@@ -711,6 +711,50 @@ for k in ("tem_outros", "primeira_sync", "registro_rapido"):
     c_d.post(f"/dicas/{k}/vista", data={"csrf_token": "t"})
 check("dispensadas todas, nao insiste", _dica_atual(c_d) == "")
 
+secao("32. Trilha do MEI: guardar nota e entender o IR")
+check("ajuda tem a secao do MEI", "Se você é MEI" in h_aj)
+for _t in ("Guarde a nota assim que emitir", "limite do MEI", "DAS", "dossiê"):
+    check(f"ajuda explica: {_t}", _t in h_aj)
+
+def _nota(uid, valor):
+    with get_db() as db:
+        db.execute("""INSERT INTO notas (user_id,descricao,valor,tipo,categoria,status,data_emissao)
+                      VALUES (?,'Servico',?,'entrada','Serviços','Autorizada',date('now'))""", (uid, valor))
+
+def _um_gasto(uid):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,confidence,
+                      data_transacao,no_credito) VALUES (?,'saida',40,'Padaria','Mercado','manual',100,
+                      date('now'),0)""", (uid,))
+
+c_m = novo_cliente("mei-ir@teste.com", nome="Ana", perfil="mei")
+uid_m = uid_de("mei-ir@teste.com")
+check("na estreia o Herc nao empurra dica (mostra as boas-vindas)", _dica_atual(c_m) == "")
+_um_gasto(uid_m)
+check("MEI sem nota nenhuma e' lembrado de guardar", "guarde em" in _dica_atual(c_m))
+
+_nota(uid_m, 3000)
+check("com nota guardada, a dica vira a do Painel MEI", "Painel MEI" in _dica_atual(c_m))
+
+h_ir = c_m.get("/ir").get_data(as_text=True)
+# O bug: faturamento vem de NOTAS, renda tributavel vem de TRANSACOES.
+# Sem isso a tela dizia "sua renda e' R$ 0,00" pra quem faturou o ano todo.
+check("IR do MEI NAO diz que a renda e' zero",
+      "renda tributável no ano está em <strong>R$ 0,00" not in h_ir)
+check("IR do MEI mostra o faturamento das notas", "R$ 3.000,00" in h_ir)
+check("IR do MEI separa negocio de pessoa fisica", "duas contas separadas" in h_ir)
+check("IR do MEI manda pro Painel MEI", "/mei" in h_ir)
+check("IR do MEI manda falar com o contador", "com o contador" in h_ir)
+
+h_ir_pf = c1.get("/ir").get_data(as_text=True)
+check("PF nao ve o papo de MEI no IR", "duas contas separadas" not in h_ir_pf)
+
+c_lim = novo_cliente("mei-limite@teste.com", nome="Beto", perfil="mei")
+uid_lim = uid_de("mei-limite@teste.com")
+_um_gasto(uid_lim)
+_nota(uid_lim, A.MEI_LIMITE_ANUAL * 0.85)
+check("avisa ANTES de estourar o limite do MEI", "80% do limite" in _dica_atual(c_lim))
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
