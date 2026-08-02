@@ -2554,6 +2554,42 @@ def insight_semanal(user_id: int) -> dict[str, Any] | None:
     }
 
 
+def texto_recado(recado: dict[str, Any], nome: str = "") -> str:
+    """O fechamento da semana em texto puro, pronto pra colar no WhatsApp.
+
+    Sem HTML e sem link: mensagem que chega com cara de recado de gente, não de
+    notificação de sistema. O negrito usa *asterisco*, que é o do WhatsApp."""
+    ini, fim = recado["inicio"].strftime("%d/%m"), recado["fim"].strftime("%d/%m")
+    primeiro = (nome or "").strip().split(" ")[0]
+    linhas = [f"🦁 *Seu recado da semana* ({ini} a {fim})", ""]
+
+    abre = f"{primeiro}, você" if primeiro else "Você"
+    if recado["primeira_semana"]:
+        linhas.append(f"{abre} gastou *{money(recado['gasto'])}*. Foi sua primeira semana "
+                      "registrada — na próxima eu já comparo com essa.")
+    elif recado["delta"] is not None and recado["delta"] < -1:
+        linhas.append(f"{abre} gastou *{money(recado['gasto'])}*, "
+                      f"*{money(-recado['delta'])} a menos* que na semana anterior. 👏")
+    elif recado["delta"] is not None and recado["delta"] > 1:
+        linhas.append(f"{abre} gastou *{money(recado['gasto'])}*, "
+                      f"*{money(recado['delta'])} a mais* que na semana anterior.")
+    else:
+        linhas.append(f"{abre} gastou *{money(recado['gasto'])}* — praticamente o mesmo "
+                      "da semana anterior.")
+
+    if recado["mudanca"]:
+        m = recado["mudanca"]
+        verbo = "subiu" if m["delta"] > 0 else "caiu"
+        linhas += ["", f"O que mais mudou: *{m['categoria']}* {verbo} "
+                       f"{money(abs(m['delta']))}, fechando em {money(m['total'])}."]
+
+    if recado["sobrou"] > 0:
+        linhas += ["", f"💚 Sobrou *{money(recado['sobrou'])}* na semana. Guardar agora, "
+                       "enquanto está na conta, é bem mais fácil do que no fim do mês."]
+
+    return "\n".join(linhas)
+
+
 MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
             "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
 
@@ -3422,6 +3458,20 @@ def meses():
         linhas=comparar_categorias(user["id"], escolhido, anterior),
         detalhe=next((m for m in historico if m["mes"] == escolhido), None),
         detalhe_ant=next((m for m in historico if m["mes"] == anterior), None),
+    )
+
+
+@app.route("/recado")
+@login_required
+def recado():
+    """O fechamento da semana em formato de mensagem, pra copiar e mandar.
+
+    Enquanto o app não consegue avisar sozinho, quem manda é a pessoa."""
+    user = current_user()
+    rec = recado_da_semana(user["id"])
+    return render_template(
+        "recado.html", user=user, recado=rec,
+        mensagem=texto_recado(rec, user["nome"]) if rec else "",
     )
 
 

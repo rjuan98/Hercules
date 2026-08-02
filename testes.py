@@ -23,6 +23,9 @@ from database import get_db
 def _quebrar():
     raise RuntimeError("estourei aqui")
 
+def url_for_recado(h):
+    return 'href="/recado"' in h
+
 OK, FALHAS = [], []
 
 def check(nome, cond, extra=""):
@@ -1099,6 +1102,55 @@ _no_mes(uid_ms, "saida", 50, _atual, dia=1, cat="Mercado")
 check("marca o mes corrente como em andamento",
       next(m for m in A.historico_mensal(uid_ms) if m["mes"] == _atual)["em_curso"] is True)
 check("e a tela avisa", "ainda não acabou" in c_ms.get(f"/meses?mes={_atual}").get_data(as_text=True))
+
+secao("41. Recado em mensagem (copiar e mandar no WhatsApp)")
+_msg = A.texto_recado(_rec2, "Rita Souza")
+check("chama a pessoa pelo primeiro nome", _msg.startswith("🦁") and "Rita," in _msg, _msg[:60])
+check("nao usa o sobrenome", "Souza" not in _msg)
+check("funciona sem nome", A.texto_recado(_rec2, "").count("Você gastou") == 1)
+check("traz o periodo da semana",
+      _rec2["inicio"].strftime("%d/%m") in _msg and _rec2["fim"].strftime("%d/%m") in _msg)
+check("negrito e' o do WhatsApp (*), nao HTML", "*" in _msg and "<" not in _msg)
+check("diz o que mais mudou", "O que mais mudou" in _msg and "Transporte" in _msg)
+check("e o valor gasto", A.money(_rec2["gasto"]) in _msg)
+
+_r_baixou = dict(_rec2, delta=-150.0, primeira_semana=False)
+check("elogia quando gastou menos", "a menos" in A.texto_recado(_r_baixou) and "👏" in A.texto_recado(_r_baixou))
+_r_subiu = dict(_rec2, delta=150.0, primeira_semana=False)
+check("avisa quando gastou mais", "a mais" in A.texto_recado(_r_subiu))
+_r_igual = dict(_rec2, delta=0.0, primeira_semana=False)
+check("nao inventa variacao quando ficou igual",
+      "praticamente o mesmo" in A.texto_recado(_r_igual))
+_r_primeira = dict(_rec2, primeira_semana=True, delta=None)
+check("primeira semana nao compara", "primeira semana" in A.texto_recado(_r_primeira))
+_r_sem_sobra = dict(_rec2, sobrou=0.0)
+check("sem sobra nao oferece guardar", "Sobrou" not in A.texto_recado(_r_sem_sobra))
+
+_h_rec = c_r.get("/recado").get_data(as_text=True)
+check("a tela abre", c_r.get("/recado").status_code == 200)
+check("mostra a previa da mensagem", 'id="msgPrevia"' in _h_rec)
+check("tem botao de copiar", 'id="btnCopiar"' in _h_rec)
+check("monta o link do WhatsApp no navegador", "wa.me/?text=" in _h_rec)
+check("sem numero: quem escolhe o destino e' a pessoa", "wa.me/55" not in _h_rec)
+check("deixa claro que nada sai sozinho", "Nada sai daqui" in _h_rec)
+check("script da tela nao tem entidade escapada",
+      "&#39;" not in _h_rec[_h_rec.index("msgPrevia"):])
+# Sem clipboard (HTTP, ou documento sem foco) ainda tem que dar pra copiar
+check("tem plano B se o clipboard falhar", "execCommand" in _h_rec and "selecionarTudo" in _h_rec)
+check("no celular nao manda apertar Ctrl", "toque e segure" in _h_rec)
+
+check("quem nao tem recado ve estado vazio",
+      "Ainda não tenho recado" in c_novo.get("/recado").get_data(as_text=True))
+check("deslogado nao acessa", _an.get("/recado", follow_redirects=False).status_code == 302)
+# c_r ja dispensou o recado la em cima, entao o card nao aparece pra ele:
+# precisa de alguem com recado vivo
+c_r3 = novo_cliente("recado3@teste.com", nome="Rui")
+uid_r3 = uid_de("recado3@teste.com")
+_lanca(uid_r3, "entrada", 900, _i, "Salário")
+_lanca(uid_r3, "saida", 200, _i + timedelta(days=1), "Mercado")
+_h_home3 = c_r3.get("/").get_data(as_text=True)
+check("o card da Inicio leva pra la",
+      "Fechou a semana de" in _h_home3 and url_for_recado(_h_home3))
 
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")

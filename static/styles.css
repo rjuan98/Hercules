@@ -1498,3 +1498,15 @@ html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
     .mes-barra { grid-template-columns: 46px 1fr; }
     .mes-barra-valor { grid-column: 2; justify-self: end; }
 }
+
+/* ---- Prévia da mensagem: tem que parecer o balão do WhatsApp ---- */
+.msg-previa {
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 16px 18px;
+    border-radius: 18px 18px 18px 6px;
+    background: var(--surface-soft);
+    border: 1.5px solid var(--border);
+    font-size: 0.98rem;
+    line-height: 1.6;
+}

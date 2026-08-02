@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block title %}Recado da semana · Hércules{% endblock %}
+{% block page_title %}Recado da semana{% endblock %}
+{% block page_subtitle %}Pronto pra copiar e mandar pra quem você quiser.{% endblock %}
+
+{% block content %}
+{% if not recado %}
+<section class="page-card" style="max-width:640px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Ainda não tenho recado dessa semana.</strong><br>
+            Assim que tiver movimentação na semana que fechou, eu monto a mensagem aqui.
+        </div>
+    </div>
+</section>
+{% else %}
+<section class="page-card" style="max-width:640px; margin:0 auto;">
+    <p class="topbar-subtitle" style="margin-bottom:14px;">
+        Semana de <strong>{{ recado.inicio.strftime('%d/%m') }}</strong> a
+        <strong>{{ recado.fim.strftime('%d/%m') }}</strong>.
+    </p>
+
+    {# Aparência de mensagem: quem for copiar precisa ver como vai chegar do outro lado #}
+    <div class="msg-previa" id="msgPrevia">{{ mensagem }}</div>
+
+    <div class="page-actions" style="justify-content:flex-start; margin-top:16px;">
+        <button type="button" class="button button-primary" id="btnCopiar">
+            <i data-lucide="copy"></i> <span id="btnCopiarTexto">Copiar mensagem</span>
+        </button>
+        <a class="button button-outline" id="btnZap" target="_blank" rel="noopener">
+            <i data-lucide="send"></i> Abrir no WhatsApp
+        </a>
+    </div>
+
+    <p class="helper-text" style="margin-top:14px;">
+        O WhatsApp abre com a mensagem já escrita — você escolhe pra quem mandar. Nada sai daqui
+        sozinho.
+    </p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if recado %}
+<script>
+window.addEventListener('DOMContentLoaded', () => {
+    const previa = document.getElementById('msgPrevia');
+    const btn = document.getElementById('btnCopiar');
+    const rotulo = document.getElementById('btnCopiarTexto');
+    const zap = document.getElementById('btnZap');
+    // textContent, não innerHTML: a mensagem tem que sair igualzinha do outro lado
+    const texto = previa.textContent.trim();
+
+    zap.href = 'https://wa.me/?text=' + encodeURIComponent(texto);
+
+    const avisar = (msg, voltar = true) => {
+        rotulo.textContent = msg;
+        if (voltar) setTimeout(() => { rotulo.textContent = 'Copiar mensagem'; }, 2500);
+    };
+
+    function selecionarTudo() {
+        const r = document.createRange();
+        r.selectNodeContents(previa);
+        const s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+    }
+
+    btn.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(texto);
+            avisar('Copiado! ✅');
+            return;
+        } catch (e) { /* segue pro plano B */ }
+
+        // A API de clipboard exige HTTPS e o documento em foco. Sem ela, seleciona
+        // o texto e tenta o jeito antigo, que ainda funciona em muito navegador.
+        selecionarTudo();
+        let copiou = false;
+        try { copiou = document.execCommand('copy'); } catch (e) { copiou = false; }
+        if (copiou) {
+            avisar('Copiado! ✅');
+            return;
+        }
+        // Sem Ctrl no celular — e é no celular que isso vai ser usado no domingo
+        const noCelular = window.matchMedia('(pointer: coarse)').matches;
+        avisar(noCelular ? 'Selecionei — toque e segure pra copiar'
+                         : 'Selecionei — aperte Ctrl+C', false);
+    });
+});
+</script>
+{% endif %}
+{% endblock %}
