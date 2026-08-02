@@ -26,6 +26,12 @@ def check(nome, cond, extra=""):
 def secao(t):
     print(f"\n=== {t} ===")
 
+def so_texto(html):
+    """Só o que a pessoa lê. Valores vêm embrulhados em <span class="money"> por
+    causa do olhinho, então checar frase por substring crua daria falso negativo."""
+    import re as _re
+    return _re.sub(r"\s+", " ", _re.sub(r"<[^>]+>", "", html))
+
 def novo_cliente(email, senha="senha123", nome="Fulano", perfil="pf"):
     c = A.app.test_client()
     with c.session_transaction() as s:
@@ -556,12 +562,12 @@ check("mostra o gasto do mes", "R$ 300,00" in h_o)
 # define limite numa categoria padrao (antes so dava nas criadas pelo usuario)
 c_o.post("/categorias", data={"csrf_token": "t", "nome": "Mercado", "limite_mensal": "500,00"})
 h_o2 = c_o.get("/categorias").get_data(as_text=True)
-check("da pra pôr limite em categoria padrão", "de R$ 500,00" in h_o2, )
-check("mostra quanto resta", "restam R$ 200,00" in h_o2)
+check("da pra pôr limite em categoria padrão", "de R$ 500,00" in so_texto(h_o2))
+check("mostra quanto resta", "restam R$ 200,00" in so_texto(h_o2))
 check("barra de progresso aparece", "progress-fill" in h_o2)
 c_o.post("/categorias", data={"csrf_token": "t", "nome": "Mercado", "limite_mensal": "200,00"})
 h_o3 = c_o.get("/categorias").get_data(as_text=True)
-check("estourou o limite avisa", "passou R$ 100,00" in h_o3 and "fill-danger" in h_o3)
+check("estourou o limite avisa", "passou R$ 100,00" in so_texto(h_o3) and "fill-danger" in h_o3)
 
 secao("28. Sync não atropela a coleta do banco")
 A.time.sleep = lambda s: None
@@ -754,6 +760,28 @@ uid_lim = uid_de("mei-limite@teste.com")
 _um_gasto(uid_lim)
 _nota(uid_lim, A.MEI_LIMITE_ANUAL * 0.85)
 check("avisa ANTES de estourar o limite do MEI", "80% do limite" in _dica_atual(c_lim))
+
+secao("33. Olhinho: ocultar os valores na tela")
+check("money embrulha o valor pra dar pra ocultar",
+      str(A.money_html(1234.5)) == '<span class="money">R$ 1.234,50</span>')
+check("money_html escapa entrada estranha", "<b>" not in str(A.money_html("<b>x</b>")))
+check("money cru (usado em texto) segue sem tag", "<" not in A.money(10))
+
+h_home = c1.get("/").get_data(as_text=True)
+check("o botao do olhinho aparece", 'id="eyeToggle"' in h_home)
+check("saldo da home vem embrulhado", 'class="money"' in h_home)
+check("aplica antes de pintar (nao pisca o valor)",
+      "hercValoresOcultos" in h_home and "valores-ocultos" in h_home)
+
+_css = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "styles.css"),
+            encoding="utf-8").read()
+_regra = _css.split("html.valores-ocultos .money {")[1].split("}")[0]
+check("oculto: some com o numero", "color: transparent" in _regra)
+# Se a mascara acompanhasse o tamanho do numero, o borrao entregaria a grandeza
+check("oculto: largura FIXA (nao entrega a grandeza)",
+      "width: 4.4em" in _regra and "overflow: hidden" in _regra)
+check("oculto: borra o grafico junto", "canvas { filter: blur" in _css)
+check("deslogado nao tem olhinho", 'id="eyeToggle"' not in _an.get("/login").get_data(as_text=True))
 
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")

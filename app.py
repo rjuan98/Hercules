@@ -31,6 +31,7 @@ from flask import (
     session,
     url_for,
 )
+from markupsafe import Markup
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -203,6 +204,11 @@ def money(value: Any) -> str:
         return f"R$ {float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
         return "R$ 0,00"
+
+
+def money_html(value: Any) -> Markup:
+    """Mesmo valor, embrulhado — é isso que o olhinho de ocultar apaga na tela."""
+    return Markup('<span class="money">{}</span>').format(money(value))
 
 
 def format_date(value: Any) -> str:
@@ -2002,7 +2008,7 @@ def calculate_business_summary(user_id: int):
 # ------------------------
 # Jinja
 # ------------------------
-app.jinja_env.filters["money"] = money
+app.jinja_env.filters["money"] = money_html
 app.jinja_env.globals["padrao_sugerido"] = padrao_sugerido
 app.jinja_env.filters["format_date"] = format_date
 app.jinja_env.filters["month_label"] = month_label

@@ -1443,3 +1443,34 @@ body.mode-simple .toast { font-size: 1.05rem; }
 /* Botão de leitura com IA na nova nota */
 .ai-read-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .ai-status { font-size: 0.88rem; color: var(--muted); }
+
+/* ---- Olhinho: ocultar os valores na tela ----
+   A largura da máscara é FIXA de propósito. Se ela acompanhasse o número,
+   quem estivesse olhando por cima do ombro descobriria a grandeza do valor
+   só pelo tamanho do borrão. */
+.money { white-space: nowrap; }
+
+html.valores-ocultos .money {
+    display: inline-block;
+    position: relative;
+    width: 4.4em;
+    overflow: hidden;
+    color: transparent !important;
+    user-select: none;
+    vertical-align: baseline;
+}
+html.valores-ocultos .money::after {
+    content: "R$ ●●●";
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+}
+/* O gráfico também entrega os valores — borra junto */
+html.valores-ocultos .chart-card canvas,
+html.valores-ocultos .chart-box canvas { filter: blur(10px); }
+
+.eye-toggle .eye-off { display: none; }
+html.valores-ocultos .eye-toggle .eye-on { display: none; }
+html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
