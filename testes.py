@@ -604,6 +604,43 @@ _mock_item("LOGIN_ERROR", recente)
 r_login = A.pluggy_refresh_items("k", ["i1"], espera_max=0)
 check("detecta acesso expirado", r_login["erro_login"] is True)
 
+secao("29. Privacidade e apagar conta")
+_anon = A.app.test_client()
+r_priv = _anon.get("/privacidade")
+h_priv = r_priv.get_data(as_text=True)
+check("politica abre SEM login (da pra ler antes de se cadastrar)", r_priv.status_code == 200)
+check("diz que nao vende dados", "Não vendo seus dados" in h_priv)
+check("explica que o banco e' so leitura", "somente leitura" in h_priv)
+check("e' honesta sobre os limites do projeto",
+      "não é um banco com equipe de segurança" in h_priv)
+check("link da politica na tela de login", "/privacidade" in _anon.get("/login").get_data(as_text=True))
+
+c_del = novo_cliente("apagar@teste.com", nome="Apaga")
+uid_del = uid_de("apagar@teste.com")
+c_del.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "50,00",
+                                     "descricao": "Gasto do apagar"})
+c_del.post("/metas", data={"csrf_token": "t", "nome": "Reserva", "meta_valor": "1.000,00"})
+c_del.post("/dividas", data={"csrf_token": "t", "tipo": "devo", "descricao": "Divida",
+                             "valor_total": "100,00"})
+def _conta_de(tabela, uid):
+    with get_db() as db:
+        return db.execute(f"SELECT COUNT(*) AS n FROM {tabela} WHERE user_id=?", (uid,)).fetchone()["n"]
+check("dados criados antes de apagar",
+      _conta_de("transacoes", uid_del) >= 1 and _conta_de("metas", uid_del) == 1)
+c_del.post("/conta/apagar", data={"csrf_token": "t", "confirmacao": "sim"})
+with get_db() as db:
+    vivo = db.execute("SELECT COUNT(*) AS n FROM usuarios WHERE id=?", (uid_del,)).fetchone()["n"]
+check("confirmacao errada NAO apaga", vivo == 1)
+c_del.post("/conta/apagar", data={"csrf_token": "t", "confirmacao": "APAGAR"})
+with get_db() as db:
+    vivo2 = db.execute("SELECT COUNT(*) AS n FROM usuarios WHERE id=?", (uid_del,)).fetchone()["n"]
+check("apaga a conta", vivo2 == 0)
+check("apaga junto movimentacoes, metas e dividas (cascade)",
+      _conta_de("transacoes", uid_del) == 0 and _conta_de("metas", uid_del) == 0
+      and _conta_de("dividas", uid_del) == 0)
+check("NAO mexe nos dados de outro usuario", _conta_de("transacoes", uid1) > 0)
+check("sessao encerrada apos apagar", c_del.get("/", follow_redirects=False).status_code == 302)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

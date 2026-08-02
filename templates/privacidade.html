@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block title %}Privacidade · Hércules{% endblock %}
+{% block page_title %}Seus dados são seus{% endblock %}
+{% block page_subtitle %}Em português normal, sem letra miúda.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:760px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>O resumo em três linhas:</strong><br>
+            Eu não vendo nem compartilho seus dados com ninguém.<br>
+            A conexão com seu banco é <strong>só de leitura</strong> — eu não consigo mexer no seu dinheiro.<br>
+            Você pode apagar tudo quando quiser, e some de verdade.
+        </div>
+    </div>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:10px;">O que o Hércules guarda</h2>
+    <ul style="margin:0; padding-left:20px; line-height:1.9;">
+        <li><strong>Sua conta:</strong> nome e e-mail. A senha é guardada embaralhada (nem eu consigo ler).</li>
+        <li><strong>Suas finanças:</strong> movimentações, saldo, categorias, metas, dívidas e contas — o que você digita e o que vem do banco.</li>
+        <li><strong>Notas e comprovantes:</strong> só se você enviar.</li>
+    </ul>
+    <p class="helper-text" style="margin-top:12px;">Nada disso é usado para outra coisa além de mostrar pra você.</p>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:10px;">Sobre conectar seu banco</h2>
+    <ul style="margin:0; padding-left:20px; line-height:1.9;">
+        <li>A conexão usa o <strong>Open Finance</strong>, o sistema oficial regulado pelo Banco Central, através da Pluggy.</li>
+        <li><strong>Você digita a senha do banco no próprio banco</strong> — ela nunca passa pelo Hércules. Eu nunca vejo sua senha.</li>
+        <li>O acesso é <strong>somente leitura</strong>: dá pra ver saldo e movimentações, e <strong>não</strong> dá pra transferir, pagar ou mexer em nada.</li>
+        <li>Você pode desconectar quando quiser, aqui ou no seu banco. A autorização também expira sozinha por lei.</li>
+    </ul>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:10px;">O que eu <em>não</em> faço</h2>
+    <ul style="margin:0; padding-left:20px; line-height:1.9;">
+        <li>Não vendo seus dados. Para ninguém, nunca.</li>
+        <li>Não mostro anúncio.</li>
+        <li>Não ofereço empréstimo, cartão nem investimento — eu não ganho quando você gasta ou se endivida.</li>
+        <li>Não compartilho suas informações com outras pessoas ou empresas.</li>
+    </ul>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:10px;">Como seus dados são protegidos</h2>
+    <ul style="margin:0; padding-left:20px; line-height:1.9;">
+        <li>Tudo trafega criptografado (HTTPS).</li>
+        <li>Sua senha é guardada embaralhada, não em texto.</li>
+        <li>Cada pessoa só enxerga os próprios dados.</li>
+        <li>Se quiser, dá pra exigir <strong>sua digital</strong> para abrir o app (Configurações → Bloqueio por digital).</li>
+    </ul>
+
+    <div class="auth-note" style="margin-top:14px;">
+        <strong>Sendo transparente:</strong> o Hércules é um projeto novo e pequeno, tocado por uma pessoa —
+        não é um banco com equipe de segurança. Os dados ficam num servidor alugado e não são
+        criptografados um a um dentro do banco de dados. Prefiro te contar isso a fingir que é
+        maior do que é. Se isso te preocupa, use o Hércules sem conectar o banco: dá pra importar
+        extrato ou anotar à mão do mesmo jeito.
+    </div>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:10px;">Apagar tudo</h2>
+    <p class="subtitle" style="margin:0;">
+        Em <strong>Configurações</strong> existe o botão <strong>“Apagar minha conta”</strong>.
+        Ele apaga de verdade: suas movimentações, metas, dívidas, notas, anexos e a conexão com o banco.
+        Não fica cópia, e não dá para desfazer.
+    </p>
+    <div class="page-actions" style="justify-content:flex-start; margin-top:14px;">
+        {% if session.get('user_id') %}
+        <a href="{{ url_for('settings') }}" class="button button-outline">Ir para Configurações</a>
+        {% else %}
+        <a href="{{ url_for('login') }}" class="button button-outline">Voltar</a>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

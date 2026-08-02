@@ -221,6 +221,32 @@
     <p class="helper-text" id="statusDigital" style="margin-top:10px;"></p>
     {% endif %}
 </section>
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:10px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Seus dados</h2>
+        <p class="topbar-subtitle">O Hércules não vende nem compartilha nada. Você manda nos seus dados.</p>
+    </div>
+    <div class="page-actions" style="justify-content:flex-start;">
+        <a href="{{ url_for('privacidade') }}" class="button button-outline"><i data-lucide="shield-check"></i> Ler a política de privacidade</a>
+    </div>
+
+    <details class="form-advanced" style="margin-top:14px;">
+        <summary>Apagar minha conta</summary>
+        <p class="helper-text" style="margin:10px 0;">
+            Apaga <strong>tudo</strong>: movimentações, metas, dívidas, contas, notas, anexos e a conexão
+            com o banco. Não fica cópia e <strong>não dá para desfazer</strong>.
+            Para confirmar, escreva <strong>APAGAR</strong> no campo abaixo.
+        </p>
+        <form method="POST" action="{{ url_for('apagar_conta') }}"
+              style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;"
+              data-confirm="Apagar sua conta e TODOS os seus dados? Isso não tem volta.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="confirmacao" placeholder="Escreva APAGAR" style="width:180px;"
+                   aria-label="Escreva APAGAR para confirmar" autocomplete="off">
+            <button type="submit" class="button button-danger">Apagar minha conta</button>
+        </form>
+    </details>
+</section>
 {% endblock %}
 
 {% block scripts %}

@@ -2039,7 +2039,7 @@ def exigir_desbloqueio():
     if "user_id" not in session:
         return None
     livres = {"logout", "app_bloqueado", "static", "passkey_entrar", "passkey_entrar_opcoes",
-              "passkey_remover", "api_captura", "android_asset_links"}
+              "passkey_remover", "api_captura", "android_asset_links", "privacidade"}
     if request.endpoint in livres:
         return None
     if not app_tem_bloqueio(session["user_id"]):
@@ -4173,6 +4173,34 @@ def passkey_remover():
     _marcar_desbloqueado()
     flash("Bloqueio por digital desativado.")
     return redirect(url_for("settings"))
+
+
+@app.route("/privacidade")
+def privacidade():
+    """Página pública: qualquer um pode ler ANTES de criar conta ou conectar o banco."""
+    return render_template("privacidade.html")
+
+
+@app.route("/conta/apagar", methods=["POST"])
+@login_required
+def apagar_conta():
+    """Apaga a conta e tudo que é dela. Sem isso, a política de privacidade mentiria."""
+    user = current_user()
+    confirmacao = sanitize_text(request.form.get("confirmacao")).upper()
+    if confirmacao != "APAGAR":
+        flash("Pra apagar a conta, escreva APAGAR no campo de confirmação.")
+        return redirect(url_for("settings"))
+    with get_db() as db:
+        anexos = db.execute("SELECT arquivo FROM notas WHERE user_id = ? AND arquivo IS NOT NULL",
+                            (user["id"],)).fetchall()
+    for a in anexos:
+        remove_uploaded_file(a["arquivo"])
+    with get_db() as db:
+        # As tabelas filhas têm ON DELETE CASCADE, então some tudo junto
+        db.execute("DELETE FROM usuarios WHERE id = ?", (user["id"],))
+    session.clear()
+    flash("Sua conta e todos os seus dados foram apagados. Obrigado por ter usado o Herc. 🦁")
+    return redirect(url_for("login"))
 
 
 @app.route("/bloqueado")
