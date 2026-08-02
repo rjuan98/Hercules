@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Resumo · Hércules{% endblock %}
 {% block page_title %}Resumo{% endblock %}
-{% block page_subtitle %}O mês inteiro em uma tela: entradas, saídas, contas, metas e notas.{% endblock %}
+{% block page_subtitle %}O mês inteiro em uma tela: entradas, saídas, contas e metas.{% endblock %}
 
 {% block content %}
 {% if not retrato.tem_dados and not stats['transactions'] %}
@@ -138,11 +138,13 @@
             {% endif %}
         </p>
     </article>
+    {% if session.get('perfil', 'pf') in ['mei', 'lojista', 'hibrido'] %}
     <article class="glass-card metric-card">
         <p class="metric-label">Notas guardadas</p>
         <p class="metric-value" style="font-size:1.6rem;">{{ stats['notes']|length }}</p>
         <p class="metric-footnote"><a href="{{ url_for('listar_notas') }}" style="color:var(--primary-deep); font-weight:800;">Ver notas</a></p>
     </article>
+    {% endif %}
 </section>
 
 {% if stats['reserve_monthly_needed'] > 0 %}

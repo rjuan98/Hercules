@@ -45,7 +45,11 @@
 <section class="page-card" style="margin-top:18px;">
     <p class="subtitle" style="margin:0;">
         💡 Junte os comprovantes de <strong>saúde</strong> e <strong>educação</strong> — são eles que abatem seu imposto.
+        {% if session.get('perfil', 'pf') in ['mei', 'lojista', 'hibrido'] %}
         Guarde as notas em <a href="{{ url_for('listar_notas') }}" style="color:var(--primary-deep); font-weight:800;">Notas</a> e categorize seus gastos certinho pra eu somar tudo.
+        {% else %}
+        Categorize seus gastos como <strong>Saúde</strong> e <strong>Educação</strong> que eu somo tudo — e guarde os comprovantes com você.
+        {% endif %}
     </p>
     <div class="auth-note" style="margin-top:14px;">
         ⚠️ Isto é uma <strong>estimativa</strong> pra você se planejar e não deixar dedução na mesa. <strong>Não é o cálculo oficial</strong> e não substitui um contador nem o programa da Receita. Os limites acima são valores de referência — confirme os do ano vigente.

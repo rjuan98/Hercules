@@ -52,7 +52,10 @@
                 <a href="{{ url_for('previa_ir') }}" class="menu-link {% if request.path.startswith('/ir') %}active{% endif %}"><i data-lucide="percent"></i><span>Prévia do IR</span></a>
                 <a href="{{ url_for('trabalhos') }}" class="menu-link {% if request.path.startswith('/trabalhos') %}active{% endif %}"><i data-lucide="trophy"></i><span>Conquistas</span></a>
                 {% endif %}
+                {# Nota fiscal, clientes e serviços só fazem sentido pra quem tem negócio #}
+                {% if perfil in ['mei', 'lojista', 'hibrido'] %}
                 <a href="{{ url_for('listar_notas') }}" class="menu-link {% if request.path.startswith('/notas') %}active{% endif %}"><i data-lucide="files"></i><span>Notas</span></a>
+                {% endif %}
                 {% if perfil in ['mei', 'lojista', 'hibrido'] and not modo_simples %}
                 <p class="sidebar-section-label">Seu negócio</p>
                 <a href="{{ url_for('business_dashboard') }}" class="menu-link {% if request.path.startswith('/business') %}active{% endif %}"><i data-lucide="store"></i><span>Negócio</span></a>

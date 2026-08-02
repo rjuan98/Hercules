@@ -120,7 +120,9 @@
         {% else %}
         <a href="{{ url_for('nova_transacao') }}" class="button button-primary simple-big-btn"><i data-lucide="plus-circle"></i> Registrar gasto ou entrada</a>
         {% endif %}
+        {% if session.get('perfil', 'pf') in ['mei', 'lojista', 'hibrido'] %}
         <a href="{{ url_for('nova_nota') }}" class="button button-outline simple-big-btn"><i data-lucide="camera"></i> Guardar uma nota</a>
+        {% endif %}
     </div>
     <p class="simple-footnote">Quer ver mais detalhes? <a href="{{ url_for('dashboard') }}">Abrir o resumo completo</a></p>
 </section>
