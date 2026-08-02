@@ -204,7 +204,7 @@
         <ul class="data-list">
             {% for c in stats['upcoming_commitments'][:6] %}
             <li class="data-item" style="padding:14px 16px;">
-                <div class="note-header">
+                <div class="note-header linha-valor">
                     <div>
                         <p class="note-title">{{ c['descricao'] }}</p>
                         <div class="note-meta"><span>vence {{ c['vencimento']|format_date }}</span></div>
@@ -230,7 +230,7 @@
         <ul class="data-list">
             {% for tx in stats['recent_transactions'] %}
             <li class="data-item" style="padding:14px 16px;">
-                <div class="note-header">
+                <div class="note-header linha-valor">
                     <div>
                         <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}</p>
                         <div class="note-meta">
@@ -260,7 +260,7 @@
             {% for goal in stats['goals'][:5] %}
             {% set pct = ((goal['valor_atual'] / goal['meta_valor']) * 100) if goal['meta_valor'] else 0 %}
             <li class="data-item" style="padding:14px 16px;">
-                <div class="note-header">
+                <div class="note-header linha-valor">
                     <div>
                         <p class="note-title">{{ goal['nome'] }}</p>
                         <div class="note-meta">

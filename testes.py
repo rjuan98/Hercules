@@ -1804,6 +1804,45 @@ check("o servidor segue aceitando foto grande (quando o JS falha)",
       A.allowed_file("nota.jpg") and A.app.config["MAX_CONTENT_LENGTH"] >= 8 * 1024 * 1024)
 
 
+secao("64. O que um testador implicante consegue quebrar")
+# Achados de um amigo testando de ma-fe (obrigado, e' pra isso que serve).
+check("descricao gigante e' cortada", len(A.sanitize_text("x" * 50_000)) == A.TEXTO_MAX)
+check("limite de 200 caracteres", A.TEXTO_MAX == 200)
+for _v in ("1e308", "999999999999999999999999999", "-1e308"):
+    check(f"valor absurdo virou o teto: {_v[:14]}", abs(A.parse_money(_v)) == A.VALOR_MAX)
+check("inf nao entra", A.parse_money("inf") == 0.0)
+check("nan nao entra", A.parse_money("nan") == 0.0)
+check("valor normal segue intacto", A.parse_money("1.234,56") == 1234.56)
+check("valor_absurdo reconhece o teto", A.valor_absurdo(A.VALOR_MAX) and not A.valor_absurdo(5000))
+
+c_imp = novo_cliente("implicante@teste.com", nome="Rui")
+uid_imp = uid_de("implicante@teste.com")
+# exatamente o que ele fez: base64 colado na descricao + valor de 27 digitos
+c_imp.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "entrada",
+                                     "valor": "999999999999999999999999999",
+                                     "descricao": "/9j/4AAQSkZJRgABAQ" * 900,
+                                     "categoria": "Salário"})
+with get_db() as db:
+    _n = db.execute("SELECT COUNT(*) AS n FROM transacoes WHERE user_id=?", (uid_imp,)).fetchone()["n"]
+check("valor absurdo e' RECUSADO, nao aceito calado", _n == 0)
+
+c_imp.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "57,00",
+                                     "descricao": "x" * 9000, "categoria": "Outros"})
+with get_db() as db:
+    _r = db.execute("SELECT LENGTH(descricao) AS n FROM transacoes WHERE user_id=?",
+                    (uid_imp,)).fetchone()
+check("com valor válido, a descrição entra cortada", _r and _r["n"] == 200, _r["n"] if _r else None)
+
+# a pagina inteira encolhia pra caber a string sem espaco
+check("texto sem espaco quebra em vez de esticar a tela",
+      "overflow-wrap: anywhere" in _css_src)
+check("o valor fica sempre no mesmo canto", ".linha-valor { flex-wrap: nowrap;" in _css_src)
+_h_tx = c_imp.get("/transacoes").get_data(as_text=True)
+check("a lista de lançamentos usa o alinhamento fixo", "note-header linha-valor" in _h_tx)
+check("o formulário avisa o limite antes de colar",
+      'maxlength="200"' in c_imp.get("/transacoes/nova").get_data(as_text=True))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

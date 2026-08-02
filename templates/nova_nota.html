@@ -10,7 +10,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-group" style="grid-column:1 / -1;">
             <label for="descricao">Descrição</label>
-            <input id="descricao" type="text" name="descricao" value="{{ note['descricao'] if note else '' }}" placeholder="Ex.: consulta médica, quentinha, aluguel" required>
+            <input id="descricao" type="text" name="descricao" value="{{ note['descricao'] if note else '' }}" placeholder="Ex.: consulta médica, quentinha, aluguel" required maxlength="200">
         </div>
         <div class="form-group">
             <label for="valor">Valor</label>
@@ -43,7 +43,7 @@
         {% endif %}
         <div class="form-group">
             <label for="cliente">{% if so_pessoal %}Quem emitiu{% else %}Cliente / Emitente{% endif %}</label>
-            <input id="cliente" type="text" name="cliente" value="{{ note['cliente'] if note else '' }}" placeholder="Nome">
+            <input id="cliente" type="text" name="cliente" value="{{ note['cliente'] if note else '' }}" placeholder="Nome" maxlength="200">
         </div>
         <div class="form-group">
             <label for="cnpj_emitente">CNPJ do emitente</label>

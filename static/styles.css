@@ -591,11 +591,22 @@ input[type="checkbox"]:focus-visible {
     gap: 12px;
     flex-wrap: wrap;
 }
+/* Sem min-width:0 o bloco de texto se recusa a encolher e empurra tudo; sem o
+   overflow-wrap, uma palavra longa sem espaço (um código colado, por exemplo)
+   estica a linha e a página inteira encolhe pra caber. */
+.note-header > * { min-width: 0; }
 .note-title {
     margin: 0;
     font-size: 1.02rem;
     font-weight: 800;
+    overflow-wrap: anywhere;
 }
+.note-meta span { overflow-wrap: anywhere; }
+
+/* Linha de dinheiro: o valor fica SEMPRE no mesmo canto. Com wrap, ele caía
+   pra baixo quando a descrição era longa e a lista virava um zigue-zague. */
+.linha-valor { flex-wrap: nowrap; align-items: flex-start; }
+.linha-valor > .badge { flex: 0 0 auto; align-self: flex-start; }
 .note-meta {
     display: flex;
     flex-wrap: wrap;

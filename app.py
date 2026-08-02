@@ -292,8 +292,14 @@ def allowed_file(filename: str) -> bool:
     return filename.rsplit(".", 1)[1].lower() in {"pdf", "png", "jpg", "jpeg", "webp"}
 
 
-def sanitize_text(value: str | None) -> str:
-    return re.sub(r"\s+", " ", (value or "").strip())
+# Nenhum campo de texto do app tem uso legítimo acima disso. Sem teto, um
+# testador colou uma string gigante e ela foi pro banco inteira — quebrando o
+# layout de todas as telas que mostram a lista.
+TEXTO_MAX = 200
+
+
+def sanitize_text(value: str | None, limite: int = TEXTO_MAX) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip())[:limite]
 
 
 def normalize_digits(value: str | None) -> str:
@@ -471,7 +477,7 @@ def parse_bank_statement_text(text: str, forcar_credito: bool = False) -> list[d
             continue
         vm = val_matches[-1]  # o valor da transação costuma ser o último número da linha
         valor = float(vm.group(2).replace(".", "").replace(",", "."))
-        if valor <= 0:
+        if valor <= 0 or valor_absurdo(valor):
             continue
         the_date = current_date or d
         if the_date is None:
@@ -1380,6 +1386,18 @@ def month_bounds(dt: date | None = None):
     return first, last
 
 
+# Acima disso é dedo escorregando no teclado, não dinheiro. O app é de finança
+# pessoal; sem teto, um valor absurdo contamina saldo, média e gráfico de todo
+# mundo que olhar aquela tela.
+VALOR_MAX = 1_000_000_000.0
+
+
+def valor_absurdo(v: float) -> bool:
+    """Bate no teto = quase certamente dedo escorregando. Melhor recusar e dizer,
+    do que aceitar calado e envenenar saldo, média e gráfico da pessoa."""
+    return abs(v) >= VALOR_MAX
+
+
 def parse_money(value: Any) -> float:
     if value is None:
         return 0.0
@@ -1390,9 +1408,13 @@ def parse_money(value: Any) -> float:
     if "," in text:
         text = text.replace(".", "").replace(",", ".")
     try:
-        return float(text)
+        n = float(text)
     except ValueError:
         return 0.0
+    # inf/nan passam pelo float() e envenenam qualquer soma que os encontre
+    if n != n or n in (float("inf"), float("-inf")):
+        return 0.0
+    return max(-VALOR_MAX, min(VALOR_MAX, n))
 
 
 def days_left_in_month() -> int:
@@ -1681,7 +1703,7 @@ def create_note_and_link_transaction(user_id: int, form, files, existing_note=No
     arquivo = files.get("arquivo")
     arquivo_name = existing_note["arquivo"] if existing_note else None
 
-    if not descricao or valor <= 0:
+    if not descricao or valor <= 0 or valor_absurdo(valor):
         return None, "Descrição e valor são obrigatórios."
     if data_emissao:
         try:
@@ -2905,7 +2927,7 @@ def ativar_das():
     valor = parse_money(request.form.get("valor"))
     dia = request.form.get("dia", type=int) or 20
     dia = max(1, min(28, dia))
-    if valor <= 0:
+    if valor <= 0 or valor_absurdo(valor):
         flash("Informe o valor do seu DAS-MEI (está no carnê ou no app do Simples Nacional).")
         return redirect(url_for("painel_mei"))
 
@@ -3087,7 +3109,7 @@ def metas():
                 date.fromisoformat(prazo)
             except ValueError:
                 prazo = None
-        if not nome or meta_valor <= 0:
+        if not nome or meta_valor <= 0 or valor_absurdo(meta_valor):
             flash("Informe um nome e um valor de meta válidos.")
             return redirect(url_for("metas"))
         with get_db() as db:
@@ -3154,7 +3176,7 @@ def dividas():
                 date.fromisoformat(vencimento)
             except ValueError:
                 vencimento = None
-        if not descricao or valor_total <= 0:
+        if not descricao or valor_total <= 0 or valor_absurdo(valor_total):
             flash("Escreva o que é e um valor válido.")
             return redirect(url_for("dividas"))
         with get_db() as db:
@@ -3182,7 +3204,7 @@ def pagar_divida(divida_id):
             flash("Dívida não encontrada.")
             return redirect(url_for("dividas"))
         falta = max(0.0, float(d["valor_total"]) - float(d["valor_pago"]))
-        if valor <= 0:
+        if valor <= 0 or valor_absurdo(valor):
             valor = falta  # sem valor informado = quitar o que falta
         novo_pago = min(float(d["valor_total"]), float(d["valor_pago"]) + valor)
         quitada = 1 if novo_pago >= float(d["valor_total"]) - 0.005 else 0
@@ -3231,7 +3253,7 @@ def definir_guardar_mensal():
     """Aceita a sugestão de quanto dá pra guardar por mês."""
     user = current_user()
     valor = parse_money(request.form.get("valor"))
-    if valor <= 0:
+    if valor <= 0 or valor_absurdo(valor):
         flash("Valor inválido.")
         return redirect(url_for("metas"))
     with get_db() as db:
@@ -3247,7 +3269,7 @@ def guardar_sobra():
     """Joga a sobra do mês na reserva de emergência (incrementa a meta, sem passar do alvo)."""
     user = current_user()
     valor = parse_money(request.form.get("valor"))
-    if valor <= 0:
+    if valor <= 0 or valor_absurdo(valor):
         flash("Nada a guardar agora.")
         return redirect(url_for("home"))
     with get_db() as db:
@@ -3284,7 +3306,7 @@ def editar_meta(goal_id):
             date.fromisoformat(prazo)
         except ValueError:
             prazo = goal["prazo"]
-    if meta_valor <= 0:
+    if meta_valor <= 0 or valor_absurdo(meta_valor):
         meta_valor = float(goal["meta_valor"])
     with get_db() as db:
         db.execute(
@@ -3304,7 +3326,7 @@ def aporte_meta(goal_id):
         flash("Meta não encontrada.")
         return redirect(url_for("metas"))
     valor = parse_money(request.form.get("valor"))
-    if valor <= 0:
+    if valor <= 0 or valor_absurdo(valor):
         flash("Informe um valor válido para guardar.")
         return redirect(url_for("metas"))
     with get_db() as db:
@@ -3442,7 +3464,7 @@ def marcar_recado_visto():
 def saldo_inicial():
     user = current_user()
     valor = parse_money(request.form.get("valor"))
-    if valor <= 0:
+    if valor <= 0 or valor_absurdo(valor):
         flash("Me diz quanto você tem na conta hoje (pode ser aproximado).")
         return redirect(url_for("home"))
     with get_db() as db:
@@ -3654,7 +3676,7 @@ def compromissos():
         tipo = request.form.get("tipo", "saida")
         recorrente = 1 if request.form.get("recorrente") else 0
         frequencia = request.form.get("frequencia", "mensal")
-        if not descricao or valor <= 0 or not vencimento:
+        if not descricao or valor <= 0 or valor_absurdo(valor) or not vencimento:
             flash("Preencha descrição, valor e vencimento.")
             return redirect(url_for("compromissos"))
         try:
@@ -4101,7 +4123,7 @@ def nova_transacao():
         if tipo not in {"entrada", "saida"}:
             flash("Escolha um tipo válido.")
             return redirect(url_for("nova_transacao"))
-        if valor <= 0:
+        if valor <= 0 or valor_absurdo(valor):
             flash("Informe um valor válido.")
             return redirect(url_for("nova_transacao"))
         try:
@@ -4159,7 +4181,7 @@ def editar_transacao(tx_id):
         categoria = sanitize_text(request.form.get("categoria")) or categorize(user["id"], estabelecimento, descricao)
         data_transacao = request.form.get("data_transacao") or tx["data_transacao"]
         no_credito = 1 if (tipo == "saida" and request.form.get("no_credito")) else 0
-        if tipo not in {"entrada", "saida"} or valor <= 0:
+        if tipo not in {"entrada", "saida"} or valor <= 0 or valor_absurdo(valor):
             flash("Confira o tipo e o valor.")
             return redirect(url_for("editar_transacao", tx_id=tx_id))
         try:

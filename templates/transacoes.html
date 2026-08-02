@@ -59,7 +59,7 @@
     <ul class="data-list">
         {% for tx in txs %}
         <li class="data-item {% if novo == tx['id'] %}just-created{% endif %}">
-            <div class="note-header">
+            <div class="note-header linha-valor">
                 <div>
                     <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}
                         {% if novo == tx['id'] %}<span class="just-created-tag">✓ registrado agora</span>{% endif %}

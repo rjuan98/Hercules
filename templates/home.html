@@ -340,7 +340,7 @@
     <ul class="data-list">
         {% for tx in stats['recent_transactions'][:4] %}
         <li class="data-item" style="padding:12px 14px;">
-            <div class="note-header">
+            <div class="note-header linha-valor">
                 <div>
                     <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}{% if tx['no_credito'] %} 💳{% endif %}</p>
                     <div class="note-meta">
