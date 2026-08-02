@@ -2378,6 +2378,9 @@ def home():
     avg_daily_spend = stats["month_expenses"] / max(1, date.today().day)
     projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month() - 1))
     view_mode = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
+    # O menu (base.html) lê da sessão e o conteúdo lê do banco. Duas fontes pra mesma
+    # verdade dá menu completo com tela simples — realinha aqui, que o banco manda.
+    session["view_mode"] = view_mode
 
     dias_ofx = dias_desde_ultimo_ofx(user)
     lembrar_ofx = (not onboarding) and (dias_ofx is None or dias_ofx >= OFX_LEMBRETE_DIAS)

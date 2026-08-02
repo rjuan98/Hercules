@@ -103,7 +103,9 @@
     {% endif %}
 </section>
 
-{% elif lembrar_ofx and not pluggy_ativo %}
+{# Quem escolheu o modo simples está pedindo MENOS coisa. Mandar essa pessoa baixar
+   um OFX é o pior primeiro recado possível — e ainda ocupava o lugar das dicas. #}
+{% elif lembrar_ofx and not pluggy_ativo and view_mode != 'simples' %}
 <section class="page-card suggestion-card" style="margin-bottom:18px;">
     <div class="hercules-greeting">
         <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">

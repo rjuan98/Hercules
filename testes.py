@@ -1152,6 +1152,40 @@ _h_home3 = c_r3.get("/").get_data(as_text=True)
 check("o card da Inicio leva pra la",
       "Fechou a semana de" in _h_home3 and url_for_recado(_h_home3))
 
+secao("42. A mãe: MEI no modo simples, sem banco conectado")
+# O perfil real da primeira testadora: 65 anos, MEI, modo simples, mora longe e
+# nao vai conectar banco. Toda a trilha do MEI ficava invisivel pra ela.
+c_mae = novo_cliente("mae@teste.com", nome="Ana", perfil="mei")
+uid_mae = uid_de("mae@teste.com")
+with get_db() as db:
+    db.execute("UPDATE usuarios SET view_mode='simples' WHERE id=?", (uid_mae,))
+_um_gasto(uid_mae)
+c_mae.get("/")   # a home realinha a sessao com o banco (menu e conteudo na mesma fonte)
+with c_mae.session_transaction() as s:
+    check("menu e conteudo leem o MESMO modo", s.get("view_mode") == "simples", s.get("view_mode"))
+_h_mae = c_mae.get("/").get_data(as_text=True)
+
+# Sem link, a ajuda e as dicas mandavam ela pra uma tela que ela nao alcancava
+check("Painel MEI TEM link no modo simples", 'href="/mei"' in _h_mae)
+check("Notas tambem", 'href="/notas"' in _h_mae)
+# Mandar quem pediu "menos coisa" baixar um OFX e' o pior primeiro recado possivel
+check("nao manda ela importar OFX", "Importa o OFX" not in _h_mae)
+check("mas o modo completo continua lembrando",
+      "Importa o OFX" in c_novo.get("/").get_data(as_text=True) or A.pluggy_configured())
+check("e as telas avancadas seguem escondidas",
+      'href="/clientes"' not in _h_mae and 'href="/business"' not in _h_mae)
+
+check("a dica do MEI chega ate ela", "guarde em" in _dica_atual(c_mae))
+_nota(uid_mae, 3000)
+check("e evolui quando ela guarda a nota", "Painel MEI" in _dica_atual(c_mae))
+
+for _r, _nome in [("/notas", "Notas"), ("/notas/nova", "Guardar nota"), ("/mei", "Painel MEI"),
+                  ("/ir", "Prévia do IR"), ("/ajuda", "Ajuda"), ("/transacoes/nova", "Registrar")]:
+    check(f"tela dela abre: {_nome}", c_mae.get(_r).status_code == 200)
+
+check("home simples tem o botao de guardar nota", "Guardar uma nota" in _h_mae)
+check("e o de registrar na mao (ela nao tem banco)", "Registrar gasto ou entrada" in _h_mae)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
