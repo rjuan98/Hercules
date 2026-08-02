@@ -105,7 +105,6 @@ backup.py         cópia diária, via API de backup do SQLite
 testes.py         a bateria inteira
 templates/        Jinja2
 static/           CSS próprio, service worker, ícones locais
-android/          companion app que lê notificações do banco
 ```
 
 Sem CDN: Lucide e Chart.js são servidos localmente. Quando o CDN cai, é a interface

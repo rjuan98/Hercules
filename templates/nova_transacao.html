@@ -18,9 +18,6 @@
     <form method="POST" class="form-grid cols-2" id="txForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="tipo" id="tipoInput" value="{{ tx['tipo'] if editando else 'saida' }}">
-        {% if request.args.get('captura_id') %}
-        <input type="hidden" name="captura_id" value="{{ request.args.get('captura_id') }}">
-        {% endif %}
 
         <div class="form-group" style="grid-column:1 / -1;">
             <label>O que aconteceu?</label>

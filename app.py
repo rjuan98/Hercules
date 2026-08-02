@@ -274,140 +274,6 @@ def normalize_digits(value: str | None) -> str:
 IGNORE_RULE = "__manter__"
 
 # ------------------------
-# Interpretador de capturas (notificações de banco e frases livres)
-# ------------------------
-# Valor com R$ explícito tem prioridade (evita confundir com número do cartão)
-_MONEY_RS = re.compile(r"R\$\s*([\d\.]+,\d{2}|[\d\.]+(?:,\d{1,2})?)")
-_MONEY_BARE = re.compile(r"(?<![\d,\.])(\d+(?:[.,]\d{1,2})?)(?![\d])")
-
-_ENTRADA_HINTS = (
-    "recebeu", "recebido", "recebida", "recebi", "pix recebido", "caiu na conta",
-    "depósito", "deposito", "salário", "salario", "te pagou", "crédito de", "credito de",
-    "transferência recebida", "transferencia recebida", "ganhei", "entrou",
-)
-_SAIDA_HINTS = (
-    "compra", "comprei", "pagamento", "pagou", "paguei", "gastei", "débito", "debito",
-    "pix enviado", "enviou um pix", "você enviou", "voce enviou", "saque", "boleto",
-    "transferência enviada", "transferencia enviada", "fatura", "aprovada em", "aprovada no",
-)
-_MERCHANT_CUTOFFS = (
-    # "cart" pega cartão/cartao mesmo com problema de acento
-    " para o cart", " com o cart", " no cart", " no seu cart", " cart%",
-    " cartão", " cartao", " final ", " às ", " as ", " hoje", " agora",
-    " em ", ",", ".", ";", " - ", " no valor", " valor de",
-)
-# "no crédito" (forma de pagamento) é diferente de "crédito de" (dinheiro entrando) —
-# por isso é uma checagem separada, não reaproveita _ENTRADA_HINTS.
-_CREDIT_CARD_HINTS = (
-    "no crédito", "no credito", "cartão de crédito", "cartao de credito", "fatura",
-)
-
-
-def parse_capture_text(user_id: int, text: str) -> dict[str, Any]:
-    """Extrai valor, tipo e estabelecimento de um texto de notificação ou frase livre.
-    Devolve {'ok': bool, 'valor', 'tipo', 'estabelecimento', 'descricao'}."""
-    raw = sanitize_text(text)
-    low = raw.lower()
-    result: dict[str, Any] = {
-        "ok": False, "valor": 0.0, "tipo": None, "estabelecimento": None, "descricao": raw[:120],
-        "no_credito": any(h in low for h in _CREDIT_CARD_HINTS),
-    }
-    if not raw:
-        return result
-
-    m = _MONEY_RS.search(raw) or _MONEY_BARE.search(raw)
-    if not m:
-        return result
-    result["valor"] = parse_money(m.group(1))
-    if result["valor"] <= 0:
-        return result
-
-    if any(h in low for h in _ENTRADA_HINTS):
-        result["tipo"] = "entrada"
-    elif any(h in low for h in _SAIDA_HINTS):
-        result["tipo"] = "saida"
-
-    # Estabelecimento: o que vem depois de "em/no/na/para/pra/de" após o valor.
-    # Remove antes a forma de pagamento ("no crédito"/"no débito"), senão ela
-    # é capturada como se fosse o nome do estabelecimento.
-    after_value = raw[m.end():]
-    after_value = re.sub(r"\bno\s+cr[ée]dito\b", "", after_value, flags=re.IGNORECASE)
-    after_value = re.sub(r"\bno\s+d[ée]bito\b", "", after_value, flags=re.IGNORECASE)
-    merchant_match = re.search(r"\b(?:em|no|na|pra|para|com|de|do|da)\s+(.{2,60})", after_value, re.IGNORECASE)
-    if merchant_match:
-        merchant = merchant_match.group(1)
-        low_merchant = merchant.lower()
-        cut = len(merchant)
-        for stop in _MERCHANT_CUTOFFS:
-            idx = low_merchant.find(stop)
-            if idx > 1:
-                cut = min(cut, idx)
-        merchant = sanitize_text(merchant[:cut])
-        if merchant:
-            result["estabelecimento"] = merchant[:60]
-
-    # Frase livre sem dica de direção ("12 quentinha") assume saída
-    if result["tipo"] is None and result["estabelecimento"]:
-        result["tipo"] = "saida"
-
-    result["ok"] = bool(result["valor"] > 0 and result["tipo"])
-    return result
-
-
-def register_capture(user_id: int, text: str, origem: str = "notificacao") -> dict[str, Any]:
-    """Interpreta e lança a captura. Alta confiança vira transação; dúvida vira pendente."""
-    # Diagnóstico do app (notificação sem título/texto reconhecível): nunca
-    # tenta extrair valor daqui — o dump pode conter números soltos (IDs,
-    # timestamps) que pareceriam um valor válido e virariam um lançamento falso.
-    if text.strip().startswith("[DIAGNOSTICO"):
-        with get_db() as db:
-            db.execute(
-                "INSERT INTO capturas (user_id, origem, conteudo, status, dados_extraidos) VALUES (?, ?, ?, 'pendente', ?)",
-                (user_id, origem, sanitize_text(text)[:500], json.dumps({"diagnostico": True})),
-            )
-        return {"status": "pendente"}
-
-    parsed = parse_capture_text(user_id, text)
-    today_iso = date.today().isoformat()
-
-    if parsed["ok"] and parsed["estabelecimento"]:
-        alvo = parsed["estabelecimento"]
-        with get_db() as db:
-            # Dedup: mesma pessoa, mesmo valor e lugar nos últimos 3 minutos
-            dup = db.execute(
-                """SELECT id FROM transacoes
-                   WHERE user_id = ? AND valor = ? AND LOWER(COALESCE(estabelecimento,'')) = LOWER(?)
-                     AND datetime(created_at) >= datetime('now', '-3 minutes')""",
-                (user_id, parsed["valor"], alvo),
-            ).fetchone()
-            if dup:
-                return {"status": "duplicada", "id": dup["id"]}
-            # Categoriza só pelo estabelecimento — a frase inteira engana
-            # (ex.: "GAStei" casa com a palavra-chave "gás" de Moradia)
-            categoria = categorize(user_id, alvo)
-            if parsed["tipo"] == "entrada" and categoria in TRANSACTION_CATEGORIES:
-                categoria = "Outros"
-            no_credito = 1 if (parsed["tipo"] == "saida" and parsed.get("no_credito")) else 0
-            cur = db.execute(
-                """INSERT INTO transacoes
-                   (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte, confidence, needs_review, no_credito)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 90, 0, ?)""",
-                (user_id, parsed["tipo"], parsed["valor"], alvo, alvo, categoria, today_iso, origem, no_credito),
-            )
-        return {"status": "lancada", "id": cur.lastrowid, "categoria": categoria,
-                "valor": parsed["valor"], "tipo": parsed["tipo"], "estabelecimento": alvo, "no_credito": bool(no_credito)}
-
-    # Não entendeu o bastante: fila de pendentes para o check-in
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO capturas (user_id, origem, conteudo, status, dados_extraidos) VALUES (?, ?, ?, 'pendente', ?)",
-            (user_id, origem, sanitize_text(text)[:500], json.dumps(parsed, ensure_ascii=False)),
-        )
-    return {"status": "pendente"}
-
-
-
-# ------------------------
 # OFX: importação de extrato com reconciliação
 # ------------------------
 _OFX_TRN_RE = re.compile(r"<STMTTRN>(.*?)(?:</STMTTRN>|(?=<STMTTRN>)|$)", re.DOTALL | re.IGNORECASE)
@@ -709,7 +575,6 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
                 (user_id, item["tipo"], item["valor"], item["data"]),
             ).fetchone()
             if match:
-                # O extrato sabe melhor se foi no crédito do que a captura em tempo real
                 db.execute(
                     "UPDATE transacoes SET fitid = ?, no_credito = ? WHERE id = ?",
                     (item["fitid"], no_credito, match["id"]),
@@ -949,7 +814,7 @@ TRABALHOS = [
      "como": "Termine um mês com as entradas maiores que as saídas."},
     {"key": "estabulos", "emoji": "🧹", "nome": "Os Estábulos de Augias",
      "feito": "Tudo limpo: nenhuma pendência, nenhuma conta vencida.",
-     "como": "Resolva as capturas pendentes e não deixe contas vencerem."},
+     "como": "Não deixe nenhuma conta vencer."},
     {"key": "aves", "emoji": "🦅", "nome": "As Aves do Estínfale",
      "feito": "Espantou as aves: 10 movimentações entraram sem você digitar.",
      "como": "Sincronize o banco e deixe o Herc trabalhar por você."},
@@ -1024,15 +889,12 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
         total = db.execute("SELECT COUNT(*) AS n FROM transacoes WHERE user_id = ?", (user_id,)).fetchone()["n"]
         if total < 10:
             return False
-        pend = db.execute(
-            "SELECT 1 FROM capturas WHERE user_id = ? AND status = 'pendente' LIMIT 1", (user_id,)
-        ).fetchone()
         vencida = db.execute(
             """SELECT 1 FROM compromissos WHERE user_id = ? AND status = 'pendente'
                AND date(vencimento) < date('now') LIMIT 1""",
             (user_id,),
         ).fetchone()
-        return pend is None and vencida is None
+        return vencida is None
     if key == "aves":
         # Movimentações que entraram sem digitação (banco/extrato)
         n = db.execute(
@@ -1107,7 +969,6 @@ def evaluate_trabalhos(user_id: int) -> list[str]:
 # Dicas do Herc: ensino contextual, uma frase por vez, some depois de vista
 HERC_TIPS = {
     "registro_rapido": "Dica: quando um gasto ficar em “Outros”, abra Entradas e saídas e toque em “Ensinar” — eu aprendo e arrumo todos os parecidos de uma vez. 🎯",
-    "primeira_captura": "Viu essa movimentação aí? Eu anotei sozinho pela notificação do banco — você não precisou fazer nada. 😉",
     "primeira_nota": "Guardei sua nota! Sempre que precisar achar alguma, elas ficam todas aqui, organizadas. No fim do ano, é só exportar para o contador.",
     # Dicas que aparecem no MOMENTO em que a coisa acontece — é assim que se aprende
     "tem_outros": "Tem gasto que eu não reconheci e deixei em “Outros”. Abra Entradas e saídas e toque em "
@@ -1400,8 +1261,7 @@ def is_personal_profile(profile: str) -> bool:
     return profile in {"pf", "hibrido"}
 
 
-# A cada quantos dias o Herc lembra de importar o extrato — cobre o que a
-# captura automática deixar passar, sem depender dela funcionar perfeitamente.
+# A cada quantos dias o Herc lembra de importar o extrato, pra nada passar batido.
 OFX_LEMBRETE_DIAS = 7
 
 
@@ -1414,54 +1274,6 @@ def dias_desde_ultimo_ofx(user) -> int | None:
         return (date.today() - date.fromisoformat(last)).days
     except ValueError:
         return None
-
-
-def get_or_create_capture_token(user) -> str:
-    """Token do app companion: nasce no primeiro pedido, independente de
-    como a pessoa logou (e-mail/senha ou Google)."""
-    token = user["capture_token"] if "capture_token" in user.keys() else None
-    if not token:
-        token = secrets.token_urlsafe(24)
-        with get_db() as db:
-            db.execute("UPDATE usuarios SET capture_token = ? WHERE id = ?", (token, user["id"]))
-    return token
-
-
-def create_auto_login_code(user_id: int) -> str:
-    """Código de uso único (2 minutos) para o WebView do app virar uma sessão
-    de verdade após o login do Google acontecer numa aba de navegador
-    separada (Custom Tab), que não compartilha cookies com o WebView."""
-    code = secrets.token_urlsafe(24)
-    expires_at = (datetime.utcnow() + timedelta(minutes=2)).isoformat()
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO app_auto_login (user_id, code, expires_at) VALUES (?, ?, ?)",
-            (user_id, code, expires_at),
-        )
-    return code
-
-
-def redeem_auto_login_code(code: str):
-    """Troca o código pela linha do usuário, uma única vez. Devolve None se
-    inválido, já usado ou expirado."""
-    if not code:
-        return None
-    with get_db() as db:
-        row = db.execute(
-            "SELECT * FROM app_auto_login WHERE code = ? AND used = 0",
-            (code,),
-        ).fetchone()
-        if not row:
-            return None
-        try:
-            expired = datetime.utcnow() > datetime.fromisoformat(row["expires_at"])
-        except ValueError:
-            expired = True
-        if expired:
-            return None
-        db.execute("UPDATE app_auto_login SET used = 1 WHERE id = ?", (row["id"],))
-        user = db.execute("SELECT * FROM usuarios WHERE id = ?", (row["user_id"],)).fetchone()
-    return user
 
 
 def save_uploaded_file(file_storage) -> str | None | bool:
@@ -2051,7 +1863,7 @@ def rotina_diaria():
 @app.before_request
 def csrf_protect():
     if request.method == "POST":
-        exempt = request.endpoint in {"logout", "api_captura",
+        exempt = request.endpoint in {"logout",
                                       "passkey_registrar", "passkey_entrar",
                                       "passkey_registrar_opcoes", "passkey_entrar_opcoes"}
         token = request.form.get("csrf_token", "")
@@ -2131,7 +1943,7 @@ def exigir_desbloqueio():
     if "user_id" not in session:
         return None
     livres = {"logout", "app_bloqueado", "static", "passkey_entrar", "passkey_entrar_opcoes",
-              "passkey_remover", "api_captura", "android_asset_links", "privacidade", "ajuda"}
+              "passkey_remover", "privacidade", "ajuda"}
     if request.endpoint in livres:
         return None
     if not app_tem_bloqueio(session["user_id"]):
@@ -2215,10 +2027,6 @@ def google_login():
     if oauth is None:
         flash("Login com Google não está configurado neste servidor.")
         return redirect(url_for("login"))
-    # Marca que este login começou dentro do app Android, para o callback
-    # devolver o controle pro app em vez de continuar no navegador.
-    if request.args.get("from_app"):
-        session["login_origin_app"] = True
     redirect_uri = url_for("google_callback", _external=True)
     return oauth.google.authorize_redirect(redirect_uri)
 
@@ -2251,33 +2059,6 @@ def google_callback():
             user = db.execute("SELECT * FROM usuarios WHERE email = ?", (email,)).fetchone()
     _start_session(user)
 
-    if session.pop("login_origin_app", False):
-        # Veio do app: devolve o controle pro app Android (App Link) com o
-        # token de captura e um código de uma vez para autenticar o WebView.
-        capture_token = get_or_create_capture_token(user)
-        auto_code = create_auto_login_code(user["id"])
-        return redirect(url_for("app_entrou", token=capture_token, code=auto_code))
-    return redirect(url_for("home"))
-
-
-@app.route("/app/entrou")
-def app_entrou():
-    """Alvo do App Link do app Android: o Chrome (Custom Tab) intercepta esta
-    navegação e entrega para o app. Se alguém chegar aqui direto num
-    navegador normal (app link não capturado), mostra uma página simples."""
-    return render_template("app_entrou.html")
-
-
-@app.route("/entrar-automatico")
-def entrar_automatico():
-    """O WebView do app chama esta rota com o código de uso único recebido
-    via App Link, para virar uma sessão de verdade dentro do WebView."""
-    code = request.args.get("code", "")
-    user = redeem_auto_login_code(code)
-    if not user:
-        flash("Esse link de entrada expirou. Entre novamente.")
-        return redirect(url_for("login"))
-    _start_session(user)
     return redirect(url_for("home"))
 
 
@@ -3372,38 +3153,6 @@ def delete_goal(goal_id):
 
 
 # ------------------------
-# Porta aberta para automações (Atalhos do iOS, Tasker, MacroDroid...).
-# O caminho principal hoje é o Open Finance; isto fica como alternativa manual:
-# POST /api/captura com token + texto ("gastei 12 na padaria") lança a movimentação.
-# ------------------------
-@app.route("/api/meu-token")
-@login_required
-def api_meu_token():
-    """Token do app companion para quem JÁ está logado no navegador/WebView
-    (cobre login por Google, que não tem senha para digitar no app).
-    O app Android lê o cookie de sessão do WebView e chama esta rota com ele."""
-    user = current_user()
-    capture_token = get_or_create_capture_token(user)
-    return {"ok": True, "token": capture_token, "nome": user["nome"]}, 200
-
-
-@app.route("/api/captura", methods=["POST"])
-def api_captura():
-    payload = request.get_json(silent=True) or request.form
-    token = sanitize_text(payload.get("token"))
-    texto = payload.get("texto") or payload.get("text") or ""
-    if not token:
-        return {"erro": "token ausente"}, 401
-    with get_db() as db:
-        user = db.execute("SELECT id FROM usuarios WHERE capture_token = ?", (token,)).fetchone()
-    if not user:
-        return {"erro": "token inválido"}, 401
-    if not sanitize_text(texto):
-        return {"erro": "texto vazio"}, 400
-    result = register_capture(user["id"], texto, origem="notificacao")
-    return result, 200
-
-
 @app.route("/trabalhos")
 @login_required
 def trabalhos():
@@ -4135,7 +3884,6 @@ def nova_transacao():
         confidence = int(parse_money(request.form.get("confidence")) or 100)
         needs_review = 1 if request.form.get("needs_review") else 0
         extra_json = request.form.get("extra_json") or ""
-        captura_id = request.form.get("captura_id", type=int)
         no_credito = 1 if (tipo == "saida" and request.form.get("no_credito")) else 0
         if tipo not in {"entrada", "saida"}:
             flash("Escolha um tipo válido.")
@@ -4169,11 +3917,6 @@ def nova_transacao():
                 ),
             )
             new_id = cursor.lastrowid
-            if captura_id:
-                db.execute(
-                    "UPDATE capturas SET status = 'processada' WHERE id = ? AND user_id = ?",
-                    (captura_id, user["id"]),
-                )
         flash(("Entrada registrada." if tipo == "entrada" else "Saída registrada.") + " Está aqui na sua lista.")
         return redirect(url_for("listar_transacoes", novo=new_id))
     return render_template(
@@ -4912,32 +4655,6 @@ def service_worker():
 # Impressão digital (SHA-256) da assinatura de debug do app Android, extraída
 # no workflow .github/workflows/android-companion.yml (passo "Print debug
 # keystore SHA-256 fingerprint"). Prova ao Android que só o app real do
-# Hércules pode receber o retorno do login do Google.
-ANDROID_APP_FINGERPRINT = "A6:95:39:B5:38:7D:DD:78:70:7F:3D:DE:39:36:9E:1D:38:81:1F:40:54:8F:05:29:CF:7E:A5:1D:B5:9A:A3:B9"
-
-
-@app.route("/.well-known/assetlinks.json")
-def android_asset_links():
-    payload = [{
-        "relation": ["delegate_permission/common.handle_all_urls"],
-        "target": {
-            "namespace": "android_app",
-            "package_name": "com.hercules.companion",
-            "sha256_cert_fingerprints": [ANDROID_APP_FINGERPRINT],
-        },
-    }]
-    return Response(json.dumps(payload), mimetype="application/json")
-
-
-# ------------------------
-# Alias helpers
-# ------------------------
-@app.route("/home")
-@login_required
-def home_alias():
-    return redirect(url_for("home"))
-
-
 # ------------------------
 # Errors
 # ------------------------

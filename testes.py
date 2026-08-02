@@ -1208,6 +1208,31 @@ for _passo in ("meu.pluggy.ai", "Conecte seu banco lá", "Confirme que apareceu"
 check("a ajuda abre sem login (da pra mandar antes no WhatsApp)",
       _an.get("/ajuda").status_code == 200)
 
+secao("44. Captura por notificação: removida de vez")
+# Era um endpoint de ESCRITA, isento de CSRF e do bloqueio por digital,
+# autenticado só por um token — e sem uso nenhum. Superfície viva à toa.
+_rotas = {str(r) for r in A.app.url_map.iter_rules()}
+for _morta in ("/api/captura", "/api/meu-token", "/app/entrou", "/entrar-automatico",
+               "/.well-known/assetlinks.json"):
+    check(f"rota removida: {_morta}", _morta not in _rotas)
+check("nao sobrou nenhuma rota de captura", not any("captura" in r for r in _rotas))
+check("nem de login automatico do app", not any("automatico" in r for r in _rotas))
+
+for _f in ("register_capture", "parse_capture_text", "get_or_create_capture_token",
+           "create_auto_login_code", "redeem_auto_login_code"):
+    check(f"funcao removida: {_f}", not hasattr(A, _f))
+
+check("a isencao de CSRF nao cita mais a captura",
+      "api_captura" not in open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                             "app.py"), encoding="utf-8").read())
+with get_db() as db:
+    _antes = db.execute("SELECT COUNT(*) AS n FROM transacoes").fetchone()["n"]
+check("POST na rota morta nao e' aceito", c1.post("/api/captura",
+      json={"token": "x", "texto": "gastei 500 no mercado"}).status_code in (302, 404, 405))
+with get_db() as db:
+    _depois = db.execute("SELECT COUNT(*) AS n FROM transacoes").fetchone()["n"]
+check("e nao gravou nada", _depois == _antes, f"{_antes} -> {_depois}")
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
