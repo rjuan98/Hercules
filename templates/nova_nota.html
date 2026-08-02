@@ -71,6 +71,7 @@
                notas fotografadas no celular ficava sem como enviá-las. Sem o atributo,
                o próprio sistema oferece câmera e galeria — a câmera segue a um toque. #}
             <input id="arquivo" type="file" name="arquivo" accept=".pdf,image/*">
+            <p class="helper-text" id="fotoStatus" style="margin-top:8px;" hidden></p>
             {% if note and note['arquivo'] %}
                 <p class="helper-text" style="margin-top:8px;">Arquivo atual: {{ note['arquivo'] }}</p>
             {% endif %}
@@ -89,6 +90,79 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+/* Encolhe a foto ANTES de enviar.
+   Foto de celular tem 2–3 MB; uma nota fiscal legível cabe em ~300 KB. Isso
+   multiplica por dez quantas notas cabem no servidor e economiza o 4G de quem
+   está enviando. Se qualquer coisa der errado, manda a original — perder a nota
+   por causa de uma otimização seria muito pior que gastar disco. */
+window.addEventListener('DOMContentLoaded', () => {
+    const campo = document.getElementById('arquivo');
+    const status = document.getElementById('fotoStatus');
+    if (!campo) return;
+
+    // Medido com uma nota de 12 MP: 1600px a 82% deixa a foto 14x menor e a
+    // letra em 18px, ainda confortável de ler. Apertar mais economiza pouco e
+    // começa a comer o texto miúdo, que é justamente o que o contador precisa.
+    const LADO_MAX = 1600;
+    const QUALIDADE = 0.82;
+    const JA_PEQUENO = 300 * 1024;
+
+    const kb = (b) => b < 1024 * 1024
+        ? Math.round(b / 1024) + ' KB'
+        : (b / 1048576).toFixed(1).replace('.', ',') + ' MB';
+
+    function avisar(texto) {
+        status.textContent = texto;
+        status.hidden = !texto;
+    }
+
+    async function encolher(file) {
+        // createImageBitmap com from-image respeita o EXIF — sem isso a foto
+        // tirada em pé chega deitada.
+        let bmp;
+        try {
+            bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        } catch (e) {
+            bmp = await createImageBitmap(file);
+        }
+        const escala = Math.min(1, LADO_MAX / Math.max(bmp.width, bmp.height));
+        const w = Math.round(bmp.width * escala);
+        const h = Math.round(bmp.height * escala);
+
+        const tela = document.createElement('canvas');
+        tela.width = w; tela.height = h;
+        const ctx = tela.getContext('2d');
+        ctx.drawImage(bmp, 0, 0, w, h);
+        bmp.close && bmp.close();
+
+        const blob = await new Promise((ok) => tela.toBlob(ok, 'image/jpeg', QUALIDADE));
+        if (!blob) throw new Error('sem blob');
+        return blob;
+    }
+
+    campo.addEventListener('change', async () => {
+        const file = campo.files && campo.files[0];
+        if (!file) { avisar(''); return; }
+        if (!file.type.startsWith('image/')) { avisar(''); return; }   // PDF passa direto
+        if (file.size <= JA_PEQUENO) { avisar('Foto de ' + kb(file.size) + ' — já está leve.'); return; }
+
+        avisar('Preparando a foto…');
+        try {
+            const blob = await encolher(file);
+            if (blob.size >= file.size) { avisar('Foto de ' + kb(file.size) + '.'); return; }
+
+            const nome = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+            const dt = new DataTransfer();
+            dt.items.add(new File([blob], nome, { type: 'image/jpeg' }));
+            campo.files = dt.files;
+            avisar('Foto reduzida de ' + kb(file.size) + ' para ' + kb(blob.size) + '.');
+        } catch (e) {
+            avisar('Foto de ' + kb(file.size) + '.');   // segue com a original
+        }
+    });
+});
+</script>
 {% if ai_enabled %}
 <script>
 window.addEventListener('DOMContentLoaded', () => {

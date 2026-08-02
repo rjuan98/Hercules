@@ -1781,6 +1781,29 @@ _ms = (_tm.perf_counter() - _t0) / 3 * 1000
 check(f"Início com 3000 lançamentos abre rápido ({_ms:.0f}ms)", _ms < 250, f"{_ms:.0f}ms")
 
 
+secao("63. Foto da nota encolhe antes de subir")
+# 512 MB de disco e foto de celular de 2-3 MB: cabem ~10 MEIs fotografando tudo.
+# Encolher no navegador multiplica isso por 14 e ainda poupa o 4G de quem envia.
+_h_nn = c_mae.get("/notas/nova").get_data(as_text=True)
+check("o script roda mesmo sem a leitura por IA ligada", "LADO_MAX" in _h_nn)
+check("1600px de lado", "const LADO_MAX = 1600;" in _h_nn)
+check("qualidade 82%", "const QUALIDADE = 0.82;" in _h_nn)
+check("respeita a orientacao EXIF (foto em pe nao chega deitada)", "from-image" in _h_nn)
+check("PDF passa direto, sem virar JPEG", "startsWith('image/')" in _h_nn)
+check("foto ja pequena nao e' recomprimida", "JA_PEQUENO" in _h_nn)
+check("se falhar, manda a original", "segue com a original" in _h_nn)
+check("avisa a pessoa o que aconteceu com a foto", 'id="fotoStatus"' in _h_nn)
+check("o aviso comeca escondido", 'id="fotoStatus"' in _h_nn and "hidden" in
+      re.search(r'<p[^>]*id="fotoStatus"[^>]*>', _h_nn).group(0))
+# `hidden` ja foi atropelado por display:flex duas vezes neste projeto
+_css_src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "static", "styles.css"), encoding="utf-8").read()
+check("existe guarda global pro atributo hidden",
+      "[hidden] { display: none !important; }" in _css_src)
+check("o servidor segue aceitando foto grande (quando o JS falha)",
+      A.allowed_file("nota.jpg") and A.app.config["MAX_CONTENT_LENGTH"] >= 8 * 1024 * 1024)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

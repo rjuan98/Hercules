@@ -32,6 +32,10 @@
 }
 
 * { box-sizing: border-box; }
+/* O atributo `hidden` já foi atropelado por um display:flex duas vezes neste
+   projeto (o modal de confirmação e a barra de instalar). Uma regra só, no topo,
+   em vez de um remendo por componente na próxima vez que acontecer. */
+[hidden] { display: none !important; }
 html, body { margin: 0; min-height: 100%; }
 body {
     min-height: 100vh;
