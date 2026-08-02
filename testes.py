@@ -1967,6 +1967,31 @@ check("Conquistas saiu do dia a dia e foi pra Conta",
       _h_menu.index("Configurações") < _h_menu.index("Conquistas") < _h_menu.index("Ajuda"))
 
 
+_css_src_3 = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "static", "styles.css"), encoding="utf-8").read()
+
+secao("68. Menu sem repetir o que já está na barra de baixo")
+_h_nav = c1.get("/").get_data(as_text=True)
+_rodape = ["/", "/transacoes", "/compromissos", "/dashboard"]
+check("os 4 do rodapé estão marcados no menu lateral",
+      _h_nav.count("menu-link tambem-no-rodape") == 4,
+      _h_nav.count("menu-link tambem-no-rodape"))
+check("e continuam existindo no HTML (desktop usa a lateral)",
+      all(f'href="{r}"' in _h_nav for r in _rodape))
+# Entre 761px e 980px nao ha barra de baixo: esconder ali deixaria a pessoa sem
+# navegacao nenhuma. A regra tem que morar SO no bloco de <=760px.
+_bloco760 = _css_src_3[_css_src_3.index("@media (max-width: 760px)"):]
+_bloco980 = _css_src_3[_css_src_3.index("@media (max-width: 980px)"):_css_src_3.index("@media (max-width: 760px)")]
+check("escondidos no bloco de <=760px (onde a barra existe)",
+      ".tambem-no-rodape { display: none; }" in _bloco760)
+check("NAO escondidos no bloco de <=980px (tablet ficaria sem menu)",
+      "tambem-no-rodape" not in _bloco980)
+check("a barra de baixo leva pros mesmos 4 destinos",
+      all(f'href="{r}"' in _h_nav for r in _rodape) and "mobile-nav" in _h_nav)
+check("o que NAO esta no rodape segue na gaveta em qualquer tela",
+      all(f'href="{r}"' in _h_nav for r in ("/metas", "/dividas", "/categorias", "/ajuda")))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

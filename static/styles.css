@@ -752,6 +752,10 @@ input[type="checkbox"]:focus-visible {
 
 @media (max-width: 760px) {
     .mobile-nav { display: flex; }
+    /* Estes quatro já estão na barra de baixo, sempre à vista. Repetir na gaveta
+       só faz a lista crescer. Escondidos SÓ aqui: entre 761px e 980px não existe
+       barra de baixo, e ali a gaveta é a única navegação que sobra. */
+    .tambem-no-rodape { display: none; }
     .main-content { padding: 16px 16px 124px; }
     .hero-actions, .page-actions {
         display: grid;
