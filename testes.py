@@ -2120,6 +2120,70 @@ check("nenhum |money dentro de atributo HTML em nenhum template",
       not _em_atributo, str(set(_em_atributo)))
 
 
+secao("72. Duas abas abertas na mesma conta")
+# PWA na tela inicial + navegador aberto, ou uma aba esquecida por dias. Nada
+# disso pode gravar errado nem quebrar.
+def _entrar(cli, email="abas@teste.com"):
+    """Sai e entra de verdade: /login redireciona quem ja esta logado sem trocar
+    o token, entao sem o logout o teste nao reproduziria a rotacao."""
+    cli.get("/logout")
+    with cli.session_transaction() as s:
+        s["csrf_token"] = "t"
+    cli.post("/login", data={"csrf_token": "t", "email": email, "senha": "tijolo-forte-42"},
+             follow_redirects=True)
+    with cli.session_transaction() as s:
+        return s.get("csrf_token")
+
+c_ab = novo_cliente("abas@teste.com", nome="Aba")
+uid_ab = uid_de("abas@teste.com")
+_tok_velho = _entrar(c_ab)
+c_ab.post("/transacoes/nova", data={"csrf_token": _tok_velho, "tipo": "saida", "valor": "50",
+                                    "descricao": "mercado", "categoria": "Outros"})
+with get_db() as db:
+    _tid_ab = db.execute("SELECT id FROM transacoes WHERE user_id=?", (uid_ab,)).fetchone()["id"]
+
+# Entrar de novo roda a sessao e o token: a aba antiga fica com um token morto
+_entrar(c_ab)
+_r_velha = c_ab.post("/transacoes/nova",
+                     data={"csrf_token": _tok_velho, "tipo": "saida", "valor": "9",
+                           "descricao": "aba velha", "categoria": "Outros"},
+                     follow_redirects=True)
+with get_db() as db:
+    _n_velha = db.execute("SELECT COUNT(*) AS n FROM transacoes WHERE descricao='aba velha'").fetchone()["n"]
+check("aba com token velho NAO grava", _n_velha == 0)
+check("e nao quebra a tela", _r_velha.status_code == 200)
+check("o aviso e' em português de gente, sem 'token'",
+      "ficou aberta tempo demais" in so_texto(_r_velha.get_data(as_text=True))
+      and "Token de segurança" not in _r_velha.get_data(as_text=True))
+check("e tranquiliza sobre o que ja foi salvo",
+      "nada do que você já salvou foi perdido" in so_texto(_r_velha.get_data(as_text=True)))
+
+# Aba A apaga, aba B tenta agir no que sumiu
+c_ab2 = A.app.test_client()
+_tA = _entrar(c_ab); _tB = _entrar(c_ab2)
+c_ab.post(f"/transacoes/{_tid_ab}/delete", data={"csrf_token": _tA}, follow_redirects=True)
+_r_b = c_ab2.post(f"/transacoes/{_tid_ab}/delete", data={"csrf_token": _tB}, follow_redirects=True)
+check("apagar o que ja foi apagado nao quebra", _r_b.status_code == 200)
+check("e avisa em vez de fingir que deu certo",
+      "não encontrada" in so_texto(_r_b.get_data(as_text=True)))
+
+_r_ed = c_ab2.post(f"/transacoes/{_tid_ab}/editar",
+                   data={"csrf_token": _tB, "tipo": "saida", "valor": "99",
+                         "descricao": "zumbi", "data_transacao": date.today().isoformat()},
+                   follow_redirects=True)
+with get_db() as db:
+    _z = db.execute("SELECT COUNT(*) AS n FROM transacoes WHERE descricao='zumbi'").fetchone()["n"]
+check("editar o que foi apagado NAO ressuscita o registro", _z == 0)
+check("e tambem nao quebra", _r_ed.status_code == 200)
+
+# Sair numa aba nao derruba a outra (sessoes sao independentes por navegador)
+c_ab.get("/logout")
+check("logout numa sessão não derruba a outra",
+      c_ab2.post("/transacoes/nova", data={"csrf_token": _tB, "tipo": "saida", "valor": "7",
+                                           "descricao": "segue", "categoria": "Outros"},
+                 follow_redirects=False).status_code == 302)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

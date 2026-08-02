@@ -1998,7 +1998,10 @@ def csrf_protect():
                                       "passkey_registrar_opcoes", "passkey_entrar_opcoes"}
         token = request.form.get("csrf_token", "")
         if not exempt and token != session.get("csrf_token"):
-            flash("Token de segurança inválido. Atualize a página e tente novamente.")
+            # "Token de segurança inválido" nao diz nada pra quem nao e' programador,
+            # e quem cai aqui geralmente so deixou a pagina aberta tempo demais.
+            flash("Essa página ficou aberta tempo demais e expirou por segurança. "
+                  "Atualize e tente de novo — nada do que você já salvou foi perdido.")
             return redirect(request.referrer or url_for("home" if "user_id" in session else "login"))
 
 
