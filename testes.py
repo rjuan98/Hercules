@@ -978,6 +978,62 @@ check("nao aceita chave fora do formato", _lixo == 0)
 c_novo = novo_cliente("semrecado@teste.com", nome="Novo")
 check("na estreia nao mostra recado", "Fechou a semana de" not in c_novo.get("/").get_data(as_text=True))
 
+secao("38. Registrar entrada (o botão 'Entrou dinheiro')")
+# Uma aspa escapada pelo Jinja vira erro de sintaxe e MATA o bloco de script
+# inteiro: nenhum listener e' registrado e o botao de entrada nao faz nada.
+# Foi assim que ficou impossivel lancar salario na mao.
+_h_nova = c1.get("/transacoes/nova").get_data(as_text=True)
+_js = _h_nova[_h_nova.index("tipoInput"):]
+check("o script do formulario nao tem aspa escapada", "&#39;" not in _js and "&#34;" not in _js)
+check("setTipo recebe um literal valido", 'const tipoInicial = "saida";' in _js, )
+check("os dois botoes de tipo existem", 'id="btnEntrada"' in _h_nova and 'id="btnSaida"' in _h_nova)
+
+for _t, _esperado in (("entrada", '"entrada"'), (None, '"saida"')):
+    _u = "/transacoes/nova" + (f"?tipo={_t}" if _t else "")
+    check(f"abre ja no tipo certo ({_t or 'padrao'})",
+          f"const tipoInicial = {_esperado};" in c1.get(_u).get_data(as_text=True))
+
+# o caminho que o usuario reclamou: lancar o salario na mao
+c1.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "entrada", "valor": "4.820,00",
+                                  "descricao": "Meu salario", "categoria": "Salário"})
+with get_db() as db:
+    _sal = db.execute("""SELECT tipo, valor, categoria FROM transacoes
+                          WHERE user_id=? AND descricao='Meu salario'""", (uid1,)).fetchone()
+check("salario entra como ENTRADA", _sal and _sal["tipo"] == "entrada", dict(_sal) if _sal else None)
+check("com a categoria escolhida", _sal and _sal["categoria"] == "Salário")
+check("e soma na renda do mes",
+      A.calc_transaction_totals(uid1)["month_income"] >= 4820)
+
+# "Outros" existe nas duas listas; escolher so pelo value pega a de saida,
+# que fica escondida quando o tipo e' entrada — e o campo aparece vazio
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'entrada',900,'PIX RECEBIDO',
+                  'Outros','ofx',95,date('now'),0)""", (uid1,))
+    _tid = db.execute("SELECT id FROM transacoes WHERE descricao='PIX RECEBIDO'").fetchone()["id"]
+_h_ed = c1.get(f"/transacoes/{_tid}/editar").get_data(as_text=True)
+check("editar entrada: script tambem intacto", "&#39;" not in _h_ed[_h_ed.index("tipoInput"):])
+check("editar entrada: abre como entrada", 'const tipoInicial = "entrada";' in _h_ed)
+check("editar entrada: casa categoria COM o tipo, nao so o value",
+      "selecionar(catSalva, tipoInicial)" in _h_ed)
+check("'Outros' aparece nas duas listas (por isso o cuidado acima)",
+      _h_ed.count('>Outros</option>') == 2, _h_ed.count('>Outros</option>'))
+
+secao("39. Nenhuma tela com script quebrado")
+# Varredura: uma entidade HTML dentro de <script> e' erro de sintaxe e derruba o
+# bloco inteiro, calado — sem erro no servidor e sem nada no console do Flask.
+import re as _re2
+_rotas = ["/", "/dashboard", "/transacoes", "/transacoes/nova", "/compromissos", "/categorias",
+          "/metas", "/dividas", "/ir", "/trabalhos", "/settings", "/ajuda", "/importar-ofx"]
+_quebradas = []
+for _rota in _rotas:
+    _html = c1.get(_rota).get_data(as_text=True)
+    for _bloco in _re2.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", _html, _re2.S):
+        if any(_e in _bloco for _e in ("&#39;", "&#34;", "&quot;")):
+            _quebradas.append(_rota)
+check(f"{len(_rotas)} telas sem entidade HTML dentro de <script>",
+      not _quebradas, ", ".join(sorted(set(_quebradas))))
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

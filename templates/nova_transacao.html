@@ -88,6 +88,16 @@ window.addEventListener('DOMContentLoaded', () => {
     const grupoCredito = document.getElementById('grupoCredito');
     const noCreditoInput = document.getElementById('noCreditoInput');
 
+    // "Outros" aparece na lista de saída E na de entrada. Escolher só pelo value
+    // pega sempre a primeira — a de saída — que fica escondida quando o tipo é
+    // entrada, e aí o campo aparece em branco.
+    function selecionar(valor, tipo) {
+        const opt = Array.from(categoria.options)
+            .find((o) => o.value === valor && o.dataset.tipo === tipo);
+        if (opt) opt.selected = true;
+        return !!opt;
+    }
+
     function setTipo(tipo) {
         tipoInput.value = tipo;
         btnSaida.classList.toggle('selected-saida', tipo === 'saida');
@@ -106,22 +116,24 @@ window.addEventListener('DOMContentLoaded', () => {
             opt.disabled = !match;
             if (match && !firstVisible) firstVisible = opt;
         });
-        if (firstVisible) categoria.value = firstVisible.value;
+        if (firstVisible) firstVisible.selected = true;
         // Salário como padrão para entradas
-        if (tipo === 'entrada') {
-            const salario = Array.from(categoria.options).find(o => o.value === 'Salário');
-            if (salario) categoria.value = 'Salário';
-        }
+        if (tipo === 'entrada') selecionar('Salário', 'entrada');
     }
 
     btnSaida.addEventListener('click', () => setTipo('saida'));
     btnEntrada.addEventListener('click', () => setTipo('entrada'));
-    const editando = {{ 'true' if editando else 'false' }};
-    const catSalva = {{ (tx['categoria']|tojson) if editando else 'null' }};
-    const creditoSalvo = {{ 'true' if (editando and tx['no_credito']) else 'false' }};
-    setTipo({{ (tx['tipo']|tojson) if editando else ("'entrada'" if request.args.get('tipo') == 'entrada' else "'saida'") }});
+    const editando = {{ (true if editando else false)|tojson }};
+    const catSalva = {{ (tx['categoria'] if editando else None)|tojson }};
+    const creditoSalvo = {{ (true if (editando and tx['no_credito']) else false)|tojson }};
+    {# tojson SEMPRE: string crua aqui vira &#39; e mata o script inteiro — foi assim que
+       o botão "Entrou dinheiro" ficou sem funcionar #}
+    const tipoInicial = {{ (tx['tipo'] if editando else ('entrada' if request.args.get('tipo') == 'entrada' else 'saida'))|tojson }};
+    setTipo(tipoInicial);
     if (editando) {
-        if (catSalva) categoria.value = catSalva;      // setTipo troca a categoria: repõe a salva
+        // setTipo troca a categoria: repõe a salva, casando também o tipo —
+        // "Outros" existe nas duas listas e o value sozinho pega a errada
+        if (catSalva) selecionar(catSalva, tipoInicial);
         noCreditoInput.checked = creditoSalvo;
         submitBtn.textContent = 'Salvar alterações';
     }
