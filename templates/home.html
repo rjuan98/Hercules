@@ -62,8 +62,11 @@
         <div class="hercules-bubble">
             <strong>Bem-vindo! Vamos começar? 🦁</strong><br>
             {% if pluggy_ativo and not pluggy_tem_banco %}
-            O jeito mais fácil é <strong>conectar seu banco</strong>: eu puxo seus gastos sozinho,
-            todo dia, e você não precisa anotar nada.
+            Vale <strong>conectar seu banco</strong>: depois disso eu puxo seus gastos sozinho, todo
+            dia, e você não precisa anotar nada.<br>
+            <span class="helper-text">São uns 10 minutos, uma vez só — e tem um
+            <a href="{{ url_for('ajuda') }}" style="color:var(--primary-deep); font-weight:800;">passo
+            a passo</a> pra te acompanhar.</span>
             {% else %}
             Me conta <strong>quanto você tem na conta hoje</strong> (pode ser aproximado).
             A partir daí eu cuido do resto — e você não precisa registrar o passado.

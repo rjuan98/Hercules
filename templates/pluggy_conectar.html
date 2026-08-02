@@ -8,16 +8,41 @@
     <div class="hercules-greeting" style="margin-bottom:14px;">
         <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
         <div class="hercules-bubble">
-            <strong>Vou abrir a conexão segura da Pluggy.</strong><br>
-            Na lista, escolha <strong>Meu Pluggy</strong>, entre com a sua conta e autorize.
-            A partir daí eu puxo seus gastos sozinho — sem subir arquivo.
+            <strong>Antes de abrir, duas coisas precisam já estar feitas.</strong><br>
+            Elas acontecem <strong>fora do Hércules</strong>, no site da Pluggy — e é por isso que
+            eu pergunto antes, em vez de te jogar direto na janela.
         </div>
     </div>
-    <p id="pluggy-status" class="helper-text">Abrindo a conexão…</p>
-    <div class="page-actions" style="justify-content:flex-start; margin-top:12px;">
-        <button type="button" id="pluggy-abrir" class="button button-primary">Abrir conexão</button>
-        <a href="{{ url_for('ajuda') }}" class="button button-outline">Passo a passo</a>
+
+    {# A janela pede login numa conta do Meu Pluggy. Abrir sem ter a conta criada
+       coloca a pessoa numa tela pedindo senha que ela não tem — e ela desiste ali. #}
+    <ol class="ajuda-passos" style="margin-bottom:4px;">
+        <li>
+            <strong>Você já tem conta no Meu Pluggy?</strong>
+            <p>É um cadastro grátis em <a href="https://meu.pluggy.ai" target="_blank" rel="noopener"
+               style="color:var(--primary-deep); font-weight:800;">meu.pluggy.ai</a>, feito uma vez só.</p>
+        </li>
+        <li>
+            <strong>E o seu banco já aparece lá dentro?</strong>
+            <p>Você precisa ter conectado o banco no Meu Pluggy e visto seu saldo aparecer.</p>
+        </li>
+    </ol>
+
+    <p id="pluggy-status" class="helper-text"></p>
+
+    <div class="page-actions" style="justify-content:flex-start; margin-top:16px;">
+        <button type="button" id="pluggy-abrir" class="button button-primary">
+            <i data-lucide="check"></i> Já fiz as duas — abrir conexão
+        </button>
+        <a href="{{ url_for('ajuda') }}" class="button button-outline">
+            <i data-lucide="circle-help"></i> Ainda não — me ensina
+        </a>
         <a href="{{ url_for('settings') }}" class="button button-outline">Voltar</a>
+    </div>
+
+    <div class="auth-note" style="margin-top:16px;">
+        ⚠️ <strong>Na janela que abrir, procure “Meu Pluggy”</strong> — não o nome do seu banco.
+        É o erro mais comum, e escolher o banco direto não funciona na versão gratuita.
     </div>
 </section>
 {% endblock %}
@@ -71,9 +96,9 @@ window.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    // NÃO abre sozinho: quem chega aqui sem conta no Meu Pluggy cairia numa tela
+    // pedindo uma senha que não tem, e desiste ali. O botão é a confirmação.
     botao.addEventListener('click', abrir);
-    // tenta abrir sozinho; se o navegador segurar, o botão resolve
-    abrir();
 });
 </script>
 {% endblock %}

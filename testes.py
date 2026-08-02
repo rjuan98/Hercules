@@ -1186,6 +1186,28 @@ for _r, _nome in [("/notas", "Notas"), ("/notas/nova", "Guardar nota"), ("/mei",
 check("home simples tem o botao de guardar nota", "Guardar uma nota" in _h_mae)
 check("e o de registrar na mao (ela nao tem banco)", "Registrar gasto ou entrada" in _h_mae)
 
+secao("43. Conectar o banco sozinha (o caminho da mãe)")
+# A janela da Pluggy pede login numa conta do Meu Pluggy. Abrir sozinho poe quem
+# ainda nao criou essa conta diante de uma senha que ela nao tem — e ela desiste ali.
+_tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "templates", "pluggy_conectar.html"), encoding="utf-8").read()
+check("a janela NAO abre sozinha", "\n    abrir();" not in _tpl)
+check("o botao e' que abre", "botao.addEventListener('click', abrir)" in _tpl)
+check("pergunta se ja tem conta no Meu Pluggy", "já tem conta no Meu Pluggy" in _tpl)
+check("pergunta se o banco ja aparece la", "banco já aparece lá" in _tpl)
+check("diz que isso acontece FORA do app", "fora do Hércules" in _tpl)
+check("avisa do erro mais comum", "não o nome do seu banco" in _tpl)
+check("tem saida pra quem ainda nao fez", "me ensina" in _tpl and "url_for('ajuda')" in _tpl)
+
+_h_mae2 = c_mae.get("/").get_data(as_text=True)
+check("a mae tem o link da ajuda no menu", 'href="/ajuda"' in _h_mae2)
+_h_aj2 = c_mae.get("/ajuda").get_data(as_text=True)
+for _passo in ("meu.pluggy.ai", "Conecte seu banco lá", "Confirme que apareceu",
+               "Volte aqui e conecte", "e não o seu banco direto"):
+    check(f"ajuda cobre: {_passo[:30]}", _passo in _h_aj2)
+check("a ajuda abre sem login (da pra mandar antes no WhatsApp)",
+      _an.get("/ajuda").status_code == 200)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
