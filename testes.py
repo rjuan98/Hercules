@@ -1992,6 +1992,32 @@ check("o que NAO esta no rodape segue na gaveta em qualquer tela",
       all(f'href="{r}"' in _h_nav for r in ("/metas", "/dividas", "/categorias", "/ajuda")))
 
 
+secao("69. E-mail precisa parecer e-mail")
+# O servidor aceitava "abc" e "@". type="email" no HTML e' dica do navegador, nao
+# garantia — e o proprio HTML aceita "a@b". Quem erra o proprio e-mail no cadastro
+# fica sem recuperacao possivel depois, inclusive quando houver envio de e-mail.
+for _e in ["abc", "@", "a@b", "sem arroba.com", "a@@b.com", "a b@c.com", "", "@x.com", "a@.com"]:
+    check(f"recusa: {_e!r}", A.email_invalido(_e))
+# Permissivo de proposito: nao pode recusar endereco valido de gente de verdade
+for _e in ["joao@gmail.com", "maria.silva+notas@empresa.com.br", "a@b.co",
+           "rj.razoku@gmail.com", "ana_1@sub.dominio.org"]:
+    check(f"aceita: {_e}", not A.email_invalido(_e))
+
+_c_em = A.app.test_client()
+with _c_em.session_transaction() as s:
+    s["csrf_token"] = "t"
+_c_em.post("/register", data={"csrf_token": "t", "nome": "X", "email": "abc",
+                              "senha": "tijolo-forte-42", "perfil": "pf"}, follow_redirects=True)
+check("cadastro com e-mail quebrado nao cria conta", uid_de("abc") is None)
+
+c1.post("/settings", data={"csrf_token": "t", "form_kind": "account",
+                           "nome": "Ana", "email": "quebrado"}, follow_redirects=True)
+with get_db() as db:
+    _mail = db.execute("SELECT email FROM usuarios WHERE id=?", (uid1,)).fetchone()["email"]
+check("trocar pra e-mail quebrado nas Configuracoes tambem e' barrado",
+      _mail != "quebrado", _mail)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

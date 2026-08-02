@@ -2092,6 +2092,16 @@ init_db()
 # ------------------------
 # Auth
 # ------------------------
+# Permissivo de proposito: e-mail aceita +, ponto, acento e domínio composto.
+# A regra só barra o que claramente não é endereço — "abc", "@", "a@b" — porque
+# quem erra o próprio e-mail no cadastro fica sem recuperação possível depois.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
+
+
+def email_invalido(email: str) -> bool:
+    return not _EMAIL_RE.match(email or "")
+
+
 SENHA_MINIMA = 8
 # As que aparecem em toda lista de senha vazada. Não é uma lista completa —
 # é pra impedir a escolha preguiçosa de quem está com pressa no cadastro.
@@ -2136,6 +2146,9 @@ def register():
             view_mode = "completo"
         if not nome or not email or not senha:
             flash("Preencha todos os campos.")
+            return redirect(url_for("register"))
+        if email_invalido(email):
+            flash("Esse e-mail não parece completo. Confira antes de continuar.")
             return redirect(url_for("register"))
         problema = senha_fraca(senha, email, nome)
         if problema:
@@ -3030,6 +3043,9 @@ def settings():
             email = sanitize_text(request.form.get("email")).lower()
             if not nome or not email:
                 flash("Preencha nome e e-mail.")
+                return redirect(url_for("settings"))
+            if email_invalido(email):
+                flash("Esse e-mail não parece completo. Confira antes de salvar.")
                 return redirect(url_for("settings"))
             try:
                 with get_db() as db:
