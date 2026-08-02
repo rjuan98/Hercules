@@ -26,6 +26,9 @@ def _quebrar():
 def url_for_recado(h):
     return 'href="/recado"' in h
 
+_APP_SRC = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+                encoding="utf-8").read()
+
 OK, FALHAS = [], []
 
 def check(nome, cond, extra=""):
@@ -1288,6 +1291,67 @@ _h_filtro = c_perf.get("/transacoes?q=UBER&p=1").get_data(as_text=True)
 check("trocar de pagina NAO perde o filtro", "q=UBER" in _h_filtro)
 for _p in ("999", "-5", "abc", "0"):
     check(f"pagina invalida nao quebra: p={_p}", c_perf.get(f"/transacoes?p={_p}").status_code == 200)
+
+secao("46. Fuso horário: o app é brasileiro, o servidor não")
+# O servidor roda em UTC. Usar a hora dele joga toda compra feita depois das 21h
+# pro dia seguinte — e no dia 31, pro MÊS seguinte.
+from datetime import timezone as _tz
+_agora_br = A.agora_br()
+_agora_utc = datetime.utcnow()
+_diff = abs((_agora_utc - _agora_br).total_seconds()) / 3600
+check("agora_br() nao e' a hora do servidor em UTC", 2.5 < _diff < 5.5 or _diff < 0.1,
+      f"{_diff:.1f}h de diferenca")
+check("hoje_br() bate com agora_br()", A.hoje_br() == A.agora_br().date())
+check("agora_br() vem sem tzinfo (o banco guarda ingenuo)", A.agora_br().tzinfo is None)
+
+_ref = datetime(2026, 9, 1, 1, 0, tzinfo=_tz.utc)      # 01:00 UTC = 22:00 do dia 31 no Brasil
+check("22h do dia 31 no Brasil continua sendo dia 31",
+      _ref.astimezone(A.FUSO_BR).date() == date(2026, 8, 31),
+      _ref.astimezone(A.FUSO_BR).date())
+check("e nao vira dia 1 do mes seguinte", _ref.date() == date(2026, 9, 1))
+
+check("nenhum date('now') sobrou no SQL (SQLite so sabe UTC)",
+      "date('now')" not in _APP_SRC and "datetime('now')" not in _APP_SRC)
+check("nenhum date.today() sobrou",
+      "date.today()" not in _APP_SRC)
+
+secao("47. Duas pessoas ao mesmo tempo")
+# Sync grande escreve centenas de linhas numa transacao so; com o timeout padrao
+# do sqlite (5s) a requisicao de outra pessoa morre com "database is locked".
+import database as _DB
+check("a conexao tem timeout folgado", _DB.SQLITE_TIMEOUT >= 15, _DB.SQLITE_TIMEOUT)
+check("o backup usa o mesmo timeout", B.SQLITE_TIMEOUT == _DB.SQLITE_TIMEOUT)
+
+import threading as _th, time as _tm, sqlite3 as _sq3
+_res = {}
+def _escritor():
+    w = _sq3.connect(os.environ["DATABASE_PATH"], timeout=_DB.SQLITE_TIMEOUT)
+    w.execute("BEGIN IMMEDIATE")
+    w.execute("INSERT INTO dicas_vistas (user_id, dica) VALUES (?, 'lock-teste')", (uid1,))
+    _tm.sleep(6)
+    w.commit(); w.close()
+_t = _th.Thread(target=_escritor); _t.start(); _tm.sleep(0.4)
+try:
+    with get_db() as db:
+        db.execute("INSERT INTO dicas_vistas (user_id, dica) VALUES (?, 'lock-teste-2')", (uid2,))
+    _res["ok"] = True
+except Exception as e:
+    _res["ok"] = False; _res["erro"] = str(e)
+_t.join()
+check("escrever durante um sync longo NAO da 'database is locked'",
+      _res.get("ok"), _res.get("erro", ""))
+with get_db() as db:
+    db.execute("DELETE FROM dicas_vistas WHERE dica LIKE 'lock-teste%'")
+
+secao("48. Cookie de sessão")
+check("HttpOnly ligado", A.app.config["SESSION_COOKIE_HTTPONLY"] is True)
+check("SameSite Lax", A.app.config["SESSION_COOKIE_SAMESITE"] == "Lax")
+# Sem Secure, basta uma requisicao em HTTP puro pro cookie de sessao vazar
+check("Secure liga sozinho no PythonAnywhere",
+      "PYTHONANYWHERE_DOMAIN" in _APP_SRC and "SESSION_COOKIE_SECURE" in _APP_SRC)
+check("mas da pra desligar de proposito", 'SECURE_COOKIES") != "0"' in _APP_SRC)
+check("em dev (sem hospedagem) fica desligado, senao nao da pra testar local",
+      A.app.config.get("SESSION_COOKIE_SECURE", False) is False)
 
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")

@@ -77,12 +77,13 @@ seria apagado a cada deploy. Use só com o plano Starter (~US$ 7/mês) + disco.
 | `SECRET_KEY`    | chave de sessão (senão usa/gera o arquivo `.secret_key`) | arquivo `.secret_key` |
 | `DATABASE_PATH` | caminho do SQLite                                       | `./database.db`      |
 | `UPLOAD_DIR`    | pasta dos arquivos enviados                             | `./uploads`          |
-| `SECURE_COOKIES`| `1` força cookie apenas-HTTPS                           | auto no Render       |
 | `HOST` / `PORT` | bind do servidor de desenvolvimento (`python app.py`)   | `0.0.0.0` / `5000`   |
 | `FLASK_DEBUG`   | `0` desliga o debug no `python app.py`                  | `1` (dev)            |
 | `ADMIN_EMAIL`   | destranca a tela **Saúde do app** pra esse e-mail        | vazio (tela não existe) |
 | `BACKUP_DIR`    | onde ficam as cópias do banco                           | `backups/` ao lado do DB |
 | `ERROS_LOG`     | arquivo do log de erros                                 | `./erros.log`        |
+| `SQLITE_TIMEOUT`| segundos de espera quando o banco está ocupado           | `20`                 |
+| `SECURE_COOKIES`| `0` desliga o cookie só-HTTPS (liga sozinho em hospedagem)| auto                |
 
 ---
 

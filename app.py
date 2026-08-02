@@ -15,7 +15,7 @@ import traceback
 import unicodedata
 import uuid
 import zipfile
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -77,6 +77,29 @@ PLUGGY_CLIENT_SECRET = os.environ.get("PLUGGY_CLIENT_SECRET")
 PLUGGY_ITEM_IDS = [s.strip() for s in (os.environ.get("PLUGGY_ITEM_IDS") or "").split(",") if s.strip()]
 
 BASE_DIR = Path(__file__).resolve().parent
+
+# ------------------------
+# Fuso: o app é brasileiro, o servidor não
+# ------------------------
+# PythonAnywhere (e quase toda hospedagem) roda em UTC. Usar a hora do servidor
+# joga toda compra feita depois das 21h para o dia seguinte — e no dia 31, para o
+# MÊS seguinte, bagunçando fatura, "gastei hoje" e o recado da semana.
+try:
+    from zoneinfo import ZoneInfo
+    FUSO_BR = ZoneInfo("America/Sao_Paulo")
+except Exception:            # sem tzdata no sistema: o Brasil não tem horário de verão
+    FUSO_BR = timezone(timedelta(hours=-3))
+
+
+def agora_br() -> datetime:
+    """Agora em horário de Brasília, sem tzinfo (o banco guarda ingênuo)."""
+    return datetime.now(FUSO_BR).replace(tzinfo=None)
+
+
+def hoje_br() -> date:
+    return agora_br().date()
+
+
 # Em produção (Render, PythonAnywhere etc.) aponte UPLOAD_DIR para o disco persistente
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR") or BASE_DIR / "uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -105,7 +128,13 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=90)
 
 # Atrás de um proxy HTTPS (Render/Railway/PythonAnywhere), respeita os headers X-Forwarded-*
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-if os.environ.get("SECURE_COOKIES") == "1" or os.environ.get("RENDER"):
+# Cookie só por HTTPS. Sem isso, basta uma requisição em HTTP puro pra o cookie de
+# sessão vazar. O PythonAnywhere serve HTTPS e anuncia o domínio no ambiente —
+# detectar evita depender de alguém lembrar de ligar a variável.
+_hospedagem_https = bool(os.environ.get("RENDER") or os.environ.get("PYTHONANYWHERE_DOMAIN")
+                         or os.environ.get("PYTHONANYWHERE_SITE"))
+if os.environ.get("SECURE_COOKIES") == "1" or (_hospedagem_https
+                                               and os.environ.get("SECURE_COOKIES") != "0"):
     app.config["SESSION_COOKIE_SECURE"] = True
 
 if os.environ.get("FLASK_ENV") == "development" or os.environ.get("DEBUG") == "1":
@@ -402,7 +431,7 @@ def parse_bank_statement_text(text: str, forcar_credito: bool = False) -> list[d
         re.search(r"cart[aã]o de cr[eé]dito", low_all)
         or ("fatura" in low_all and ("vencimento" in low_all or "transaç" in low_all or "transac" in low_all))
     )
-    hoje = date.today()
+    hoje = hoje_br()
     current_date: date | None = None
     seq_counter: dict[tuple, int] = {}
     items: list[dict[str, Any]] = []
@@ -855,7 +884,7 @@ TRABALHOS = [
 
 
 def _prev_month_bounds():
-    first_this = date.today().replace(day=1)
+    first_this = hoje_br().replace(day=1)
     last_prev = first_this - timedelta(days=1)
     first_prev = last_prev.replace(day=1)
     return first_prev.isoformat(), last_prev.isoformat()
@@ -906,8 +935,8 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
             return False
         vencida = db.execute(
             """SELECT 1 FROM compromissos WHERE user_id = ? AND status = 'pendente'
-               AND date(vencimento) < date('now') LIMIT 1""",
-            (user_id,),
+               AND date(vencimento) < date(?) LIMIT 1""",
+            (user_id, hoje_br().isoformat()),
         ).fetchone()
         return vencida is None
     if key == "aves":
@@ -975,7 +1004,7 @@ def evaluate_trabalhos(user_id: int) -> list[str]:
             if _trabalho_conquistado(user_id, t["key"], db):
                 db.execute(
                     "INSERT OR IGNORE INTO trabalhos (user_id, trabalho, conquistado_em) VALUES (?, ?, ?)",
-                    (user_id, t["key"], date.today().isoformat()),
+                    (user_id, t["key"], hoje_br().isoformat()),
                 )
                 novos.append(t["key"])
     return novos
@@ -1289,7 +1318,7 @@ def dias_desde_ultimo_ofx(user) -> int | None:
     if not last:
         return None
     try:
-        return (date.today() - date.fromisoformat(last)).days
+        return (hoje_br() - date.fromisoformat(last)).days
     except ValueError:
         return None
 
@@ -1319,7 +1348,7 @@ def remove_uploaded_file(filename: str | None) -> None:
 
 
 def month_bounds(dt: date | None = None):
-    dt = dt or date.today()
+    dt = dt or hoje_br()
     first = dt.replace(day=1)
     last_day = calendar.monthrange(dt.year, dt.month)[1]
     last = dt.replace(day=last_day)
@@ -1342,7 +1371,7 @@ def parse_money(value: Any) -> float:
 
 
 def days_left_in_month() -> int:
-    today = date.today()
+    today = hoje_br()
     last_day = calendar.monthrange(today.year, today.month)[1]
     return max(1, last_day - today.day + 1)
 
@@ -1355,7 +1384,7 @@ def months_until(deadline: str | None) -> int | None:
         target = date.fromisoformat(deadline)
     except ValueError:
         return None
-    today = date.today()
+    today = hoje_br()
     if target <= today:
         return 1
     months = (target.year - today.year) * 12 + (target.month - today.month)
@@ -1366,7 +1395,7 @@ def months_until(deadline: str | None) -> int | None:
 
 
 def calc_transaction_totals(user_id: int):
-    today = date.today()
+    today = hoje_br()
     month_start, month_end = month_bounds(today)
     with get_db() as db:
         transactions = db.execute(
@@ -1401,7 +1430,7 @@ def calc_transaction_totals(user_id: int):
         ).fetchone()
         dia_fecha = (cartao["cartao_fechamento"] if cartao and "cartao_fechamento" in cartao.keys() else None)
         if dia_fecha:
-            fat_ini, fat_fim = ciclo_fatura(date.today(), int(dia_fecha))
+            fat_ini, fat_fim = ciclo_fatura(hoje_br(), int(dia_fecha))
         else:
             fat_ini, fat_fim = month_start, month_end
 
@@ -1451,11 +1480,11 @@ def calc_transaction_totals(user_id: int):
             (user_id,),
         ).fetchall()
 
-    due_soon_cutoff = date.today() + timedelta(days=7)
-    overdue_commitments = [c for c in upcoming_commitments if c["vencimento"] and date.fromisoformat(c["vencimento"]) < date.today()]
+    due_soon_cutoff = hoje_br() + timedelta(days=7)
+    overdue_commitments = [c for c in upcoming_commitments if c["vencimento"] and date.fromisoformat(c["vencimento"]) < hoje_br()]
     due_soon_commitments = [
         c for c in upcoming_commitments
-        if c["vencimento"] and date.today() <= date.fromisoformat(c["vencimento"]) <= due_soon_cutoff
+        if c["vencimento"] and hoje_br() <= date.fromisoformat(c["vencimento"]) <= due_soon_cutoff
     ]
     commitments_total = sum(float(c["valor"]) for c in due_soon_commitments)
     goal_active = False
@@ -1535,7 +1564,7 @@ def calc_transaction_totals(user_id: int):
         "fatura_fechada": fatura_fechada,
         "fatura_periodo": (fat_ini, fat_fim) if dia_fecha else None,
         "fatura_fecha_em": fat_fim if dia_fecha else None,
-        "fatura_dias_p_fechar": (fat_fim - date.today()).days if dia_fecha else None,
+        "fatura_dias_p_fechar": (fat_fim - hoje_br()).days if dia_fecha else None,
         "fatura_vence_dia": (cartao["cartao_vencimento"]
                              if (cartao and "cartao_vencimento" in cartao.keys()) else None),
         "saldo_investido": (float(user_row["saldo_investido"])
@@ -1755,7 +1784,7 @@ def mei_das_status(user_id: int, year: int) -> dict[str, Any]:
 
 
 def calculate_business_summary(user_id: int):
-    today = date.today()
+    today = hoje_br()
     month_start, month_end = month_bounds(today)
     with get_db() as db:
         notes_in = db.execute(
@@ -1810,7 +1839,7 @@ def calculate_business_summary(user_id: int):
     pending_notes = len([n for n in notes_in if (n["status"] or "").lower() != "autorizada"])
     due_soon = [
         c for c in commitments
-        if c["status"] == "pendente" and c["vencimento"] and date.fromisoformat(c["vencimento"]) <= date.today() + timedelta(days=7)
+        if c["status"] == "pendente" and c["vencimento"] and date.fromisoformat(c["vencimento"]) <= hoje_br() + timedelta(days=7)
     ]
     return {
         "notes_in": notes_in,
@@ -1856,7 +1885,7 @@ def rotina_diaria():
         pass
 
     uid = session.get("user_id")
-    hoje = date.today().isoformat()
+    hoje = hoje_br().isoformat()
     if uid and session.get("visto_em") != hoje:
         session["visto_em"] = hoje
         try:
@@ -1887,7 +1916,7 @@ def registrar_erro(e) -> str:
     """Guarda o traceback e devolve um código curto. A pessoa lê o código na tela
     e me manda por mensagem — assim dá pra achar o erro dela no meio dos outros."""
     codigo = uuid.uuid4().hex[:6].upper()
-    quando = datetime.now().isoformat(timespec="seconds")
+    quando = agora_br().isoformat(timespec="seconds")
     try:
         # NUNCA gravar o corpo da requisição: ele carrega valor, descrição, senha.
         # O que interessa pra depurar é onde quebrou, não o que a pessoa digitou.
@@ -1928,7 +1957,7 @@ DESBLOQUEIO_MINUTOS = 30
 
 
 def _marcar_desbloqueado():
-    session["desbloqueado_em"] = datetime.now().isoformat(timespec="seconds")
+    session["desbloqueado_em"] = agora_br().isoformat(timespec="seconds")
 
 
 def _desbloqueio_valido() -> bool:
@@ -1938,7 +1967,7 @@ def _desbloqueio_valido() -> bool:
     if not marca:
         return False
     try:
-        return datetime.now() - datetime.fromisoformat(marca) < timedelta(minutes=DESBLOQUEIO_MINUTOS)
+        return agora_br() - datetime.fromisoformat(marca) < timedelta(minutes=DESBLOQUEIO_MINUTOS)
     except ValueError:
         return False
 
@@ -2101,7 +2130,7 @@ def home():
     suggestions = pending_suggestions(user["id"])
 
     # Modo simples: quanto saiu hoje e a projeção do fim do mês
-    today_iso = date.today().isoformat()
+    today_iso = hoje_br().isoformat()
     with get_db() as db:
         today_spent = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
@@ -2146,7 +2175,7 @@ def home():
                 ).fetchone()["n"]
             mei_nota = 1 if n_notas else 0
             mei_sem_nota = 0 if n_notas else 1
-            faturado = calc_mei_faturamento(user["id"], date.today().year)
+            faturado = calc_mei_faturamento(user["id"], hoje_br().year)
             mei_limite = 1 if faturado >= MEI_LIMITE_ANUAL * 0.8 else 0
 
         candidatas = [
@@ -2163,7 +2192,7 @@ def home():
             if vale and not tip_seen(user["id"], chave):
                 herc_tip = chave
                 break
-    avg_daily_spend = stats["month_expenses"] / max(1, date.today().day)
+    avg_daily_spend = stats["month_expenses"] / max(1, hoje_br().day)
     projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month() - 1))
     view_mode = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
     # O menu (base.html) lê da sessão e o conteúdo lê do banco. Duas fontes pra mesma
@@ -2176,7 +2205,7 @@ def home():
     # "Sobrou? Guarda": na reta final do mês, se sobrou dinheiro e há uma reserva
     # incompleta, o Herc oferece jogar a sobra na reserva num toque.
     sobra_guardar = None
-    if date.today().day >= 20:
+    if hoje_br().day >= 20:
         with get_db() as db:
             reserva_goal = db.execute(
                 """SELECT meta_valor, valor_atual FROM metas
@@ -2234,7 +2263,7 @@ def sugerir_guardar_mensal(user_id: int, meses: int = 6) -> dict[str, Any] | Non
     confiança; meta que se quebra confirma o "eu não consigo guardar". Melhor
     guardar pouco e manter do que guardar muito e sacar na metade do mês.
     """
-    hoje = date.today()
+    hoje = hoje_br()
     desde = (hoje - timedelta(days=31 * (meses + 1))).isoformat()
     with get_db() as db:
         rows = db.execute(
@@ -2271,7 +2300,7 @@ def detectar_assinaturas(user_id: int, meses: int = 5) -> dict[str, Any]:
     """Acha o que se repete todo mês (Netflix, academia, seguro...). Critério: mesmo
     lugar, valor parecido, em 3+ meses diferentes. É o gasto que passa despercebido
     justamente por ser silencioso."""
-    desde = (date.today() - timedelta(days=31 * meses)).isoformat()
+    desde = (hoje_br() - timedelta(days=31 * meses)).isoformat()
     with get_db() as db:
         rows = db.execute(
             """SELECT descricao, estabelecimento, valor, categoria,
@@ -2311,7 +2340,7 @@ def detectar_assinaturas(user_id: int, meses: int = 5) -> dict[str, Any]:
 def insight_semanal(user_id: int) -> dict[str, Any] | None:
     """Insight concreto da semana, comparando com a semana anterior do PRÓPRIO usuário
     (não com média de mercado, que não diz nada pra quem está começando)."""
-    hoje = date.today()
+    hoje = hoje_br()
     ini_atual, fim_atual = (hoje - timedelta(days=6)).isoformat(), hoje.isoformat()
     ini_ant, fim_ant = (hoje - timedelta(days=13)).isoformat(), (hoje - timedelta(days=7)).isoformat()
     with get_db() as db:
@@ -2399,7 +2428,7 @@ def historico_mensal(user_id: int, meses: int = 12) -> list[dict[str, Any]]:
 
     Crédito fica de fora do 'saiu' pelo mesmo motivo do resto do app: a compra
     parcelada não sai da conta no mês em que foi feita."""
-    hoje = date.today()
+    hoje = hoje_br()
     with get_db() as db:
         rows = db.execute(
             """SELECT strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) AS mes,
@@ -2457,7 +2486,7 @@ def semana_fechada(hoje: date | None = None) -> tuple[date, date]:
 
     A semana corrente não serve: fechar o balanço na quarta-feira compara meia
     semana com uma inteira e sempre parece que a pessoa gastou menos."""
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_br()
     domingo = hoje - timedelta(days=hoje.weekday() + 1)
     return domingo - timedelta(days=6), domingo
 
@@ -2477,7 +2506,7 @@ def recado_da_semana(user_id: int, hoje: date | None = None) -> dict[str, Any] |
 
     É o motivo de voltar. Por isso tem que trazer notícia — não repetir o saldo,
     que a pessoa já vê na tela toda vez que abre."""
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_br()
     ini, fim = semana_fechada(hoje)
     ini_ant, fim_ant = ini - timedelta(days=7), fim - timedelta(days=7)
 
@@ -2585,7 +2614,7 @@ def calc_ir_preview(user_id: int, year: int) -> dict[str, Any]:
 @login_required
 def previa_ir():
     user = current_user()
-    ano = date.today().year
+    ano = hoje_br().year
     ir = calc_ir_preview(user["id"], ano)
     # MEI fatura por NOTA, não por transação — sem isso a tela diria "sua renda é R$ 0"
     # pra quem faturou o ano inteiro. Melhor mostrar separado e mandar pro Painel MEI.
@@ -2626,7 +2655,7 @@ def dashboard():
                    WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
                      AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)
                    ORDER BY date(quando) DESC LIMIT 1""",
-                (user["id"], (date.today() - timedelta(days=10)).isoformat()),
+                (user["id"], (hoje_br() - timedelta(days=10)).isoformat()),
             ).fetchone()
             if r:
                 ultima_entrada = {"valor": float(r["valor"]), "quando": str(r["quando"])[:10]}
@@ -2654,7 +2683,7 @@ def dashboard():
         parcelas=calc_parcelas_futuras(user["id"]),
         insight=insight_semanal(user["id"]),
         assinaturas=detectar_assinaturas(user["id"]),
-        month=month_label(date.today().strftime("%Y-%m")),
+        month=month_label(hoje_br().strftime("%Y-%m")),
     )
 
 
@@ -2672,7 +2701,7 @@ def business_dashboard():
         user=user,
         profile=profile,
         business=business,
-        month=month_label(date.today().strftime("%Y-%m")),
+        month=month_label(hoje_br().strftime("%Y-%m")),
     )
 
 
@@ -2685,7 +2714,7 @@ def painel_mei():
         flash("O Painel MEI é para quem tem perfil MEI, lojista ou híbrido.")
         return redirect(url_for("home"))
 
-    today = date.today()
+    today = hoje_br()
     faturamento_atual = calc_mei_faturamento(user["id"], today.year)
     faturamento_anterior = calc_mei_faturamento(user["id"], today.year - 1)
     pct = min(100.0, (faturamento_atual / MEI_LIMITE_ANUAL) * 100.0) if MEI_LIMITE_ANUAL else 0.0
@@ -2730,7 +2759,7 @@ def ativar_das():
             db.execute("UPDATE compromissos SET valor = ? WHERE id = ?", (valor, existing["id"]))
             flash("Valor do DAS-MEI atualizado.")
         else:
-            today = date.today()
+            today = hoje_br()
             last_day = calendar.monthrange(today.year, today.month)[1]
             venc_dia = min(dia, last_day)
             proximo = date(today.year, today.month, venc_dia)
@@ -2752,7 +2781,7 @@ def ativar_das():
 @login_required
 def dossie_mei():
     user = current_user()
-    year = request.args.get("year", str(date.today().year))
+    year = request.args.get("year", str(hoje_br().year))
     with get_db() as db:
         notes = db.execute(
             """SELECT * FROM notas WHERE user_id = ?
@@ -2977,7 +3006,7 @@ def dividas():
         flash("Dívida anotada." if tipo == "devo" else "Anotado — essa é pra você receber.")
         return redirect(url_for("dividas", novo=novo))
     return render_template("dividas.html", user=user, d=calc_dividas(user["id"]),
-                           novo=request.args.get("novo", type=int), hoje=date.today().isoformat())
+                           novo=request.args.get("novo", type=int), hoje=hoje_br().isoformat())
 
 
 @app.route("/dividas/<int:divida_id>/pagar", methods=["POST"])
@@ -3125,7 +3154,7 @@ def aporte_meta(goal_id):
         db.execute(
             """INSERT INTO transacoes (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte)
                VALUES (?, 'saida', ?, ?, ?, 'Reserva', ?, 'manual')""",
-            (user["id"], valor, f"Guardado na meta: {goal['nome']}", "Reserva", date.today().isoformat()),
+            (user["id"], valor, f"Guardado na meta: {goal['nome']}", "Reserva", hoje_br().isoformat()),
         )
     flash(f"Você guardou {money(valor)} na meta {goal['nome']}.")
     return redirect(url_for("metas", novo=goal_id))
@@ -3205,7 +3234,7 @@ def meses():
     escolhido = sanitize_text(request.args.get("mes"))
     if not re.fullmatch(r"\d{4}-\d{2}", escolhido or ""):
         escolhido = (fechados[0]["mes"] if fechados else
-                     historico[0]["mes"] if historico else date.today().strftime("%Y-%m"))
+                     historico[0]["mes"] if historico else hoje_br().strftime("%Y-%m"))
 
     anterior = mes_anterior_a(escolhido)
     return render_template(
@@ -3259,7 +3288,7 @@ def saldo_inicial():
         db.execute(
             """INSERT INTO transacoes (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte)
                VALUES (?, 'entrada', ?, 'Saldo inicial', 'Saldo inicial', 'Outros', ?, 'ajuste')""",
-            (user["id"], valor, date.today().isoformat()),
+            (user["id"], valor, hoje_br().isoformat()),
         )
     flash(f"Perfeito! Seu saldo de {money(valor)} está registrado. Agora é comigo. 🦁")
     return redirect(url_for("home"))
@@ -3335,7 +3364,7 @@ def categorias():
         orcamento=orcamento,
         total_orcado=total_orcado,
         total_gasto_com_limite=total_gasto_com_limite,
-        month=month_label(date.today().strftime("%Y-%m")),
+        month=month_label(hoje_br().strftime("%Y-%m")),
     )
 
 
@@ -3390,8 +3419,8 @@ def criar_regra():
     if acao == "ignorar":
         with get_db() as db:
             db.execute(
-                "INSERT INTO regras_categorizacao (user_id, padrao_texto, categoria_nome, created_at) VALUES (?, ?, ?, datetime('now'))",
-                (user["id"], padrao, IGNORE_RULE),
+                "INSERT INTO regras_categorizacao (user_id, padrao_texto, categoria_nome, created_at) VALUES (?, ?, ?, ?)",
+                (user["id"], padrao, IGNORE_RULE, agora_br().isoformat(timespec="seconds")),
             )
         flash(f"Combinado, deixo '{padrao}' como está.")
         return redirect(destino)
@@ -3423,8 +3452,8 @@ def criar_regra():
                        (categoria, antiga))
         else:
             db.execute(
-                "INSERT INTO regras_categorizacao (user_id, padrao_texto, categoria_nome, created_at) VALUES (?, ?, ?, datetime('now'))",
-                (user["id"], padrao, categoria),
+                "INSERT INTO regras_categorizacao (user_id, padrao_texto, categoria_nome, created_at) VALUES (?, ?, ?, ?)",
+                (user["id"], padrao, categoria, agora_br().isoformat(timespec="seconds")),
             )
     changed = reclassify_transactions(user["id"], padrao, categoria)
     if changed:
@@ -3507,7 +3536,7 @@ def toggle_commitment(commitment_id):
             try:
                 venc = date.fromisoformat(commitment["vencimento"])
             except (TypeError, ValueError):
-                venc = date.today()
+                venc = hoje_br()
             freq = commitment["frequencia"] or "mensal"
             proximo = None
             if freq == "semanal":
@@ -3902,7 +3931,7 @@ def nova_transacao():
         descricao = sanitize_text(request.form.get("descricao"))
         estabelecimento = sanitize_text(request.form.get("estabelecimento")) or descricao
         categoria = sanitize_text(request.form.get("categoria")) or categorize(user["id"], estabelecimento, descricao)
-        data_transacao = request.form.get("data_transacao") or date.today().isoformat()
+        data_transacao = request.form.get("data_transacao") or hoje_br().isoformat()
         fonte = sanitize_text(request.form.get("fonte")) or "manual"
         confidence = int(parse_money(request.form.get("confidence")) or 100)
         needs_review = 1 if request.form.get("needs_review") else 0
@@ -4059,7 +4088,7 @@ def importar_ofx():
         detectou_credito = any(item.get("no_credito") for item in items)
         stats = import_ofx_transactions(user["id"], items, forcar_credito=forcar_credito)
         with get_db() as db:
-            db.execute("UPDATE usuarios SET last_ofx_import = ? WHERE id = ?", (date.today().isoformat(), user["id"]))
+            db.execute("UPDATE usuarios SET last_ofx_import = ? WHERE id = ?", (hoje_br().isoformat(), user["id"]))
         partes = [f"{stats['importadas']} novas importadas"]
         if stats["reconciliadas"]:
             partes.append(f"{stats['reconciliadas']} já estavam anotadas (conferidas ✓)")
@@ -4151,7 +4180,7 @@ def pluggy_testar():
         flash("Autentiquei, mas o item não tem contas visíveis. " + " · ".join(detalhes))
         return redirect(url_for("settings"))
     # Diagnóstico: quantos lançamentos cada conta devolve em 90 dias e a data da última
-    since90 = (date.today() - timedelta(days=90)).isoformat()
+    since90 = (hoje_br() - timedelta(days=90)).isoformat()
     linhas = []
     for c in contas:
         tipo = c.get("type")
@@ -4440,7 +4469,7 @@ def _sync_pluggy(user, api_key, item_ids, esperar: bool, min_horas: float = 0):
     refresh = pluggy_refresh_items(api_key, item_ids, espera_max=24 if esperar else 0,
                                    min_horas=min_horas)
     contas = pluggy_accounts(api_key, item_ids)
-    items = pluggy_fetch_items(api_key, contas, (date.today() - timedelta(days=90)).isoformat())
+    items = pluggy_fetch_items(api_key, contas, (hoje_br() - timedelta(days=90)).isoformat())
     saldo_banco = sum(float(c.get("balance") or 0) for c in contas if c.get("type") == "BANK")
     try:
         saldo_investido = pluggy_investimentos(api_key, item_ids)
@@ -4462,8 +4491,8 @@ def _sync_pluggy(user, api_key, item_ids, esperar: bool, min_horas: float = 0):
                     db.execute("UPDATE usuarios SET cartao_vencimento = ? WHERE id = ?",
                                (vence, user["id"]))
             break
-    agora = datetime.now().isoformat(timespec="seconds")
-    hoje = date.today().isoformat()
+    agora = agora_br().isoformat(timespec="seconds")
+    hoje = hoje_br().isoformat()
     with get_db() as db:
         if saldo_investido is None:
             db.execute(
@@ -4492,7 +4521,7 @@ def pluggy_sync_auto():
     ultima = user["last_sync_at"] if "last_sync_at" in user.keys() else None
     if ultima:
         try:
-            if datetime.now() - datetime.fromisoformat(ultima) < timedelta(minutes=SYNC_AUTO_MINUTOS):
+            if agora_br() - datetime.fromisoformat(ultima) < timedelta(minutes=SYNC_AUTO_MINUTOS):
                 return {"ok": True, "pulou": True, "novas": 0}, 200
         except ValueError:
             pass
@@ -4552,7 +4581,7 @@ def _admin_no_menu():
 @login_required
 def saude_app():
     _so_admin()
-    hoje = date.today()
+    hoje = hoje_br()
     with get_db() as db:
         u = db.execute(
             """SELECT COUNT(*) AS total,
@@ -4607,7 +4636,7 @@ def saude_baixar_backup(nome):
 @login_required
 def exportar_ir():
     user = current_user()
-    year = request.args.get("year", str(date.today().year))
+    year = request.args.get("year", str(hoje_br().year))
     categoria = sanitize_text(request.args.get("categoria"))
     tipo = sanitize_text(request.args.get("tipo"))
     with get_db() as db:

@@ -24,7 +24,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from database import DB_PATH
+from database import DB_PATH, SQLITE_TIMEOUT
 
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR") or DB_PATH.parent / "backups")
 MANTER_DIAS = 14
@@ -68,7 +68,9 @@ def fazer_backup():
     fd, tmp = tempfile.mkstemp(suffix=".db", dir=str(BACKUP_DIR))
     os.close(fd)
     try:
-        origem = sqlite3.connect(DB_PATH)
+        # Mesmo timeout do app: o backup não pode falhar só porque um sync
+        # estava escrevendo naquele instante.
+        origem = sqlite3.connect(DB_PATH, timeout=SQLITE_TIMEOUT)
         try:
             copia = sqlite3.connect(tmp)
             try:

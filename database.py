@@ -8,8 +8,14 @@ DB_PATH = Path(os.environ.get("DATABASE_PATH") or BASE_DIR / "database.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+# Um sync do banco escreve centenas de linhas numa transação só. Com o timeout
+# padrão (5s), a requisição de outra pessoa — ou o backup diário — morre com
+# "database is locked" no meio. Esperar é sempre melhor que falhar.
+SQLITE_TIMEOUT = float(os.environ.get("SQLITE_TIMEOUT") or 20)
+
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=SQLITE_TIMEOUT)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
