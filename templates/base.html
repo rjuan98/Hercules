@@ -140,6 +140,21 @@
         {% endif %}
     {% endwith %}
 
+    {# Convite para instalar na tela inicial: ícone no celular em vez de "abre o navegador e digita o site" #}
+    {% if session.get('user_id') %}
+    <div class="install-bar" id="installBar" hidden>
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="install-herc">
+        <div class="install-copy">
+            <strong id="installTitulo">Colocar o Herc na sua tela?</strong>
+            <span id="installTexto">Fica com ícone, igual aos outros apps — sem precisar abrir o navegador.</span>
+        </div>
+        <div class="install-acoes">
+            <button type="button" class="button button-primary" id="installBtn">Colocar</button>
+            <button type="button" class="icon-button" id="installFechar" aria-label="Agora não">✕</button>
+        </div>
+    </div>
+    {% endif %}
+
     {# Modal de confirmação (substitui o confirm() do navegador) #}
     <div class="confirm-backdrop" id="confirmBackdrop" hidden>
         <div class="confirm-modal" role="dialog" aria-modal="true">
@@ -257,6 +272,51 @@
                     if (dx > 60 && !aberto) openDrawer();
                     else if (dx < -60 && aberto) closeDrawer();
                 }, { passive: true });
+            }
+
+            // ---- Colocar na tela inicial (vira ícone, sem depender do navegador) ----
+            const barra = document.getElementById('installBar');
+            if (barra) {
+                const jaInstalado = window.matchMedia('(display-mode: standalone)').matches
+                    || window.navigator.standalone === true;
+                const recusou = localStorage.getItem('herc_instalar') === 'nao';
+                const btn = document.getElementById('installBtn');
+                const fechar = document.getElementById('installFechar');
+                let promptAdiado = null;
+
+                const esconder = () => { barra.hidden = true; };
+                fechar && fechar.addEventListener('click', () => {
+                    localStorage.setItem('herc_instalar', 'nao');
+                    esconder();
+                });
+
+                // Android/Chrome: o navegador avisa que dá pra instalar
+                window.addEventListener('beforeinstallprompt', (e) => {
+                    e.preventDefault();
+                    promptAdiado = e;
+                    if (!jaInstalado && !recusou) barra.hidden = false;
+                });
+                btn && btn.addEventListener('click', async () => {
+                    if (!promptAdiado) return;
+                    promptAdiado.prompt();
+                    await promptAdiado.userChoice;
+                    promptAdiado = null;
+                    esconder();
+                });
+                window.addEventListener('appinstalled', () => {
+                    localStorage.setItem('herc_instalar', 'feito');
+                    esconder();
+                });
+
+                // iPhone não tem esse aviso: explica o caminho, que é escondido
+                const ehIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+                if (ehIOS && !jaInstalado && !recusou) {
+                    document.getElementById('installTitulo').textContent = 'Deixe o Herc na sua tela';
+                    document.getElementById('installTexto').innerHTML =
+                        'Toque em <strong>Compartilhar</strong> aqui embaixo e depois em <strong>“Adicionar à Tela de Início”</strong>.';
+                    btn && (btn.hidden = true);
+                    barra.hidden = false;
+                }
             }
 
             // ---- Destaque do item recém-criado ----

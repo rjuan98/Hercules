@@ -33,6 +33,15 @@
             <p class="subtitle">Leva menos de um minuto.</p>
         </div>
 
+        {% if google_login_enabled %}
+        {# Caminho mais fácil primeiro: um toque, sem senha pra lembrar #}
+        <a class="button button-primary google-button" href="{{ url_for('google_login') }}" style="width:100%;">
+            <img src="https://www.google.com/favicon.ico" alt="Google" width="18" height="18"> Criar conta com o Google
+        </a>
+        <p class="helper-text" style="text-align:center; margin-top:8px;">Um toque, sem senha pra criar nem lembrar.</p>
+        <div class="or-separator"><span>ou preencha abaixo</span></div>
+        {% endif %}
+
         <form method="POST" class="form-grid">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">

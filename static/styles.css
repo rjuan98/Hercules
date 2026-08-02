@@ -1121,6 +1121,35 @@ body {
     text-align: right;
 }
 
+/* Convite pra colocar o app na tela inicial */
+.install-bar {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 20px;
+    background: var(--surface);
+    border: 2px solid var(--border-strong);
+    box-shadow: 0 14px 34px rgba(120, 80, 40, 0.28);
+}
+/* sem isto o `display: flex` acima vence o atributo hidden e a barra aparece sempre */
+.install-bar[hidden] { display: none; }
+.install-herc { width: 40px; height: 40px; flex: 0 0 auto; }
+.install-copy { display: grid; gap: 2px; min-width: 0; }
+.install-copy strong { font-size: 0.98rem; }
+.install-copy span { font-size: 0.86rem; color: var(--muted); }
+.install-acoes { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.install-acoes .button { padding: 10px 16px; }
+@media (max-width: 760px) {
+    .install-bar { bottom: 84px; }   /* acima da barra de navegação */
+    .install-copy span { font-size: 0.82rem; }
+}
+
 /* Campo de dinheiro com prefixo R$ */
 .money-input { position: relative; }
 .money-prefix {

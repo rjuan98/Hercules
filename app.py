@@ -2088,7 +2088,7 @@ def register():
         except sqlite3.IntegrityError:
             flash("Esse e-mail já está cadastrado.")
             return redirect(url_for("register"))
-    return render_template("register.html")
+    return render_template("register.html", google_login_enabled=oauth is not None)
 
 
 @app.route("/login", methods=["GET", "POST"])
