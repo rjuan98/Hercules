@@ -149,9 +149,14 @@
         {% if user['saldo_banco'] is not none %}
             conta {{ user['saldo_banco']|money }}
             {% if user['saldo_investido'] %} · guardado (caixinhas/investimentos) {{ user['saldo_investido']|money }}{% endif %}
-            {% if user['last_sync_at'] %} · em {{ user['last_sync_at'].replace('T', ' ')[:16] }}{% endif %}
+            {% if user['last_sync_at'] %} · lido em {{ user['last_sync_at'].replace('T', ' ')[:16] }}{% endif %}
+            <br>
+            {% if user['ultima_coleta_banco'] %}
+            <strong>O banco coletou esses dados em {{ user['ultima_coleta_banco'].replace('T', ' ')[:16] }} (UTC).</strong>
+            Essa é a data que importa: o Herc só enxerga até onde o banco coletou.
+            {% endif %}
             <br>É esse valor que aparece como seu saldo. Se não bate com o app do banco,
-            me avise — pode ser dinheiro em caixinha, que o banco informa separado.
+            pode ser dinheiro em caixinha, que o banco informa separado.
         {% else %}
             ainda não recebi o saldo. Toque em <strong>Sincronizar agora</strong>.
         {% endif %}

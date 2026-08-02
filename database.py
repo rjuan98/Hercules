@@ -330,6 +330,7 @@ def init_db():
     _add_column_if_missing(conn, "usuarios", "pluggy_item_id", "TEXT")
     _add_column_if_missing(conn, "usuarios", "saldo_banco", "REAL")
     _add_column_if_missing(conn, "usuarios", "last_sync_at", "TEXT")
+    _add_column_if_missing(conn, "usuarios", "ultima_coleta_banco", "TEXT")
     _add_column_if_missing(conn, "usuarios", "saldo_investido", "REAL")
     _add_column_if_missing(conn, "categorias", "limite_mensal", "REAL NOT NULL DEFAULT 0.0")
     _add_column_if_missing(conn, "categorias", "created_at", "TIMESTAMP")

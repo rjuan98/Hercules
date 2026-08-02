@@ -563,6 +563,47 @@ c_o.post("/categorias", data={"csrf_token": "t", "nome": "Mercado", "limite_mens
 h_o3 = c_o.get("/categorias").get_data(as_text=True)
 check("estourou o limite avisa", "passou R$ 100,00" in h_o3 and "fill-danger" in h_o3)
 
+secao("28. Sync não atropela a coleta do banco")
+A.time.sleep = lambda s: None
+_patches = {"n": 0}
+class _Resp:
+    def raise_for_status(self): pass
+class _Http:
+    def patch(self, *a, **k):
+        _patches["n"] += 1
+        return _Resp()
+A.http_requests = _Http()
+
+def _mock_item(status, quando):
+    A._pluggy_get = lambda k, p, params=None: (
+        {"status": status, "executionStatus": "SUCCESS", "lastUpdatedAt": quando}
+        if p.startswith("/items/") else {})
+
+# O BUG: pedir coleta com uma já rodando REINICIA — e ela nunca terminava
+_mock_item("UPDATING", "2026-07-31T23:00:00Z")
+_patches["n"] = 0
+A.pluggy_refresh_items("k", ["i1"], espera_max=0)
+check("NAO pede coleta com uma ja rodando", _patches["n"] == 0, _patches["n"])
+
+_mock_item("UPDATED", "2026-07-30T10:00:00Z")
+_patches["n"] = 0
+r_ref = A.pluggy_refresh_items("k", ["i1"], espera_max=0, min_horas=3)
+check("pede coleta quando o dado esta velho", _patches["n"] == 1 and r_ref["pediu"] is True)
+
+recente = (datetime.utcnow() - timedelta(minutes=20)).isoformat() + "Z"
+_mock_item("UPDATED", recente)
+_patches["n"] = 0
+A.pluggy_refresh_items("k", ["i1"], espera_max=0, min_horas=3)
+check("auto-sync NAO pede se a coleta e' recente", _patches["n"] == 0, _patches["n"])
+
+_patches["n"] = 0
+A.pluggy_refresh_items("k", ["i1"], espera_max=0, min_horas=0)
+check("botao manual sempre pode pedir", _patches["n"] == 1, _patches["n"])
+
+_mock_item("LOGIN_ERROR", recente)
+r_login = A.pluggy_refresh_items("k", ["i1"], espera_max=0)
+check("detecta acesso expirado", r_login["erro_login"] is True)
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

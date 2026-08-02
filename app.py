@@ -780,39 +780,78 @@ def _pluggy_get(api_key: str, path: str, params: dict | None = None):
     return resp.json()
 
 
-def pluggy_refresh_items(api_key: str, item_ids: list[str], espera_max: int = 24) -> dict[str, Any]:
-    """Pede ao banco uma coleta NOVA (PATCH /items/{id}) e espera terminar.
-    Sem isso a Pluggy devolve a última coleta — e movimentações recentes não aparecem."""
+def pluggy_status_itens(api_key: str, item_ids: list[str]) -> dict[str, Any]:
+    """Como está a coleta agora: rodando? deu erro de acesso? de quando é o dado?"""
+    info = {"atualizando": False, "erro_login": False, "ultima_coleta": None}
     for item_id in item_ids:
         try:
-            http_requests.patch(
-                f"{PLUGGY_API}/items/{item_id}", json={},
-                headers={"X-API-KEY": api_key}, timeout=30,
-            ).raise_for_status()
+            it = _pluggy_get(api_key, f"/items/{item_id}")
         except Exception:
-            pass  # segue com o que já existe: melhor sincronizar velho do que falhar
+            continue
+        status = (it.get("status") or "").upper()
+        exec_status = (it.get("executionStatus") or "").upper()
+        if status == "UPDATING":
+            info["atualizando"] = True
+        if "LOGIN_ERROR" in exec_status or "INVALID_CREDENTIALS" in exec_status or status == "LOGIN_ERROR":
+            info["erro_login"] = True
+        u = it.get("lastUpdatedAt")
+        if u and (not info["ultima_coleta"] or str(u) > str(info["ultima_coleta"])):
+            info["ultima_coleta"] = u
+    return info
 
-    limite = time.time() + espera_max
-    pronto, erro_login, ultima = False, False, None
-    while time.time() < limite:
-        time.sleep(3)
-        atualizando = False
+
+def _coleta_recente(iso: str | None, horas: float) -> bool:
+    if not iso:
+        return False
+    try:
+        quando = datetime.fromisoformat(str(iso).replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return False
+    return (datetime.utcnow() - quando) < timedelta(hours=horas)
+
+
+def pluggy_refresh_items(api_key: str, item_ids: list[str], espera_max: int = 24,
+                         pedir_coleta: bool = True, min_horas: float = 0) -> dict[str, Any]:
+    """Pede ao banco uma coleta NOVA (PATCH /items/{id}) e espera terminar.
+
+    REGRA DE OURO: nunca pedir coleta com uma já rodando. Cada PATCH REINICIA a
+    coleta — pedindo de 30 em 30 minutos ela nunca chegava ao fim, e o dado só
+    aparecia de madrugada, quando ninguém abria o app.
+    """
+    info = pluggy_status_itens(api_key, item_ids)
+    if info["erro_login"]:
+        return {"pronto": True, "erro_login": True,
+                "ultima_coleta": info["ultima_coleta"], "pediu": False}
+
+    pediu = False
+    ja_fresco = _coleta_recente(info["ultima_coleta"], min_horas) if min_horas else False
+    if pedir_coleta and not info["atualizando"] and not ja_fresco:
         for item_id in item_ids:
             try:
-                it = _pluggy_get(api_key, f"/items/{item_id}")
+                http_requests.patch(
+                    f"{PLUGGY_API}/items/{item_id}", json={},
+                    headers={"X-API-KEY": api_key}, timeout=30,
+                ).raise_for_status()
+                pediu = True
             except Exception:
-                continue
-            status = (it.get("status") or "").upper()
-            exec_status = (it.get("executionStatus") or "").upper()
-            ultima = it.get("lastUpdatedAt") or ultima
-            if status == "UPDATING":
-                atualizando = True
-            if "LOGIN_ERROR" in exec_status or "INVALID_CREDENTIALS" in exec_status or status == "LOGIN_ERROR":
-                erro_login = True
-        if not atualizando:
+                pass  # segue com o que já existe: melhor sincronizar velho do que falhar
+
+    if not pediu and not info["atualizando"]:
+        # nada rodando e nada pedido: o que está lá já é o mais novo que dá
+        return {"pronto": True, "erro_login": False,
+                "ultima_coleta": info["ultima_coleta"], "pediu": False}
+
+    limite = time.time() + espera_max
+    pronto, erro_login, ultima = False, False, info["ultima_coleta"]
+    while time.time() < limite:
+        time.sleep(3)
+        agora = pluggy_status_itens(api_key, item_ids)
+        ultima = agora["ultima_coleta"] or ultima
+        erro_login = erro_login or agora["erro_login"]
+        if not agora["atualizando"]:
             pronto = True
             break
-    return {"pronto": pronto, "erro_login": erro_login, "ultima_coleta": ultima}
+    return {"pronto": pronto, "erro_login": erro_login, "ultima_coleta": ultima, "pediu": pediu}
 
 
 def pluggy_accounts(api_key: str, item_ids: list[str]) -> list[dict]:
@@ -3957,6 +3996,10 @@ def pluggy_sincronizar():
             return {"ok": False, "msg": msg}, 200
         flash(msg)
         return redirect(url_for("settings"))
+    if refresh.get("ultima_coleta"):
+        with get_db() as db:
+            db.execute("UPDATE usuarios SET ultima_coleta_banco = ? WHERE id = ?",
+                       (str(refresh["ultima_coleta"]), user["id"]))
     partes = [f"saldo do banco {money(saldo_banco)}"]
     if saldo_investido:
         partes.append(f"guardado {money(saldo_investido)}")
@@ -3971,7 +4014,9 @@ def pluggy_sincronizar():
     if datas:
         partes.append(f"mais recente em {format_date(max(datas))}")
     if not refresh["pronto"]:
-        partes.append("o banco ainda está enviando o resto — sincronize de novo em 1 min")
+        partes.append("o banco ainda está coletando — abra de novo em alguns minutos")
+    elif not refresh.get("pediu"):
+        partes.append("esse já é o dado mais recente que o banco liberou")
     msg = "Banco sincronizado: " + " · ".join(partes) + "."
     if ajax:
         return {"ok": True, "msg": msg, "novas": stats["importadas"],
@@ -4142,10 +4187,11 @@ def app_bloqueado():
 SYNC_AUTO_MINUTOS = 30
 
 
-def _sync_pluggy(user, api_key, item_ids, esperar: bool):
+def _sync_pluggy(user, api_key, item_ids, esperar: bool, min_horas: float = 0):
     """Núcleo compartilhado entre o botão (espera a coleta) e o automático (não espera).
     Devolve (stats, saldo_banco, refresh) ou levanta exceção."""
-    refresh = pluggy_refresh_items(api_key, item_ids, espera_max=24 if esperar else 0)
+    refresh = pluggy_refresh_items(api_key, item_ids, espera_max=24 if esperar else 0,
+                                   min_horas=min_horas)
     contas = pluggy_accounts(api_key, item_ids)
     items = pluggy_fetch_items(api_key, contas, (date.today() - timedelta(days=90)).isoformat())
     saldo_banco = sum(float(c.get("balance") or 0) for c in contas if c.get("type") == "BANK")
@@ -4203,7 +4249,8 @@ def pluggy_sync_auto():
         except ValueError:
             pass
     try:
-        stats, saldo, _inv, _refresh, _items = _sync_pluggy(user, pluggy_auth(), item_ids, esperar=False)
+        stats, saldo, _inv, _refresh, _items = _sync_pluggy(
+            user, pluggy_auth(), item_ids, esperar=False, min_horas=3)
     except Exception:
         return {"ok": False, "motivo": "falhou"}, 200  # silencioso: não atrapalha o uso
     return {"ok": True, "novas": stats["importadas"], "saldo": saldo}, 200
