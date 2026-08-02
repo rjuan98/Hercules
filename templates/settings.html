@@ -48,6 +48,31 @@
         </form>
     </details>
 </section>
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:14px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Bloqueio por digital 🔒</h2>
+        <p class="topbar-subtitle">Pede sua digital (ou rosto) pra abrir o Hércules — protege seus dados se alguém pegar seu celular destravado.</p>
+    </div>
+
+    {% if not webauthn_ok %}
+    <div class="auth-note">Ainda não disponível neste servidor (falta a biblioteca <code>webauthn</code>).</div>
+    {% elif passkey_ativa %}
+    <div class="auth-note" style="border-color:rgba(61,90,46,0.35); background:rgba(61,90,46,0.10);">
+        <strong>✓ Bloqueio ativo.</strong> O app tranca sozinho depois de 30 minutos parado.
+    </div>
+    <form method="POST" action="{{ url_for('passkey_remover') }}" style="margin-top:14px;"
+          data-confirm="Desativar o bloqueio por digital? Qualquer um com seu celular destravado vai conseguir abrir o Hércules.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="button button-danger">Desativar bloqueio</button>
+    </form>
+    {% else %}
+    <div class="auth-note">Sua digital fica no aparelho — o Hércules guarda só a chave pública, nunca a digital em si.</div>
+    <button type="button" id="btnAtivarDigital" class="button button-primary" style="margin-top:14px;">
+        <i data-lucide="fingerprint"></i> Ativar bloqueio por digital
+    </button>
+    <p class="helper-text" id="statusDigital" style="margin-top:10px;"></p>
+    {% endif %}
+</section>
 
 <section class="page-card" style="margin-top:18px;">
     <div class="topbar-copy" style="margin-bottom:14px;">
@@ -199,31 +224,6 @@
     {% endif %}
 </section>
 
-<section class="page-card" style="margin-top:18px;">
-    <div class="topbar-copy" style="margin-bottom:14px;">
-        <h2 class="topbar-title" style="font-size:1.25rem;">Bloqueio por digital 🔒</h2>
-        <p class="topbar-subtitle">Pede sua digital (ou rosto) pra abrir o Hércules — protege seus dados se alguém pegar seu celular destravado.</p>
-    </div>
-
-    {% if not webauthn_ok %}
-    <div class="auth-note">Ainda não disponível neste servidor (falta a biblioteca <code>webauthn</code>).</div>
-    {% elif passkey_ativa %}
-    <div class="auth-note" style="border-color:rgba(61,90,46,0.35); background:rgba(61,90,46,0.10);">
-        <strong>✓ Bloqueio ativo.</strong> O app tranca sozinho depois de 30 minutos parado.
-    </div>
-    <form method="POST" action="{{ url_for('passkey_remover') }}" style="margin-top:14px;"
-          data-confirm="Desativar o bloqueio por digital? Qualquer um com seu celular destravado vai conseguir abrir o Hércules.">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="button button-danger">Desativar bloqueio</button>
-    </form>
-    {% else %}
-    <div class="auth-note">Sua digital fica no aparelho — o Hércules guarda só a chave pública, nunca a digital em si.</div>
-    <button type="button" id="btnAtivarDigital" class="button button-primary" style="margin-top:14px;">
-        <i data-lucide="fingerprint"></i> Ativar bloqueio por digital
-    </button>
-    <p class="helper-text" id="statusDigital" style="margin-top:10px;"></p>
-    {% endif %}
-</section>
 <section class="page-card" style="margin-top:18px;">
     <div class="topbar-copy" style="margin-bottom:10px;">
         <h2 class="topbar-title" style="font-size:1.25rem;">Seus dados</h2>

@@ -56,7 +56,6 @@
                 <a href="{{ url_for('metas') }}" class="menu-link {% if request.path.startswith('/metas') %}active{% endif %}"><i data-lucide="target"></i><span>Metas</span></a>
                 <a href="{{ url_for('dividas') }}" class="menu-link {% if request.path.startswith('/dividas') %}active{% endif %}"><i data-lucide="handshake"></i><span>Dívidas</span></a>
                 <a href="{{ url_for('previa_ir') }}" class="menu-link {% if request.path.startswith('/ir') %}active{% endif %}"><i data-lucide="percent"></i><span>Prévia do IR</span></a>
-                <a href="{{ url_for('trabalhos') }}" class="menu-link {% if request.path.startswith('/trabalhos') %}active{% endif %}"><i data-lucide="trophy"></i><span>Conquistas</span></a>
                 {% endif %}
                 {# Nota fiscal e Painel MEI só fazem sentido pra quem tem negócio — mas pra
                    esse alguém eles são o miolo do app, então ficam MESMO no modo simples.
@@ -73,6 +72,9 @@
                 {% endif %}
                 <p class="sidebar-section-label">Conta</p>
                 <a href="{{ url_for('settings') }}" class="menu-link {% if request.path.startswith('/settings') %}active{% endif %}"><i data-lucide="settings-2"></i><span>Configurações</span></a>
+                {% if not modo_simples %}
+                <a href="{{ url_for('trabalhos') }}" class="menu-link {% if request.path.startswith('/trabalhos') %}active{% endif %}"><i data-lucide="trophy"></i><span>Conquistas</span></a>
+                {% endif %}
                 <a href="{{ url_for('ajuda') }}" class="menu-link {% if request.path.startswith('/ajuda') %}active{% endif %}"><i data-lucide="circle-help"></i><span>Ajuda</span></a>
                 {% if eh_admin %}
                 <a href="{{ url_for('saude_app') }}" class="menu-link {% if request.path.startswith('/saude') %}active{% endif %}"><i data-lucide="heart-pulse"></i><span>Saúde do app</span></a>

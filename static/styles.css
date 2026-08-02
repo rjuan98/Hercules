@@ -728,14 +728,24 @@ input[type="checkbox"]:focus-visible {
     .sidebar { display: none; }
     .topbar { padding: 18px 18px 16px; }
     .main-content { padding: 18px; }
-    .metric-grid.cols-2,
-    .metric-grid.cols-3,
-    .metric-grid.cols-4,
+    /* Formulário empilha (campo largo é mais fácil de preencher), mas número
+       não: uma coluna de cartões de 165px vira três telas de rolagem só de
+       números — foi a queixa de dois testadores sobre o Resumo. */
     .hero-grid,
     .form-grid.cols-2,
     .form-grid.cols-3 {
         grid-template-columns: 1fr;
     }
+    .metric-grid.cols-2,
+    .metric-grid.cols-3,
+    .metric-grid.cols-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+    .metric-card { min-height: 0; padding: 16px; }
+    .metric-value { font-size: clamp(1.15rem, 5.5vw, 1.7rem); overflow-wrap: anywhere; }
+    .metric-label { font-size: 0.7rem; letter-spacing: 0.06em; }
+    .metric-footnote { font-size: 0.78rem; }
     .auth-brand-panel, .auth-panel { min-height: auto; padding: 24px; }
     .auth-shell { gap: 18px; }
 }

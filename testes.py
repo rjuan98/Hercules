@@ -1891,6 +1891,82 @@ check("com queda pra quem nao suporta container query",
       "@supports not (font-size: 1cqi)" in _css_src_2)
 
 
+secao("66. Entrada hostil em todo campo (a passada que faltou)")
+# Eu tinha declarado a caca de bugs encerrada dizendo que o resto so apareceria
+# com usuario real. Os testadores acharam campo sem limite, valor sem teto e
+# grafico somando errado — tudo isso e' entrada hostil, e eu nunca fiz essa
+# passada. Aqui esta ela, pra nao depender de amigo implicante da proxima vez.
+_LIXO = ["", " ", "0", "-1", "abc", "1e999", "-0.0001", "999999999999", "null",
+         "<script>alert(1)</script>", "'; DROP TABLE transacoes; --", "../../etc/passwd",
+         "%00", "\x00nulo", "𝕏 emoji 🦁" * 40, "9" * 500, "1,,,,5", "1.2.3,45", "--5", "1e-999"]
+_ALVOS = [
+    ("/transacoes/nova", {"tipo": "saida", "descricao": "t", "categoria": "Outros"}, "valor"),
+    ("/transacoes/nova", {"tipo": "saida", "valor": "10", "categoria": "Outros"}, "descricao"),
+    ("/metas", {"nome": "m"}, "meta_valor"),
+    ("/dividas", {"tipo": "devo", "descricao": "d"}, "valor_total"),
+    ("/compromissos", {"descricao": "c", "vencimento": "2026-09-01"}, "valor"),
+    ("/saldo-inicial", {}, "valor"),
+    ("/categorias", {"nome": "c"}, "limite_mensal"),
+]
+c_h = novo_cliente("hostil@teste.com", nome="Hos")
+_quebrou = []
+for _rota, _base, _campo in _ALVOS:
+    for _v in _LIXO:
+        _d = dict(_base); _d[_campo] = _v; _d["csrf_token"] = "t"
+        try:
+            if c_h.post(_rota, data=_d, follow_redirects=True).status_code >= 500:
+                _quebrou.append((_rota, _campo, repr(_v)[:24]))
+        except Exception as _e:
+            _quebrou.append((_rota, _campo, type(_e).__name__))
+for _v in ["", "abc", "0000-00-00", "9999-99-99", "2026-02-30", "-1"]:
+    if c_h.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "10",
+                "descricao": "d", "categoria": "Outros", "data_transacao": _v},
+                follow_redirects=True).status_code >= 500:
+        _quebrou.append(("data", _v, ""))
+for _u in ["/transacoes?q=%00&pagina=-1", "/transacoes?pagina=abc", "/meses?mes=9999-99",
+           "/transacoes?pagina=99999999999999999999"]:
+    if c_h.get(_u).status_code >= 500:
+        _quebrou.append((_u, "url", ""))
+check(f"{len(_ALVOS)*len(_LIXO)+10} entradas hostis sem derrubar nenhuma tela",
+      not _quebrou, str(_quebrou[:3]))
+
+# nao basta nao quebrar: o que foi gravado tem que estar sao
+uid_h = uid_de("hostil@teste.com")
+c_h.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "10",
+                                   "descricao": "<script>alert('xss')</script>", "categoria": "Outros"})
+c_h.post("/transacoes/nova", data={"csrf_token": "t", "tipo": "saida", "valor": "20",
+                                   "descricao": "'; DROP TABLE transacoes; --", "categoria": "Outros"})
+import math as _math
+with get_db() as db:
+    _sobrou = db.execute("SELECT COUNT(*) AS n FROM transacoes").fetchone()["n"]
+    _vals = [r["valor"] for r in db.execute("SELECT valor FROM transacoes WHERE user_id=?",
+                                            (uid_h,)).fetchall()]
+check("a tabela sobreviveu ao DROP TABLE colado", _sobrou > 0)
+check("nenhum valor gravado e' infinito ou NaN",
+      all(_math.isfinite(v) and abs(v) <= A.VALOR_MAX for v in _vals))
+_h_lista = c_h.get("/transacoes").get_data(as_text=True)
+check("script colado NAO executa na página", "<script>alert" not in _h_lista)
+check("aparece escapado, como texto", "&lt;script&gt;" in _h_lista)
+check("nenhum 'R$ inf' ou 'R$ nan' na tela",
+      not re.search(r"R\$\s*(inf|nan)", _h_lista, re.I))
+
+secao("67. Resumo mais curto no celular, e segurança visível")
+# Duas queixas: "Resumo tem informação demais" e "falta segurança pra conta".
+check("cartões de número em 2 colunas no celular (era 1)",
+      "grid-template-columns: repeat(2, minmax(0, 1fr));\n        gap: 12px;" in _css_src_2
+      or ".metric-grid.cols-4 {\n        grid-template-columns: repeat(2" in _css_src_2)
+check("e sem altura mínima de 165px empilhada", ".metric-card { min-height: 0;" in _css_src_2)
+check("formulário continua empilhado (campo largo é mais fácil)",
+      ".form-grid.cols-2,\n    .form-grid.cols-3 {\n        grid-template-columns: 1fr;" in _css_src_2)
+
+_h_set = c1.get("/settings").get_data(as_text=True)
+check("o bloqueio por digital sobe pro topo das Configurações",
+      _h_set.index("Bloqueio por digital") < _h_set.index("Como você usa o Hércules"))
+_h_menu = c1.get("/").get_data(as_text=True)
+check("Conquistas saiu do dia a dia e foi pra Conta",
+      _h_menu.index("Configurações") < _h_menu.index("Conquistas") < _h_menu.index("Ajuda"))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
