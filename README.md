@@ -33,11 +33,21 @@ python testes.py
 ```
 
 São **624 verificações** contra um banco temporário e isolado — não encostam nos seus
-dados. Cobrem desde as contas de dinheiro até isolamento entre usuários, fuso horário,
-concorrência e o ciclo da fatura, e já pegaram bugs que teriam quebrado a instalação de
-todo mundo.
+dados. Cobrem as contas de dinheiro, isolamento entre usuários, fuso horário, o ciclo
+da fatura, entrada hostil em todo formulário, envio duplicado, exclusão em cascata e
+duas abas abertas na mesma conta.
+
+Já pegaram bugs que teriam quebrado a instalação de todo mundo — e outros que só
+apareceram porque testadores de verdade cutucaram onde eu não tinha olhado.
 
 Se algo ficar vermelho, não suba.
+
+E antes de subir, vale conferir se alguma dependência tem falha publicada:
+
+```bash
+pip install -r requirements-dev.txt
+pip-audit -r requirements.txt
+```
 
 ---
 
@@ -101,16 +111,30 @@ pessoa só, e um arquivo que dá pra ler inteiro custa menos que uma arquitetura
 precisa ser lembrada.
 
 ```
-app.py            rotas, regras de negócio, integrações
-database.py       schema e migrações (idempotentes, rodam no boot)
-backup.py         cópia diária, via API de backup do SQLite
-testes.py         a bateria inteira
-templates/        Jinja2
-static/           CSS próprio, service worker, ícones locais
+app.py                 rotas, regras de negócio, integrações
+database.py            schema e migrações (idempotentes, rodam no boot)
+backup.py              cópia diária cifrada, via API de backup do SQLite
+testes.py              a bateria inteira
+requirements-dev.txt   ferramentas de desenvolvimento (pip-audit)
+templates/             Jinja2
+static/                CSS próprio, service worker, ícones locais
 ```
 
 Sem CDN: Lucide e Chart.js são servidos localmente. Quando o CDN cai, é a interface
 inteira que some.
+
+---
+
+## Segurança
+
+Senha com `scrypt` e sal próprio. Login trava depois de 5 erros. Sessão nova a cada
+entrada, cookie HttpOnly + SameSite + Secure, CSRF em todo POST. CSP, anti-clickjacking
+e HSTS. Toda consulta filtra por usuário, e há teste provando que uma conta não alcança
+dado de outra. Bloqueio por digital ou rosto (WebAuthn), opcional.
+
+O que **não** existe: pentest profissional, auditoria formal, criptografia individual
+dos dados em repouso, confirmação de e-mail. A tabela completa está no
+**[DEPLOY.md](DEPLOY.md)**.
 
 ---
 
