@@ -1421,6 +1421,85 @@ check("um dia depois ja e' a proxima",
 check("fechamento 31 em fevereiro cai no ultimo dia",
       A.ciclo_fatura(date(2026, 2, 28), 31)[1] == date(2026, 2, 28))
 
+secao("51. OFX de fatura: mesma regra do estorno")
+# Se o OFX tratasse diferente da Pluggy, a fatura mudaria conforme a pessoa
+# tivesse conectado o banco ou importado o arquivo. O pagamento tem que sumir
+# nos DOIS, senao ele abateria a fatura (e ja saiu da conta corrente).
+_OFX_CARTAO = """<CCSTMTRS>
+<STMTTRN><DTPOSTED>20260801<TRNAMT>-500.00<FITID>o1<MEMO>MAGAZINE LUIZA</STMTTRN>
+<STMTTRN><DTPOSTED>20260803<TRNAMT>500.00<FITID>o2<MEMO>ESTORNO MAGAZINE LUIZA</STMTTRN>
+<STMTTRN><DTPOSTED>20260810<TRNAMT>1200.00<FITID>o3<MEMO>PAGAMENTO RECEBIDO</STMTTRN>
+<STMTTRN><DTPOSTED>20260804<TRNAMT>-30.00<FITID>o4<MEMO>PADARIA</STMTTRN>
+</CCSTMTRS>"""
+_ofx = {t["descricao"]: t for t in A.parse_ofx(_OFX_CARTAO)}
+check("OFX: compra vira saida no credito",
+      _ofx["MAGAZINE LUIZA"]["tipo"] == "saida" and _ofx["MAGAZINE LUIZA"]["no_credito"])
+check("OFX: estorno vira entrada (abate a fatura)",
+      _ofx.get("ESTORNO MAGAZINE LUIZA", {}).get("tipo") == "entrada")
+check("OFX: pagamento da fatura e' descartado", "PAGAMENTO RECEBIDO" not in _ofx)
+check("OFX: fatura fecha em 30, nao em 530",
+      sum(t["valor"] if t["tipo"] == "saida" else -t["valor"] for t in _ofx.values()) == 30)
+
+# Numa conta comum, pagar a fatura e' gasto de verdade — nao pode sumir
+_OFX_CONTA = """<STMTRS>
+<STMTTRN><DTPOSTED>20260810<TRNAMT>-1200.00<FITID>b1<MEMO>PAGAMENTO FATURA CARTAO</STMTTRN>
+<STMTTRN><DTPOSTED>20260805<TRNAMT>3000.00<FITID>b2<MEMO>SALARIO</STMTTRN>
+</STMTRS>"""
+_conta = {t["descricao"]: t for t in A.parse_ofx(_OFX_CONTA)}
+check("conta corrente: pagar a fatura CONTINUA sendo gasto",
+      _conta.get("PAGAMENTO FATURA CARTAO", {}).get("tipo") == "saida")
+check("e nao e' marcado como credito", _conta["PAGAMENTO FATURA CARTAO"]["no_credito"] is False)
+
+secao("52. Import não abre uma conexão por lançamento")
+c_imp = novo_cliente("import-perf@teste.com", nome="Imp")
+uid_imp = uid_de("import-perf@teste.com")
+with get_db() as db:
+    for _i in range(12):
+        db.execute("INSERT INTO regras_categorizacao (user_id,padrao_texto,categoria_nome) VALUES (?,?,?)",
+                   (uid_imp, f"padrao{_i}", "Lazer"))
+_lote = [{"valor": 10.0 + _i, "tipo": "saida", "data": date.today().isoformat(),
+          "descricao": f"LOJA {_i}", "fitid": f"PERF{_i}", "no_credito": False} for _i in range(400)]
+_conexoes = {"n": 0}
+_get_db_orig = A.get_db
+A.get_db = lambda *a, **k: (_conexoes.__setitem__("n", _conexoes["n"] + 1) or _get_db_orig(*a, **k))
+try:
+    _st_imp = A.import_ofx_transactions(uid_imp, _lote)
+finally:
+    A.get_db = _get_db_orig
+check("400 lançamentos importados", _st_imp["importadas"] == 400, _st_imp)
+# Uma conexao por linha, dentro de uma transacao aberta, e' o que fazia
+# importar 3 meses de extrato demorar
+check("sem uma conexão por lançamento", _conexoes["n"] <= 5, _conexoes["n"])
+
+secao("53. Migração num banco que já tem dados")
+# A suite roda em banco novo. O upgrade de verdade e' em cima de um banco em uso.
+import shutil as _sh, sqlite3 as _sq4
+_prod = os.path.join(TMP, "simula_producao.db")
+_sh.copy(os.environ["DATABASE_PATH"], _prod)
+_c = _sq4.connect(_prod)
+_tabelas = [r[0] for r in _c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name!='sqlite_sequence'")]
+_antes = {t: _c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in _tabelas}
+_c.close()
+
+import database as _dbmod
+_path_orig = _dbmod.DB_PATH
+_dbmod.DB_PATH = __import__("pathlib").Path(_prod)
+try:
+    _dbmod.init_db()                      # roda as migrações de novo, em cima dos dados
+    _c = _sq4.connect(_prod)
+    _depois = {t: _c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in _tabelas}
+    _integridade = _c.execute("PRAGMA integrity_check").fetchone()[0]
+    _fk = list(_c.execute("PRAGMA foreign_key_check"))
+    _c.close()
+finally:
+    _dbmod.DB_PATH = _path_orig
+
+check("migração é idempotente (roda 2x sem erro)", True)
+check("banco continua íntegro depois de migrar", _integridade == "ok", _integridade)
+check("nenhuma linha perdida",
+      _antes == _depois, {t: (_antes[t], _depois[t]) for t in _antes if _antes[t] != _depois[t]})
+check("nenhuma chave estrangeira quebrada", not _fk, str(_fk[:2]))
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

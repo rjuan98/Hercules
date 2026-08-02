@@ -314,6 +314,20 @@ def _ofx_field(block: str, tag: str) -> str:
     return sanitize_text(m.group(1)) if m else ""
 
 
+# Como os bancos brasileiros escrevem "paguei a fatura" no extrato do cartão (vale pro OFX e pra Pluggy)
+_PAGAMENTO_FATURA = ("pagamento", "pagto", "pgto", "pag fatura", "pag. fatura")
+
+
+def e_pagamento_de_fatura(descricao: str) -> bool:
+    """Distingue PAGAR A FATURA de ESTORNAR UMA COMPRA — no cartão, os dois vêm
+    com valor negativo, mas significam coisas opostas.
+
+    Pagar a fatura não é movimento do cartão (o dinheiro sai da conta, e isso já
+    está registrado lá). Estorno é uma compra que voltou: tem que ABATER a fatura,
+    senão o app cobra da pessoa uma compra que ela devolveu."""
+    return any(p in _strip_accents(descricao or "").lower() for p in _PAGAMENTO_FATURA)
+
+
 def parse_ofx(content: str) -> list[dict[str, Any]]:
     """Extrai as transações de um arquivo OFX. Bancos brasileiros usam OFX 1.x (SGML) ou 2.x (XML).
     Extrato de fatura de cartão de crédito vem num bloco <CCSTMTRS> (em vez de <STMTRS> da
@@ -336,6 +350,11 @@ def parse_ofx(content: str) -> list[dict[str, Any]]:
         except ValueError:
             continue
         memo = _ofx_field(block, "MEMO") or _ofx_field(block, "NAME") or "Movimentação importada"
+        # Na fatura, positivo é estorno OU pagamento — e só o estorno abate.
+        # Pagar a fatura já sai da conta corrente; contar aqui abateria duas vezes.
+        # (Numa conta comum, "pagamento da fatura" é gasto de verdade: não pula.)
+        if is_credit_card_file and amount > 0 and e_pagamento_de_fatura(memo):
+            continue
         transactions.append({
             "valor": abs(amount),
             "tipo": "entrada" if amount > 0 else "saida",
@@ -583,6 +602,9 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
     """Importa com reconciliação: FITID já visto = pula; valor+data já registrado
     (captura/manual) = casa e marca; anterior ao saldo inicial = pula (protege o saldo)."""
     stats = {"importadas": 0, "ja_importadas": 0, "reconciliadas": 0, "antigas": 0}
+    # As regras aprendidas não mudam durante o import: lê uma vez, não uma por linha.
+    # Um extrato de 3 meses são centenas de lançamentos — eram centenas de conexões.
+    regras = user_rules(user_id)
     with get_db() as db:
         saldo_row = db.execute(
             """SELECT date(COALESCE(NULLIF(data_transacao, ''), created_at)) AS dia FROM transacoes
@@ -623,9 +645,8 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
                 )
                 stats["reconciliadas"] += 1
                 continue
-            # Uma consulta de regras por lançamento (antes eram três): a regra ensinada
-            # vence sempre; sem regra, só saída ganha categoria automática.
-            regra = apply_rules(user_id, item["descricao"])
+            # A regra ensinada vence sempre; sem regra, só saída ganha categoria automática.
+            regra = apply_rules(user_id, item["descricao"], regras=regras)
             if regra:
                 categoria = regra
             elif item["tipo"] == "saida":
@@ -790,20 +811,6 @@ def pluggy_investimentos(api_key: str, item_ids: list[str]) -> float:
                 continue  # já resgatado por inteiro
             total += float(inv.get("balance") or 0)
     return total
-
-
-# Como os bancos brasileiros escrevem "paguei a fatura" no extrato do cartão
-_PAGAMENTO_FATURA = ("pagamento", "pagto", "pgto", "pag fatura", "pag. fatura")
-
-
-def e_pagamento_de_fatura(descricao: str) -> bool:
-    """Distingue PAGAR A FATURA de ESTORNAR UMA COMPRA — no cartão, os dois vêm
-    com valor negativo, mas significam coisas opostas.
-
-    Pagar a fatura não é movimento do cartão (o dinheiro sai da conta, e isso já
-    está registrado lá). Estorno é uma compra que voltou: tem que ABATER a fatura,
-    senão o app cobra da pessoa uma compra que ela devolveu."""
-    return any(p in _strip_accents(descricao or "").lower() for p in _PAGAMENTO_FATURA)
 
 
 def pluggy_fetch_items(api_key: str, contas: list[dict], since: str) -> list[dict[str, Any]]:
