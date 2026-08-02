@@ -1723,6 +1723,20 @@ check("existe requirements-dev com o checador de vulnerabilidade",
       "pip-audit" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                        "requirements-dev.txt"), encoding="utf-8").read())
 
+secao("61. Anexar nota: camera OU galeria")
+# Com capture="environment" o Android abre a camera e so ela. Quem ja tem as
+# notas fotografadas — o caso da primeira testadora, que usa um telefone so
+# pra isso — ficava sem como enviar o que ja tinha.
+_h_nota = c_mae.get("/notas/nova").get_data(as_text=True)
+_campo = re.search(r'<input id="arquivo"[^>]*>', _h_nota).group(0)
+check("aceita foto e PDF", 'accept=".pdf,image/*"' in _campo, _campo)
+check("NAO forca a camera (deixa escolher da galeria)", "capture=" not in _campo, _campo)
+check("o rotulo diz que da pra fazer os dois", "escolha do celular" in _h_nota)
+check("o servidor aceita os formatos de foto",
+      all(A.allowed_file(f"nota.{e}") for e in ("jpg", "jpeg", "png", "webp", "pdf")))
+check("e recusa o que nao e' nota", not A.allowed_file("virus.exe"))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

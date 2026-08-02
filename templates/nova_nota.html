@@ -66,8 +66,11 @@
         </details>
         {% endif %}
         <div class="form-group" style="grid-column:1 / -1;">
-            <label for="arquivo">Anexo</label>
-            <input id="arquivo" type="file" name="arquivo" accept=".pdf,image/*" capture="environment">
+            <label for="arquivo">Anexo <span class="helper-text">(tire uma foto ou escolha do celular)</span></label>
+            {# Sem `capture`: com ele o Android abre a câmera E SÓ ela. Quem já tem as
+               notas fotografadas no celular ficava sem como enviá-las. Sem o atributo,
+               o próprio sistema oferece câmera e galeria — a câmera segue a um toque. #}
+            <input id="arquivo" type="file" name="arquivo" accept=".pdf,image/*">
             {% if note and note['arquivo'] %}
                 <p class="helper-text" style="margin-top:8px;">Arquivo atual: {{ note['arquivo'] }}</p>
             {% endif %}
