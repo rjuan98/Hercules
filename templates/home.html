@@ -5,6 +5,55 @@
 
 {% block content %}
 
+{# ---- O fechamento da semana. Vem antes de tudo: é o motivo de ter aberto o app. ---- #}
+{% if recado %}
+<section class="page-card recado-semana" style="margin-bottom:18px;">
+    <div class="hercules-greeting" style="margin-bottom:14px;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Fechou a semana de {{ recado.inicio.strftime('%d/%m') }} a {{ recado.fim.strftime('%d/%m') }}. 🦁</strong><br>
+
+            Você gastou <strong>{{ recado.gasto|money }}</strong>
+            {%- if recado.primeira_semana %}, e essa foi sua primeira semana registrada — da próxima
+            eu já consigo te dizer se subiu ou desceu.
+            {%- elif recado.delta is not none and recado.delta < -1 %},
+            <strong style="color:var(--success);">{{ (-recado.delta)|money }} a menos</strong> que na semana anterior. 👏
+            {%- elif recado.delta is not none and recado.delta > 1 %},
+            <strong style="color:var(--danger);">{{ recado.delta|money }} a mais</strong> que na semana anterior.
+            {%- else %} — praticamente o mesmo da semana anterior.
+            {%- endif %}
+
+            {% if recado.mudanca %}
+            <br><br>
+            O que mais mudou foi <strong>{{ recado.mudanca.categoria }}</strong>:
+            {% if recado.mudanca.delta > 0 %}subiu{% else %}caiu{% endif %}
+            <strong>{{ (recado.mudanca.delta if recado.mudanca.delta > 0 else -recado.mudanca.delta)|money }}</strong>,
+            fechando em {{ recado.mudanca.total|money }}.
+            {% endif %}
+        </div>
+    </div>
+
+    {% if recado.sobrou > 0 %}
+    <p class="subtitle" style="margin:0 0 12px;">
+        💚 Sobrou <strong>{{ recado.sobrou|money }}</strong> na semana. Guardar agora, enquanto está
+        na conta, é bem mais fácil do que no fim do mês.
+    </p>
+    {% endif %}
+
+    <div class="page-actions">
+        {% if recado.sobrou > 0 %}
+        <a href="{{ url_for('metas') }}" class="button button-primary"><i data-lucide="piggy-bank"></i> Quero guardar</a>
+        {% endif %}
+        <a href="{{ url_for('dashboard') }}" class="button button-outline"><i data-lucide="pie-chart"></i> Ver a semana inteira</a>
+        <form method="POST" action="{{ url_for('marcar_recado_visto') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="chave" value="{{ recado.chave }}">
+            <button type="submit" class="button button-outline">Vi, obrigado</button>
+        </form>
+    </div>
+</section>
+{% endif %}
+
 {# ---- Um recado por vez: boas-vindas > lembrete de extrato (só sem Pluggy) > ensinar categoria > dica ---- #}
 {% if onboarding %}
 <section class="page-card suggestion-card" style="margin-bottom:18px;">

@@ -1474,3 +1474,10 @@ html.valores-ocultos .chart-box canvas { filter: blur(10px); }
 .eye-toggle .eye-off { display: none; }
 html.valores-ocultos .eye-toggle .eye-on { display: none; }
 html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
+
+/* ---- Fechamento da semana: é a primeira coisa da tela, tem que ter cara de recado ---- */
+.recado-semana {
+    border: 2px solid var(--primary-deep);
+    box-shadow: 5px 5px 0 var(--primary-deep);
+    background: var(--surface);
+}

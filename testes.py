@@ -900,6 +900,84 @@ check("link no menu so aparece pro admin",
       and 'Saúde do app' not in c2.get("/").get_data(as_text=True))
 A.ADMIN_EMAIL = ""
 
+secao("37. Recado da semana (o motivo de voltar)")
+# A semana tem que ser a que FECHOU. Fechar balanço na quarta compara meia
+# semana com uma inteira e sempre parece que a pessoa gastou menos.
+_qua = date(2026, 7, 29)                     # uma quarta-feira
+_ini, _fim = A.semana_fechada(_qua)
+check("semana fechada comeca na segunda", _ini.weekday() == 0, _ini.strftime("%a %d/%m"))
+check("semana fechada termina no domingo", _fim.weekday() == 6, _fim.strftime("%a %d/%m"))
+check("nao inclui a semana corrente", _fim < _qua, f"{_fim} vs {_qua}")
+check("sao 7 dias", (_fim - _ini).days == 6)
+
+_seg = date(2026, 8, 3)                      # segunda: a semana de ontem acabou
+_i2, _f2 = A.semana_fechada(_seg)
+check("na segunda ja fecha a semana que acabou ontem", _f2 == _seg - timedelta(days=1))
+_dom = date(2026, 8, 2)                      # domingo: hoje ainda nao acabou
+_i3, _f3 = A.semana_fechada(_dom)
+check("no domingo NAO fecha o proprio domingo", _f3 < _dom)
+check("virada de ano nao quebra a chave",
+      A.chave_recado(date(2026, 1, 4)) == "recado:2026-W01", A.chave_recado(date(2026, 1, 4)))
+
+c_r = novo_cliente("recado@teste.com", nome="Rita")
+uid_r = uid_de("recado@teste.com")
+_i, _f = A.semana_fechada()
+def _lanca(uid, tipo, valor, quando, cat="Outros", desc="x"):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,?,?,'manual',100,?,0)""",
+                   (uid, tipo, valor, desc, cat, quando.isoformat()))
+
+check("sem movimento nenhum nao inventa recado", A.recado_da_semana(uid_r) is None)
+
+_lanca(uid_r, "entrada", 1000, _i, "Salário")
+_lanca(uid_r, "saida", 300, _i + timedelta(days=1), "Mercado")
+_lanca(uid_r, "saida", 100, _i + timedelta(days=2), "Transporte")
+_rec = A.recado_da_semana(uid_r)
+check("soma o gasto da semana que fechou", abs(_rec["gasto"] - 400) < 0.01, _rec["gasto"])
+check("calcula o que sobrou", abs(_rec["sobrou"] - 600) < 0.01, _rec["sobrou"])
+check("sem semana anterior, avisa que e' a primeira", _rec["primeira_semana"] is True)
+check("sem comparacao nao inventa variacao", _rec["delta"] is None and _rec["mudanca"] is None)
+
+# semana anterior: Transporte era bem maior -> a NOTICIA e' a queda do transporte
+_lanca(uid_r, "saida", 280, _i - timedelta(days=6), "Mercado")
+_lanca(uid_r, "saida", 400, _i - timedelta(days=5), "Transporte")
+_rec2 = A.recado_da_semana(uid_r)
+check("agora compara com a semana anterior", _rec2["primeira_semana"] is False)
+check("delta do gasto total", abs(_rec2["delta"] - (400 - 680)) < 0.01, _rec2["delta"])
+check("aponta a categoria que mais MUDOU, nao a maior",
+      _rec2["mudanca"]["categoria"] == "Transporte", _rec2["mudanca"])
+check("e diz que caiu", _rec2["mudanca"]["delta"] < 0)
+
+# ruido nao vira recado
+c_ru = novo_cliente("ruido@teste.com", nome="Rui")
+uid_ru = uid_de("ruido@teste.com")
+_lanca(uid_ru, "saida", 100, _i, "Mercado")
+_lanca(uid_ru, "saida", 104, _i - timedelta(days=7), "Mercado")
+check("variacao de trocado NAO vira 'o que mudou'",
+      A.recado_da_semana(uid_ru)["mudanca"] is None)
+
+_h_r = c_r.get("/").get_data(as_text=True)
+check("o recado aparece na Inicio", "Fechou a semana de" in _h_r)
+check("vem antes do resto da tela", _h_r.index("recado-semana") < _h_r.index("balance-hero"))
+check("mostra o que mudou", "O que mais mudou foi" in _h_r and "Transporte" in _h_r)
+check("oferece guardar a sobra", "Quero guardar" in _h_r)
+
+c_r.post("/recado/visto", data={"csrf_token": "t", "chave": _rec2["chave"]})
+check("depois do 'Vi' some", "Fechou a semana de" not in c_r.get("/").get_data(as_text=True))
+check("mas volta na semana seguinte (guarda por semana, nao pra sempre)",
+      not A.tip_seen(uid_r, A.chave_recado(_f + timedelta(days=7))))
+
+# chave vem do formulario: nao pode virar porta pra gravar lixo
+c_r.post("/recado/visto", data={"csrf_token": "t", "chave": "primeira_parcela"})
+with get_db() as db:
+    _lixo = db.execute("SELECT COUNT(*) AS n FROM dicas_vistas WHERE user_id=? AND dica=?",
+                       (uid_r, "primeira_parcela")).fetchone()["n"]
+check("nao aceita chave fora do formato", _lixo == 0)
+
+c_novo = novo_cliente("semrecado@teste.com", nome="Novo")
+check("na estreia nao mostra recado", "Fechou a semana de" not in c_novo.get("/").get_data(as_text=True))
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

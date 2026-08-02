@@ -2326,6 +2326,14 @@ def home():
 
     onboarding = tx_count == 0
 
+    # O fechamento da semana — é o que dá motivo pra voltar. Fica acima de tudo
+    # enquanto é notícia, e some pro resto da semana depois do "Vi".
+    recado = None
+    if not onboarding:
+        recado = recado_da_semana(user["id"])
+        if recado and tip_seen(user["id"], recado["chave"]):
+            recado = None
+
     # Uma dica do Herc por vez, no momento em que a coisa acontece (ensina usando).
     # Ordem = mais relevante primeiro; some pra sempre depois do "Entendi!".
     herc_tip = None
@@ -2391,10 +2399,10 @@ def home():
             if sobra_mes > 0 and faltante > 0:
                 sobra_guardar = min(sobra_mes, faltante)
 
-    session["last_balance"] = money(stats["balance"])
     session["meta_mensal"] = user["meta_mensal"]
     return render_template(
         "home.html",
+        recado=recado,
         suggestions=suggestions,
         suggestion_categories=expense_category_names(user["id"]),
         today_spent=float(today_spent or 0),
@@ -2543,6 +2551,83 @@ def insight_semanal(user_id: int) -> dict[str, Any] | None:
         "media_dia": atual / 7,
         "top_cat": top["cat"] if top else None,
         "top_valor": float(top["t"] or 0) if top else 0.0,
+    }
+
+
+def semana_fechada(hoje: date | None = None) -> tuple[date, date]:
+    """A última semana que REALMENTE acabou (segunda a domingo).
+
+    A semana corrente não serve: fechar o balanço na quarta-feira compara meia
+    semana com uma inteira e sempre parece que a pessoa gastou menos."""
+    hoje = hoje or date.today()
+    domingo = hoje - timedelta(days=hoje.weekday() + 1)
+    return domingo - timedelta(days=6), domingo
+
+
+def chave_recado(fim: date) -> str:
+    ano, semana, _ = fim.isocalendar()
+    return f"recado:{ano}-W{semana:02d}"
+
+
+# Mudança menor que isso é ruído: apontar "gastou R$ 4 a mais em padaria"
+# ensina a pessoa a ignorar o recado.
+RECADO_MUDANCA_MINIMA = 25.0
+
+
+def recado_da_semana(user_id: int, hoje: date | None = None) -> dict[str, Any] | None:
+    """O fechamento da semana: o que aconteceu, o que mudou e o que dá pra fazer.
+
+    É o motivo de voltar. Por isso tem que trazer notícia — não repetir o saldo,
+    que a pessoa já vê na tela toda vez que abre."""
+    hoje = hoje or date.today()
+    ini, fim = semana_fechada(hoje)
+    ini_ant, fim_ant = ini - timedelta(days=7), fim - timedelta(days=7)
+
+    with get_db() as db:
+        def por_categoria(a, b):
+            return {r["cat"]: float(r["t"] or 0) for r in db.execute(
+                """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
+                     FROM transacoes
+                    WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+                      AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)
+                    GROUP BY cat""", (user_id, a.isoformat(), b.isoformat())).fetchall()}
+
+        def totais(a, b):
+            r = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN tipo='entrada' THEN valor END), 0) AS entrou,
+                          COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=0 THEN valor END), 0) AS saiu,
+                          COUNT(*) AS n
+                     FROM transacoes
+                    WHERE user_id = ? AND fonte != 'ajuste'
+                      AND date(COALESCE(data_transacao, created_at)) BETWEEN date(?) AND date(?)""",
+                (user_id, a.isoformat(), b.isoformat())).fetchone()
+            return float(r["entrou"]), float(r["saiu"]), r["n"]
+
+        entrou, saiu, movimentos = totais(ini, fim)
+        _, saiu_ant, movimentos_ant = totais(ini_ant, fim_ant)
+
+    # Semana sem nada não vira recado — mandar "você gastou R$ 0" é ruído
+    if movimentos == 0:
+        return None
+
+    cats, cats_ant = por_categoria(ini, fim), por_categoria(ini_ant, fim_ant)
+    mudanca = None
+    if movimentos_ant:
+        deltas = {c: cats.get(c, 0) - cats_ant.get(c, 0) for c in set(cats) | set(cats_ant)}
+        cat, valor = max(deltas.items(), key=lambda kv: abs(kv[1]), default=(None, 0))
+        if cat and abs(valor) >= RECADO_MUDANCA_MINIMA:
+            mudanca = {"categoria": cat, "delta": valor, "total": cats.get(cat, 0)}
+
+    return {
+        "inicio": ini, "fim": fim,
+        "chave": chave_recado(fim),
+        "gasto": saiu, "entrou": entrou,
+        "gasto_anterior": saiu_ant,
+        "delta": saiu - saiu_ant if movimentos_ant else None,
+        "sobrou": max(0.0, entrou - saiu),
+        "movimentos": movimentos,
+        "mudanca": mudanca,
+        "primeira_semana": movimentos_ant == 0,
     }
 
 
@@ -3241,6 +3326,19 @@ def marcar_dica(key):
                 "INSERT OR IGNORE INTO dicas_vistas (user_id, dica) VALUES (?, ?)",
                 (user["id"], key),
             )
+    return redirect(request.referrer or url_for("home"))
+
+
+@app.route("/recado/visto", methods=["POST"])
+@login_required
+def marcar_recado_visto():
+    """Guarda pela SEMANA, não pra sempre: no domingo seguinte tem recado novo."""
+    user = current_user()
+    chave = sanitize_text(request.form.get("chave"))[:40]
+    if re.fullmatch(r"recado:\d{4}-W\d{2}", chave or ""):
+        with get_db() as db:
+            db.execute("INSERT OR IGNORE INTO dicas_vistas (user_id, dica) VALUES (?, ?)",
+                       (user["id"], chave))
     return redirect(request.referrer or url_for("home"))
 
 
