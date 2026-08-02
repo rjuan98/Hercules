@@ -1,0 +1,104 @@
+{% extends 'base.html' %}
+{% block title %}Ajuda · Hércules{% endblock %}
+{% block page_title %}Como usar o Herc{% endblock %}
+{% block page_subtitle %}O passo a passo de conectar o banco e o que dá pra fazer aqui.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:820px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Oi! Eu sou o Herc. 🦁</strong><br>
+            Meu trabalho é te dizer <strong>quanto você tem</strong> e <strong>quanto dá pra gastar</strong> —
+            sem você precisar ficar anotando nada. Aqui embaixo tem o passo a passo pra ligar isso.
+        </div>
+    </div>
+</section>
+
+<section class="page-card" style="max-width:820px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:6px;">Conectar seu banco</h2>
+    <p class="topbar-subtitle" style="margin-bottom:14px;">
+        Leva uns 10 minutos, e é só uma vez. Depois disso seus gastos entram sozinhos.
+    </p>
+
+    <div class="auth-note" style="margin-bottom:16px;">
+        🔒 <strong>Antes de tudo:</strong> você digita a senha do banco <strong>no próprio banco</strong> —
+        ela nunca passa pelo Herc. E o acesso é <strong>só de leitura</strong>: dá pra ver saldo e gastos,
+        e <strong>não</strong> dá pra transferir nem pagar nada.
+        <a href="{{ url_for('privacidade') }}" style="color:var(--primary-deep); font-weight:800;">Ver a política de privacidade</a>
+    </div>
+
+    <ol class="ajuda-passos">
+        <li>
+            <strong>Crie uma conta no Meu Pluggy</strong>
+            <p>Abra <a href="https://meu.pluggy.ai" target="_blank" rel="noopener" style="color:var(--primary-deep); font-weight:800;">meu.pluggy.ai</a>
+            e cadastre-se (é grátis). A Pluggy é a empresa que faz a ponte com o banco, autorizada pelo Banco Central.</p>
+        </li>
+        <li>
+            <strong>Conecte seu banco lá</strong>
+            <p>Toque no botão de conectar, procure seu banco na lista (Nubank, Itaú, Bradesco…) e siga a
+            autorização. Vai abrir a tela do <em>seu</em> banco pra você permitir o compartilhamento — é o
+            Open Finance, o mesmo sistema que os bancos usam entre si.</p>
+        </li>
+        <li>
+            <strong>Confirme que apareceu</strong>
+            <p>Ainda no Meu Pluggy, veja se sua conta e seu saldo aparecem na tela. Se apareceram, a parte
+            difícil acabou.</p>
+        </li>
+        <li>
+            <strong>Volte aqui e conecte</strong>
+            <p>No Herc, vá em <strong>Configurações → Conectar banco</strong> e toque em
+            <strong>“Conectar meu banco”</strong>. Na janela que abrir, escolha <strong>“Meu Pluggy”</strong>
+            (e não o seu banco direto) e autorize com a conta que você criou no passo 1.</p>
+        </li>
+        <li>
+            <strong>Pronto — toque em Sincronizar</strong>
+            <p>Seus gastos dos últimos meses entram de uma vez, já separados por categoria. Depois disso o
+            Herc se atualiza sozinho quando você abre o app.</p>
+        </li>
+    </ol>
+
+    <div class="auth-note" style="margin-top:16px;">
+        😅 <strong>Por que tem esse passo do Meu Pluggy?</strong> Porque a versão gratuita exige. Quando o
+        Herc crescer, dá pra escolher o banco direto aqui dentro, sem esse intermediário. Enquanto isso,
+        é uma vez só.
+    </div>
+
+    <p class="helper-text" style="margin-top:14px;">
+        Não quer conectar? Sem problema. Dá pra usar o Herc importando o extrato (OFX ou PDF) em
+        <strong>Entradas e saídas → Importar extrato</strong>, ou anotando os gastos na mão.
+    </p>
+</section>
+
+<section class="page-card" style="max-width:820px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:14px;">O que dá pra fazer aqui</h2>
+    <ul class="data-list">
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title">🎯 Ensinar o que é cada gasto</p>
+            <div class="note-meta"><span>Em <strong>Entradas e saídas</strong>, toque em “Ensinar” num gasto.
+            Se você disser uma vez que <em>Hops</em> é Bebidas, eu acerto pra sempre — e arrumo os antigos também.</span></div>
+        </li>
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title">💳 Ver o cartão sem susto</p>
+            <div class="note-meta"><span>Compra no crédito não sai do saldo na hora — vira fatura. Mostro a
+            fatura aberta, quanto do seu limite mensal já foi e quanto das próximas faturas já está
+            comprometido em parcelas.</span></div>
+        </li>
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title">🐖 Guardar um valor que caiba</p>
+            <div class="note-meta"><span>Em <strong>Metas</strong> eu olho seus meses e sugiro um valor que
+            você consegue guardar <em>até nos meses apertados</em> — pra não precisar mexer depois.</span></div>
+        </li>
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title">🔁 Descobrir o que se repete</p>
+            <div class="note-meta"><span>No <strong>Resumo</strong> eu junto as cobranças mensais
+            (streaming, academia) e mostro quanto elas somam por ano. Costuma assustar — no bom sentido.</span></div>
+        </li>
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title">🔒 Trancar o app</p>
+            <div class="note-meta"><span>Em <strong>Configurações</strong> dá pra exigir sua digital pra abrir
+            — assim ninguém vê seu dinheiro se pegar seu celular destravado.</span></div>
+        </li>
+    </ul>
+</section>
+{% endblock %}

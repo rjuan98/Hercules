@@ -192,7 +192,10 @@
     <div class="page-actions" style="justify-content:flex-start; margin-top:14px;">
         <a href="{{ url_for('pluggy_conectar') }}" class="button button-primary"><i data-lucide="link"></i> Conectar meu banco</a>
     </div>
-    <p class="helper-text" style="margin-top:10px;">Você conecta uma vez; depois é só sincronizar.</p>
+    <p class="helper-text" style="margin-top:10px;">
+        Você conecta uma vez; depois é só sincronizar.
+        <a href="{{ url_for('ajuda') }}" style="color:var(--primary-deep); font-weight:800;">Ver o passo a passo</a>
+    </p>
     {% endif %}
 </section>
 

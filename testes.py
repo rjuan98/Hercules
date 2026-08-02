@@ -678,6 +678,39 @@ check("nao culpa a pessoa", "não é falta de disciplina" in c_ap.get("/metas").
 c_novo2 = novo_cliente("semhist@teste.com", nome="Novo")
 check("sem historico NAO promete nada", A.sugerir_guardar_mensal(uid_de("semhist@teste.com")) is None)
 
+secao("31. Ajuda e dicas contextuais")
+_an = A.app.test_client()
+r_aj = _an.get("/ajuda")
+h_aj = r_aj.get_data(as_text=True)
+check("ajuda abre SEM login (da pra mandar no WhatsApp)", r_aj.status_code == 200)
+check("tem o passo a passo do banco", "ajuda-passos" in h_aj)
+check("avisa pra escolher Meu Pluggy, nao o banco", "e não o seu banco direto" in h_aj)
+check("lembra que e' so leitura", "só de leitura" in h_aj)
+check("diz que da pra usar sem conectar", "Não quer conectar" in h_aj)
+check("link da ajuda no menu", "/ajuda" in c1.get("/").get_data(as_text=True))
+
+c_d = novo_cliente("dicas@teste.com", nome="Dicas")
+uid_d = uid_de("dicas@teste.com")
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,confidence,
+                  data_transacao,no_credito,parcela_num,parcela_total)
+                  VALUES (?,'saida',10,'x','Outros','ofx',95,date('now'),1,2,6)""", (uid_d,))
+def _dica_atual(cl):
+    h = cl.get("/").get_data(as_text=True)
+    import re as _re
+    m = _re.search(r'herc-tip-bubble.*?<span>(.*?)</span>', h, _re.S)
+    return _re.sub(r"<[^>]+>", "", m.group(1)).strip() if m else ""
+check("mostra a dica da PARCELA primeiro (mais relevante)",
+      "compra parcelada" in _dica_atual(c_d))
+c_d.post("/dicas/primeira_parcela/vista", data={"csrf_token": "t"})
+check("depois do 'Entendi!' passa pra do credito",
+      "no crédito" in _dica_atual(c_d))
+c_d.post("/dicas/primeiro_credito/vista", data={"csrf_token": "t"})
+check("depois vem a de ensinar categoria", "Outros" in _dica_atual(c_d))
+for k in ("tem_outros", "primeira_sync", "registro_rapido"):
+    c_d.post(f"/dicas/{k}/vista", data={"csrf_token": "t"})
+check("dispensadas todas, nao insiste", _dica_atual(c_d) == "")
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

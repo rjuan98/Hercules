@@ -1100,6 +1100,15 @@ HERC_TIPS = {
     "registro_rapido": "Dica: quando um gasto ficar em “Outros”, abra Entradas e saídas e toque em “Ensinar” — eu aprendo e arrumo todos os parecidos de uma vez. 🎯",
     "primeira_captura": "Viu essa movimentação aí? Eu anotei sozinho pela notificação do banco — você não precisou fazer nada. 😉",
     "primeira_nota": "Guardei sua nota! Sempre que precisar achar alguma, elas ficam todas aqui, organizadas. No fim do ano, é só exportar para o contador.",
+    # Dicas que aparecem no MOMENTO em que a coisa acontece — é assim que se aprende
+    "tem_outros": "Tem gasto que eu não reconheci e deixei em “Outros”. Abra Entradas e saídas e toque em "
+                  "“Ensinar” — se você me disser uma vez que HOPS é Bebidas, eu acerto pra sempre. 🎯",
+    "primeiro_credito": "Reparei que teve compra no crédito. Ela <strong>não sai do seu saldo agora</strong> — "
+                        "vira fatura pra pagar depois. Por isso mostro as duas coisas separadas. 💳",
+    "primeira_parcela": "Achei uma compra parcelada. Olha no card “já comprometido nas próximas faturas”: "
+                        "é o quanto dos próximos meses já está reservado. 📅",
+    "primeira_sync": "Seus gastos agora entram sozinhos do banco. Você não precisa anotar nada — "
+                     "só olhar de vez em quando. 🦁",
 }
 
 
@@ -2039,7 +2048,7 @@ def exigir_desbloqueio():
     if "user_id" not in session:
         return None
     livres = {"logout", "app_bloqueado", "static", "passkey_entrar", "passkey_entrar_opcoes",
-              "passkey_remover", "api_captura", "android_asset_links", "privacidade"}
+              "passkey_remover", "api_captura", "android_asset_links", "privacidade", "ajuda"}
     if request.endpoint in livres:
         return None
     if not app_tem_bloqueio(session["user_id"]):
@@ -2234,10 +2243,32 @@ def home():
 
     onboarding = tx_count == 0
 
-    # Uma dica do Herc por vez — a mais relevante primeiro
+    # Uma dica do Herc por vez, no momento em que a coisa acontece (ensina usando).
+    # Ordem = mais relevante primeiro; some pra sempre depois do "Entendi!".
     herc_tip = None
-    if not onboarding and not tip_seen(user["id"], "registro_rapido"):
-        herc_tip = "registro_rapido"
+    if not onboarding:
+        with get_db() as db:
+            f = db.execute(
+                """SELECT
+                     MAX(CASE WHEN tipo='saida' AND COALESCE(NULLIF(categoria,''),'Outros')='Outros'
+                              THEN 1 ELSE 0 END) AS tem_outros,
+                     MAX(CASE WHEN no_credito=1 THEN 1 ELSE 0 END) AS tem_credito,
+                     MAX(CASE WHEN parcela_total > 1 THEN 1 ELSE 0 END) AS tem_parcela,
+                     MAX(CASE WHEN fonte='ofx' THEN 1 ELSE 0 END) AS tem_sync
+                   FROM transacoes WHERE user_id = ?""",
+                (user["id"],),
+            ).fetchone()
+        candidatas = [
+            ("primeira_parcela", f["tem_parcela"]),
+            ("primeiro_credito", f["tem_credito"]),
+            ("tem_outros", f["tem_outros"]),
+            ("primeira_sync", f["tem_sync"]),
+            ("registro_rapido", 1),
+        ]
+        for chave, vale in candidatas:
+            if vale and not tip_seen(user["id"], chave):
+                herc_tip = chave
+                break
     avg_daily_spend = stats["month_expenses"] / max(1, date.today().day)
     projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month() - 1))
     view_mode = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
@@ -4239,6 +4270,12 @@ def passkey_remover():
     _marcar_desbloqueado()
     flash("Bloqueio por digital desativado.")
     return redirect(url_for("settings"))
+
+
+@app.route("/ajuda")
+def ajuda():
+    """Pública de propósito: o link é mandado no WhatsApp pra quem ainda nem tem conta."""
+    return render_template("ajuda.html")
 
 
 @app.route("/privacidade")

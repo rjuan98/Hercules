@@ -1121,6 +1121,15 @@ body {
     text-align: right;
 }
 
+/* Passo a passo da ajuda */
+.ajuda-passos { margin: 0; padding-left: 0; list-style: none; counter-reset: passo; display: grid; gap: 14px; }
+.ajuda-passos li { counter-increment: passo; position: relative; padding: 12px 14px 12px 52px;
+    border-radius: 16px; background: rgba(36, 28, 20, 0.035); }
+.ajuda-passos li::before { content: counter(passo); position: absolute; left: 12px; top: 12px;
+    width: 28px; height: 28px; border-radius: 999px; background: var(--primary); color: #FDF6E7;
+    font-weight: 900; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
+.ajuda-passos li p { margin: 4px 0 0; color: var(--muted); font-size: 0.93rem; }
+
 /* Convite pra colocar o app na tela inicial */
 .install-bar {
     position: fixed;
