@@ -126,6 +126,17 @@
                 Se você conectou o banco, o Herc preenche sozinho.
             </p>
         </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+            <label for="dia_virada">Dia em que seu mês começa <span class="helper-text">(opcional)</span></label>
+            <input id="dia_virada" type="number" min="1" max="31" name="dia_virada"
+                   value="{{ user['dia_virada'] or '' }}" placeholder="Ex.: 31" inputmode="numeric">
+            <p class="helper-text" style="font-size:0.84rem; margin-top:6px;">
+                Se o seu salário cai no último dia do mês, aquele dinheiro é do mês seguinte —
+                mas o calendário conta ele no mês que está acabando. Colocando aqui o dia em que
+                você recebe, o Herc passa a fechar o mês junto com você. Em branco, vale o mês do
+                calendário.
+            </p>
+        </div>
         <div class="form-group">
             <label for="cartao_vencimento">Dia do vencimento <span class="helper-text">(opcional)</span></label>
             <input id="cartao_vencimento" type="number" min="1" max="31" name="cartao_vencimento"

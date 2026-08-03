@@ -85,7 +85,10 @@
         </div>
         {% endif %}
         <div class="conta-linha">
-            <span>Seu ritmo: {{ r.media|money }} por dia × {{ r.dias_futuros }} dia{{ '' if r.dias_futuros == 1 else 's' }}</span>
+            <span>Seu dia a dia: {{ r.media|money }} por dia × {{ r.dias_futuros }} dia{{ '' if r.dias_futuros == 1 else 's' }}
+                <small class="conta-nota">só o gasto miúdo — aluguel, fatura e o que você
+                guardou ficam de fora, senão entrariam duas vezes</small>
+            </span>
             <strong class="tira">− {{ (r.media * r.dias_futuros)|money }}</strong>
         </div>
         <div class="conta-linha">

@@ -1626,6 +1626,17 @@ html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
 .conta-linha span { color: var(--muted); }
 .conta-linha strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .conta-linha .tira { color: var(--danger); }
+/* A explicação do que entra na média mora DENTRO da linha, senão a borda de cima
+   faz ela parecer nota da linha seguinte. */
+.conta-nota {
+    display: block;
+    margin-top: 3px;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--muted);
+    opacity: 0.85;
+    max-width: 40ch;
+}
 .conta-total {
     border-bottom: 0;
     padding-top: 14px;

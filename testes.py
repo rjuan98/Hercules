@@ -2344,6 +2344,180 @@ check("os quatro links do rodapé respondem",
       all(_an.get(u).status_code == 200 for u in ("/sobre", "/privacidade", "/termos", "/ajuda")))
 
 
+secao("77. Ritmo do dia a dia nao e evento")
+# O simulador dizia que ele gastava R$ 129/dia. Nao gastava: aluguel, fatura e
+# dinheiro GUARDADO estavam entrando na conta do "gasto diario".
+c_rit = novo_cliente("ritmo@teste.com", nome="Ritmo")
+uid_rit = uid_de("ritmo@teste.com")
+
+def _gasto(uid, valor, cat, dias_atras, fonte="ofx", credito=0):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'saida',?,'x',?,?,95,?,?)""",
+                   (uid, valor, cat, fonte,
+                    (date.today() - timedelta(days=dias_atras)).isoformat(), credito))
+
+# Dois meses de vida: gasto miudo de ~R$ 27/dia, mais os eventos do mes.
+for _i in range(60):
+    _gasto(uid_rit, 35 if _i % 3 else 12, "Mercado", _i)
+_gasto(uid_rit, 900, "Moradia", 5); _gasto(uid_rit, 900, "Moradia", 35)     # aluguel
+_gasto(uid_rit, 780, "Outros", 12); _gasto(uid_rit, 780, "Outros", 42)      # fatura
+_gasto(uid_rit, 500, "Reserva", 20, fonte="manual")                        # guardado
+
+_m_rit, _ = A.media_gasto_diario(uid_rit)
+check("o ritmo diario e o gasto miudo, nao a soma de tudo", 22 <= _m_rit <= 31, _m_rit)
+check("um aluguel de R$ 900 nao vira R$ 30/dia de ritmo", _m_rit < 40, _m_rit)
+
+# Guardar dinheiro nao pode fazer a pessoa parecer gastadora.
+c_res = novo_cliente("reserva@teste.com", nome="Res")
+uid_res = uid_de("reserva@teste.com")
+for _i in range(30):
+    _gasto(uid_res, 20, "Mercado", _i)
+_antes_res, _ = A.media_gasto_diario(uid_res)
+_gasto(uid_res, 1000, "Reserva", 3, fonte="manual")
+_depois_res, _ = A.media_gasto_diario(uid_res)
+check("guardar R$ 1.000 numa meta nao mexe no ritmo de gasto",
+      abs(_antes_res - _depois_res) < 0.01, (_antes_res, _depois_res))
+
+# E quem gasta igual todo dia tem que ver o proprio numero, sem desconto.
+c_igual = novo_cliente("igual@teste.com", nome="Igual")
+uid_igual = uid_de("igual@teste.com")
+for _i in range(40):
+    _gasto(uid_igual, 40, "Mercado", _i)
+_m_igual, _ = A.media_gasto_diario(uid_igual)
+check("quem gasta R$ 40 todo dia ve R$ 40, nao menos", abs(_m_igual - 40) < 0.01, _m_igual)
+
+# Mas quem gasta MUITO e sempre igual nao pode ter o gasto cortado como "evento".
+c_alto = novo_cliente("alto@teste.com", nome="Alto")
+uid_alto = uid_de("alto@teste.com")
+for _i in range(30):
+    _gasto(uid_alto, 300, "Mercado", _i)
+_m_alto, _ = A.media_gasto_diario(uid_alto)
+check("gastar alto todo dia e ritmo, nao evento", abs(_m_alto - 300) < 0.01, _m_alto)
+
+# Credito continua fora: a compra sai da conta quando a fatura e paga.
+_gasto(uid_igual, 5000, "Outros", 2, credito=1)
+_m_cred, _ = A.media_gasto_diario(uid_igual)
+check("compra no credito nao entra no ritmo", abs(_m_cred - 40) < 0.01, _m_cred)
+
+
+secao("78. O mes da pessoa, nao o do calendario")
+# Salario no ultimo dia do mes e dinheiro do mes seguinte. Sem isso, o mes do
+# salario fecha lindo e o proximo parece uma catastrofe - todo mes.
+check("sem configurar, e o mes do calendario de sempre",
+      A.month_bounds(date(2026, 7, 15)) == (date(2026, 7, 1), date(2026, 7, 31)))
+
+_i31, _f31 = A.month_bounds(date(2026, 8, 1), 31)
+check("com virada no 31, o dia 1o ainda e do mes que comecou no 31",
+      (_i31, _f31) == (date(2026, 7, 31), date(2026, 8, 30)), (_i31, _f31))
+check("e o proprio dia 31 ja abre o mes novo",
+      A.month_bounds(date(2026, 7, 31), 31)[0] == date(2026, 7, 31))
+check("a vespera ainda e do mes anterior",
+      A.month_bounds(date(2026, 7, 30), 31)[1] == date(2026, 7, 30))
+
+# Fevereiro tem 28: virada 31 nao pode sumir.
+_ifev, _ffev = A.month_bounds(date(2026, 2, 28), 31)
+check("em fevereiro a virada 31 vira o ultimo dia, nao desaparece",
+      _ifev == date(2026, 2, 28), (_ifev, _ffev))
+
+# Os ciclos tem que se encostar sem buraco e sem sobreposicao.
+_sem_buraco = True
+_d = date(2026, 1, 1)
+while _d < date(2027, 6, 1):
+    _ini, _fim = A.month_bounds(_d, 31)
+    if A.month_bounds(_fim + timedelta(days=1), 31)[0] != _fim + timedelta(days=1):
+        _sem_buraco = False
+        break
+    _d = _fim + timedelta(days=1)
+check("um ciclo comeca exatamente onde o outro acaba, 18 meses seguidos", _sem_buraco)
+
+# E o salario tem que cair no mes certo na tela de Meses.
+c_vir = novo_cliente("virada@teste.com", nome="Vir")
+uid_vir = uid_de("virada@teste.com")
+with get_db() as db:
+    for _dia in ("2026-06-30", "2026-07-31"):
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'entrada',3000,'salario',
+                      'Salario','ofx',95,?,0)""", (uid_vir, _dia))
+
+_cal = {r["mes"]: r["entrou"] for r in A.historico_mensal(uid_vir, 24)}
+check("sem virada, o salario do dia 31/07 conta em julho", _cal.get("2026-07") == 3000, _cal)
+with get_db() as db:
+    db.execute("UPDATE usuarios SET dia_virada = 31 WHERE id = ?", (uid_vir,))
+_ciclo = {r["mes"]: r["entrou"] for r in A.historico_mensal(uid_vir, 24)}
+check("com virada 31, ele conta em agosto - que e quando o dinheiro e gasto",
+      _ciclo.get("2026-08") == 3000, _ciclo)
+check("e o de 30/06 anda junto, pra julho", _ciclo.get("2026-07") == 3000, _ciclo)
+check("nenhum salario fica preso no mes em que caiu", not _ciclo.get("2026-06"), _ciclo)
+
+# A tela de ajustes precisa aceitar e devolver o valor.
+_ajuste = {"csrf_token": "t", "perfil": "pf", "meta_mensal": "0", "view_mode": "completo"}
+c_vir.post("/settings", data=dict(_ajuste, dia_virada="31"))
+check("a tela de ajustes grava o dia da virada", A.virada_do_usuario(uid_vir) == 31)
+check("e mostra o campo de volta",
+      'name="dia_virada"' in c_vir.get("/settings").get_data(as_text=True))
+c_vir.post("/settings", data=dict(_ajuste, dia_virada="99"))
+check("dia impossivel e recusado, nao gravado torto", A.virada_do_usuario(uid_vir) is None)
+c_vir.post("/settings", data=dict(_ajuste, dia_virada=""))
+check("em branco volta pro mes do calendario", A.virada_do_usuario(uid_vir) is None)
+
+# Quem nao configurou nada nao pode ver numero nenhum mudar.
+check("quem nao configurou continua com o mes do calendario",
+      A.mes_do_usuario(uid_rit) == A.month_bounds())
+
+
+secao("79. O Herc percebe quem recebe no fim do mes")
+# De nada adianta o ajuste existir se ninguem descobre que ele existe.
+c_fim = novo_cliente("fimdomes@teste.com", nome="Fim")
+uid_fim = uid_de("fimdomes@teste.com")
+check("sem historico nenhum, nao sai sugerindo nada", A.salario_perto_da_virada(uid_fim) is False)
+
+def _entrada(uid, valor, dia):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'entrada',?,'salario',
+                      'Salario','ofx',95,?,0)""", (uid, valor, dia))
+
+_entrada(uid_fim, 3000, "2026-06-30")
+check("um mes so pode ser coincidencia, entao ainda cala a boca",
+      A.salario_perto_da_virada(uid_fim) is False)
+_entrada(uid_fim, 3000, "2026-07-31")
+check("dois meses seguidos ja e padrao, e ai ele fala",
+      A.salario_perto_da_virada(uid_fim) is True)
+
+_h_fim = c_fim.get("/").get_data(as_text=True)
+check("a dica aparece na tela inicial", "dinheiro entra no fim do m" in _h_fim)
+check("e aponta pra onde resolver", "Configura" in _h_fim)
+
+# Depois de configurado, calar a boca e obrigacao.
+with get_db() as db:
+    db.execute("UPDATE usuarios SET dia_virada = 31 WHERE id = ?", (uid_fim,))
+check("quem ja configurou nao ouve mais sobre isso",
+      A.salario_perto_da_virada(uid_fim) is False)
+
+# Quem recebe no dia 5 nao pode ser incomodado.
+c_dia5 = novo_cliente("dia5@teste.com", nome="Dia5")
+uid_dia5 = uid_de("dia5@teste.com")
+for _d in ("2026-05-05", "2026-06-05", "2026-07-05"):
+    _entrada(uid_dia5, 3000, _d)
+check("quem recebe no dia 5 nao e incomodado", A.salario_perto_da_virada(uid_dia5) is False)
+
+# Fevereiro tem 28: quem recebe no 28 de fevereiro recebe no fim do mes.
+c_fev = novo_cliente("fev@teste.com", nome="Fev")
+uid_fev = uid_de("fev@teste.com")
+_entrada(uid_fev, 3000, "2026-02-28")
+_entrada(uid_fev, 3000, "2026-03-31")
+check("28 de fevereiro conta como fim de mes", A.salario_perto_da_virada(uid_fev) is True)
+
+# Um pix pequeno solto nao pode ser confundido com salario.
+c_pix = novo_cliente("pix@teste.com", nome="Pix")
+uid_pix = uid_de("pix@teste.com")
+for _d in ("2026-05-31", "2026-06-30"):
+    _entrada(uid_pix, 20, _d)
+check("dois pix de R$ 20 nao viram motivo pra mudar o mes",
+      A.salario_perto_da_virada(uid_pix) is False)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

@@ -351,6 +351,10 @@ def init_db():
     _add_column_if_missing(conn, "usuarios", "saldo_investido", "REAL")
     # Sem isso não dá pra saber se quem testou o app voltou no dia seguinte
     _add_column_if_missing(conn, "usuarios", "last_seen", "TEXT")
+    # Dia em que o mês da PESSOA começa. Quem recebe no último dia do mês vive
+    # um mês que não é o do calendário: o salário do dia 31 é dinheiro de agosto.
+    # NULL/1 = mês do calendário, que é o comportamento de sempre.
+    _add_column_if_missing(conn, "usuarios", "dia_virada", "INTEGER")
     _add_column_if_missing(conn, "categorias", "limite_mensal", "REAL NOT NULL DEFAULT 0.0")
     _add_column_if_missing(conn, "categorias", "created_at", "TIMESTAMP")
     # Cópias antigas do banco tinham categoria_id e nenhum timestamp nas regras

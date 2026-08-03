@@ -1061,7 +1061,37 @@ HERC_TIPS = {
                     "monta seu faturamento do ano e te avisa antes de chegar no limite. 🏪",
     "mei_limite": "Atenção: seu faturamento do ano já passou de 80% do limite do MEI. Vale conversar com "
                   "seu contador antes de estourar. ⚠️",
+    "salario_na_virada": "Reparei que seu dinheiro entra no fim do mês. Pelo calendário ele conta no mês "
+                         "que está acabando, mas na prática é o dinheiro do mês seguinte — então um mês "
+                         "parece ótimo e o outro parece um desastre. Em <strong>Configurações</strong> "
+                         "você diz o dia em que recebe, e eu passo a fechar o mês junto com você. 📅",
 }
+
+
+def salario_perto_da_virada(user_id: int) -> bool:
+    """A pessoa recebe nos últimos dias do mês e ainda não avisou o app?
+
+    Quem recebe assim vive um mês que não é o do calendário. Enquanto não
+    configura, todo mês de salário fecha lindo e o seguinte parece um desastre —
+    e ela não tem como saber que isso é ajustável se ninguém contar.
+    """
+    if virada_do_usuario(user_id):
+        return False
+    col = "COALESCE(NULLIF(data_transacao, ''), created_at)"
+    with get_db() as db:
+        n = db.execute(
+            f"""SELECT COUNT(DISTINCT strftime('%Y-%m', {col})) AS n
+                  FROM transacoes
+                 WHERE user_id = ? AND tipo = 'entrada' AND no_credito = 0
+                   AND fonte != 'ajuste' AND valor >= 100
+                   AND CAST(strftime('%d', {col}) AS INTEGER) >=
+                       CAST(strftime('%d', date({col}, 'start of month', '+1 month', '-1 day'))
+                            AS INTEGER) - 2""",
+            (user_id,),
+        ).fetchone()["n"]
+    # Dois meses seguidos é padrão; um só pode ser coincidência, e sugerir mudar
+    # o mês inteiro por causa de uma entrada solta seria atrapalhar.
+    return (n or 0) >= 2
 
 
 def tip_seen(user_id: int, key: str) -> bool:
@@ -1191,7 +1221,7 @@ def reclassify_transactions(user_id: int, pattern: str, categoria: str) -> int:
 
 
 def category_month_spending(user_id: int) -> dict[str, float]:
-    month_start, month_end = month_bounds()
+    month_start, month_end = mes_do_usuario(user_id)
     with get_db() as db:
         rows = db.execute(
             """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS categoria, SUM(valor) AS total
@@ -1378,12 +1408,53 @@ def remove_uploaded_file(filename: str | None) -> None:
         pass
 
 
-def month_bounds(dt: date | None = None):
+def month_bounds(dt: date | None = None, dia_virada: int | None = None):
+    """Começo e fim do mês DA PESSOA.
+
+    Sem `dia_virada`, é o mês do calendário — o de sempre. Com ele, o mês vira
+    um ciclo, igual ao da fatura: quem recebe no dia 31 tem um mês que vai do 31
+    ao 30, e o salário daquele dia conta como dinheiro do mês que começa, não do
+    que termina. Sem isso, o mês do salário fecha lindo e o seguinte parece uma
+    catástrofe — todo mês."""
     dt = dt or hoje_br()
-    first = dt.replace(day=1)
-    last_day = calendar.monthrange(dt.year, dt.month)[1]
-    last = dt.replace(day=last_day)
-    return first, last
+    if not dia_virada or dia_virada <= 1:
+        first = dt.replace(day=1)
+        last = dt.replace(day=calendar.monthrange(dt.year, dt.month)[1])
+        return first, last
+
+    vira_neste = _dia_do_mes(dt.year, dt.month, dia_virada)
+    if dt >= vira_neste:
+        prox = (dt.replace(day=1) + timedelta(days=32)).replace(day=1)
+        return vira_neste, _dia_do_mes(prox.year, prox.month, dia_virada) - timedelta(days=1)
+    ant = dt.replace(day=1) - timedelta(days=1)
+    return _dia_do_mes(ant.year, ant.month, dia_virada), vira_neste - timedelta(days=1)
+
+
+def sql_mes(virada: int | None, col: str) -> str:
+    """Em que mês da PESSOA cai uma data, em SQL.
+
+    Sem virada é o mês do calendário. Com virada, quem cai no dia da virada ou
+    depois já pertence ao mês seguinte — é assim que o salário do dia 31 vira
+    dinheiro de agosto. O `min(...)` existe para meses curtos: virada 31 em um
+    mês de 30 dias vira o dia 30, senão fevereiro nunca viraria.
+    """
+    if not virada or virada <= 1:
+        return f"strftime('%Y-%m', {col})"
+    virada = max(1, min(31, int(virada)))
+    ultimo = f"CAST(strftime('%d', date({col}, 'start of month', '+1 month', '-1 day')) AS INTEGER)"
+    return (f"CASE WHEN CAST(strftime('%d', {col}) AS INTEGER) >= min({virada}, {ultimo})"
+            f" THEN strftime('%Y-%m', date({col}, 'start of month', '+1 month'))"
+            f" ELSE strftime('%Y-%m', {col}) END")
+
+
+def virada_do_usuario(user_id: int) -> int | None:
+    with get_db() as db:
+        r = db.execute("SELECT dia_virada FROM usuarios WHERE id = ?", (user_id,)).fetchone()
+    return (r["dia_virada"] if r and "dia_virada" in r.keys() else None) or None
+
+
+def mes_do_usuario(user_id: int, dt: date | None = None):
+    return month_bounds(dt, virada_do_usuario(user_id))
 
 
 # Acima disso é dedo escorregando no teclado, não dinheiro. O app é de finança
@@ -1417,10 +1488,10 @@ def parse_money(value: Any) -> float:
     return max(-VALOR_MAX, min(VALOR_MAX, n))
 
 
-def days_left_in_month() -> int:
-    today = hoje_br()
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    return max(1, last_day - today.day + 1)
+def days_left_in_month(dia_virada: int | None = None) -> int:
+    """Dias que faltam até o mês virar — o da pessoa, se ela tiver um."""
+    hoje = hoje_br()
+    return max(1, (month_bounds(hoje, dia_virada)[1] - hoje).days + 1)
 
 
 def months_until(deadline: str | None) -> int | None:
@@ -1443,7 +1514,8 @@ def months_until(deadline: str | None) -> int | None:
 
 def calc_transaction_totals(user_id: int):
     today = hoje_br()
-    month_start, month_end = month_bounds(today)
+    virada = virada_do_usuario(user_id)
+    month_start, month_end = month_bounds(today, virada)
     with get_db() as db:
         # Só interessa SE existe alguma — quem precisa da lista usa `recent` (LIMIT 8)
         # ou a tela de lançamentos, que é paginada. Carregar a tabela inteira aqui fazia
@@ -1591,12 +1663,12 @@ def calc_transaction_totals(user_id: int):
     remaining_month = float(balance) - commitments_total
     # Com reserva: o que dá para gastar sem comprometer o que precisa ser guardado
     spendable_month = remaining_month - reserve_remaining_month
-    available_today = max(0.0, spendable_month / days_left_in_month())
+    available_today = max(0.0, spendable_month / days_left_in_month(virada))
     # Abaixo disso o número deixa de ser conselho e vira piada: com R$ 0,50 na
     # conta o app dizia "pode gastar R$ 0,02 hoje". Melhor admitir que não dá
     # pra dividir do que fingir precisão.
     diaria_util = available_today >= 1.0
-    available_today_no_reserve = max(0.0, remaining_month / days_left_in_month())
+    available_today_no_reserve = max(0.0, remaining_month / days_left_in_month(virada))
 
     # Previsão: guardando o necessário por mês, quando a meta fica completa
     goal_forecast_months = None
@@ -1842,7 +1914,7 @@ def mei_das_status(user_id: int, year: int) -> dict[str, Any]:
 
 def calculate_business_summary(user_id: int):
     today = hoje_br()
-    month_start, month_end = month_bounds(today)
+    month_start, month_end = mes_do_usuario(user_id, today)
     with get_db() as db:
         notes_in = db.execute(
             """SELECT * FROM notas
@@ -2387,6 +2459,7 @@ def home():
             mei_limite = 1 if faturado >= MEI_LIMITE_ANUAL * 0.8 else 0
 
         candidatas = [
+            ("salario_na_virada", 1 if salario_perto_da_virada(user["id"]) else 0),
             ("mei_limite", mei_limite),
             ("primeira_parcela", f["tem_parcela"]),
             ("primeiro_credito", f["tem_credito"]),
@@ -2400,8 +2473,11 @@ def home():
             if vale and not tip_seen(user["id"], chave):
                 herc_tip = chave
                 break
-    avg_daily_spend = stats["month_expenses"] / max(1, hoje_br().day)
-    projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month() - 1))
+    virada_usuario = virada_do_usuario(user["id"])
+    inicio_mes, _ = month_bounds(hoje_br(), virada_usuario)
+    dias_corridos = max(1, (hoje_br() - inicio_mes).days + 1)
+    avg_daily_spend = stats["month_expenses"] / dias_corridos
+    projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month(virada_usuario) - 1))
     view_mode = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
     # O menu (base.html) lê da sessão e o conteúdo lê do banco. Duas fontes pra mesma
     # verdade dá menu completo com tela simples — realinha aqui, que o banco manda.
@@ -2465,41 +2541,67 @@ def _valor_redondo(v: float) -> int:
 
 
 def media_gasto_diario(user_id: int, dias: int = 60) -> tuple[float, int]:
-    """Quanto sai por dia, em média, sem contar crédito nem ajuste de saldo.
+    """O ritmo do DIA A DIA — o que a pessoa gasta sem pensar, por dia.
 
-    Devolve também em quantos dias há histórico — sem isso o simulador daria
-    palpite confiante pra quem entrou ontem."""
+    Três coisas ficam de fora, e cada uma por um motivo:
+
+    * **Reserva** — guardar dinheiro numa meta vira uma saída no histórico, mas
+      não é consumo. Contar isso faria o app dizer que quem poupa gasta mais.
+    * **Crédito** — a compra no cartão sai da conta quando a fatura é paga, e o
+      pagamento já aparece como saída. Contar os dois é contar duas vezes.
+    * **Dias fora da curva** — aluguel, fatura, uma compra grande. Isso não é
+      ritmo, é evento; e o que está registrado como conta a pagar já entra
+      separado na simulação. Sem tirar, o aluguel do mês passado é contado de
+      novo, diluído em todos os dias.
+
+    Medido com dois meses de dados realistas: sem esses cortes, R$ 27/dia de
+    gasto miúdo viravam R$ 92/dia.
+    """
     desde = hoje_br() - timedelta(days=dias)
     with get_db() as db:
-        r = db.execute(
-            """SELECT COALESCE(SUM(valor), 0) AS total,
-                      COUNT(DISTINCT date(COALESCE(NULLIF(data_transacao, ''), created_at))) AS dias,
-                      MIN(date(COALESCE(NULLIF(data_transacao, ''), created_at))) AS primeiro
+        linhas = db.execute(
+            """SELECT date(COALESCE(NULLIF(data_transacao, ''), created_at)) AS dia,
+                      SUM(valor) AS total
                  FROM transacoes
-                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0 AND fonte != 'ajuste'
-                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)""",
+                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
+                  AND fonte != 'ajuste'
+                  AND COALESCE(NULLIF(categoria, ''), '') != 'Reserva'
+                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)
+                GROUP BY dia ORDER BY dia""",
             (user_id, desde.isoformat()),
-        ).fetchone()
-    com_gasto = r["dias"] or 0
-    if com_gasto == 0 or not r["primeiro"]:
+        ).fetchall()
+    if not linhas:
         return 0.0, 0
 
-    # Divide pelo período que a pessoa REALMENTE tem, não pela janela inteira:
-    # quem usa há 20 dias dividido por 60 pareceria gastar um terço do que gasta,
-    # e o simulador diria "cabe" pra coisa que não cabe.
+    com_gasto = len(linhas)
     try:
-        primeiro = date.fromisoformat(r["primeiro"])
+        primeiro = date.fromisoformat(linhas[0]["dia"])
     except (TypeError, ValueError):
         primeiro = desde
+    # Período REAL de histórico, não a janela inteira: quem usa há 20 dias
+    # dividido por 60 pareceria gastar um terço do que gasta.
     corridos = max(1, (hoje_br() - max(primeiro, desde)).days + 1)
-    # Mas divide pelos dias corridos, não pelos dias em que houve gasto: quem gasta
-    # em 3 dias da semana continua tendo que atravessar os outros 4.
-    return float(r["total"]) / corridos, com_gasto
+
+    totais = sorted(float(r["total"] or 0) for r in linhas)
+    if com_gasto >= 4:
+        # Fora da curva é o dia que destoa DA PESSOA, não uma fatia fixa. Cortar
+        # sempre os 10% maiores puniria quem gasta igual todo dia; comparar com a
+        # mediana só corta quem realmente destoa — o dia do aluguel, o da fatura.
+        mediana = totais[com_gasto // 2]
+        limite = max(3 * mediana, mediana + 100.0)
+        # Trava de segurança: se muita coisa passar do limite, não é evento, é o
+        # jeito da pessoa gastar. Aí o corte pararia de medir e passaria a mentir.
+        tipicos = [t for t in totais if t <= limite]
+        if len(tipicos) < com_gasto * 0.8:
+            tipicos = totais
+    else:
+        tipicos = totais
+    return sum(tipicos) / corridos, com_gasto
 
 
 def contas_ate_fim_do_mes(user_id: int) -> float:
     """O que ainda vence neste mês e não foi pago."""
-    _, fim = month_bounds()
+    _, fim = mes_do_usuario(user_id)
     with get_db() as db:
         return float(db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM compromissos
@@ -2519,7 +2621,7 @@ def simular_gasto(user_id: int, valor: float) -> dict[str, Any]:
     saldo = float(stats["balance"])
     contas = contas_ate_fim_do_mes(user_id)
     media, dias_com_dado = media_gasto_diario(user_id)
-    dias = days_left_in_month()
+    dias = days_left_in_month(virada_do_usuario(user_id))
 
     # O gasto de hoje já entrou na média; contar o dia de hoje de novo puniria
     # duas vezes. Por isso dias - 1.
@@ -2567,7 +2669,7 @@ def sugerir_guardar_mensal(user_id: int, meses: int = 6) -> dict[str, Any] | Non
     desde = (hoje - timedelta(days=31 * (meses + 1))).isoformat()
     with get_db() as db:
         rows = db.execute(
-            """SELECT strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) AS mes,
+            f"""SELECT {sql_mes(virada_do_usuario(user_id), "COALESCE(NULLIF(data_transacao, ''), created_at)")} AS mes,
                       SUM(CASE WHEN tipo = 'entrada' AND no_credito = 0 THEN valor ELSE 0 END) AS entrou,
                       SUM(CASE WHEN tipo = 'saida' AND no_credito = 0 THEN valor ELSE 0 END) AS saiu
                FROM transacoes
@@ -2729,9 +2831,10 @@ def historico_mensal(user_id: int, meses: int = 12) -> list[dict[str, Any]]:
     Crédito fica de fora do 'saiu' pelo mesmo motivo do resto do app: a compra
     parcelada não sai da conta no mês em que foi feita."""
     hoje = hoje_br()
+    virada = virada_do_usuario(user_id)
     with get_db() as db:
         rows = db.execute(
-            """SELECT strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) AS mes,
+            f"""SELECT {sql_mes(virada, "COALESCE(NULLIF(data_transacao, ''), created_at)")} AS mes,
                       COALESCE(SUM(CASE WHEN tipo='entrada' AND no_credito=0 THEN valor END), 0) AS entrou,
                       COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=0 THEN valor END), 0) AS saiu,
                       COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=1 THEN valor END), 0) AS credito,
@@ -2742,7 +2845,9 @@ def historico_mensal(user_id: int, meses: int = 12) -> list[dict[str, Any]]:
             (user_id, meses),
         ).fetchall()
 
-    atual = hoje.strftime("%Y-%m")
+    # Qual mês é "agora" também depende da virada: no dia 31, com virada 31,
+    # o mês em curso já é o seguinte.
+    atual = month_bounds(hoje, virada)[1].strftime("%Y-%m")
     saida = []
     for r in rows:
         entrou, saiu = float(r["entrou"]), float(r["saiu"])
@@ -2759,13 +2864,14 @@ def historico_mensal(user_id: int, meses: int = 12) -> list[dict[str, Any]]:
 
 def comparar_categorias(user_id: int, mes: str, mes_anterior: str) -> list[dict[str, Any]]:
     """Por categoria, um mês contra o outro — ordenado pela maior mudança."""
+    virada = virada_do_usuario(user_id)
     with get_db() as db:
         def gastos(m):
             return {r["cat"]: float(r["t"] or 0) for r in db.execute(
-                """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
+                f"""SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
                      FROM transacoes
                     WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
-                      AND strftime('%Y-%m', COALESCE(NULLIF(data_transacao, ''), created_at)) = ?
+                      AND {sql_mes(virada, "COALESCE(NULLIF(data_transacao, ''), created_at)")} = ?
                     GROUP BY cat""", (user_id, m)).fetchall()}
         agora, antes = gastos(mes), gastos(mes_anterior)
 
@@ -3185,15 +3291,17 @@ def settings():
             return d if 1 <= d <= 31 else None
         cartao_fechamento = _dia_ou_none("cartao_fechamento")
         cartao_vencimento = _dia_ou_none("cartao_vencimento")
+        dia_virada = _dia_ou_none("dia_virada")
         view_mode = request.form.get("view_mode", "completo")
         if view_mode not in {"simples", "completo"}:
             view_mode = "completo"
         with get_db() as db:
             db.execute(
                 """UPDATE usuarios SET perfil = ?, meta_mensal = ?, cartao_orcamento = ?,
-                   cartao_fechamento = ?, cartao_vencimento = ?, view_mode = ? WHERE id = ?""",
+                   cartao_fechamento = ?, cartao_vencimento = ?, view_mode = ?,
+                   dia_virada = ? WHERE id = ?""",
                 (perfil, meta_mensal, cartao_orcamento, cartao_fechamento,
-                 cartao_vencimento, view_mode, user["id"]),
+                 cartao_vencimento, view_mode, dia_virada, user["id"]),
             )
         session["perfil"] = perfil
         session["meta_mensal"] = meta_mensal
