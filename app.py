@@ -4756,6 +4756,12 @@ def ajuda():
     return render_template("ajuda.html")
 
 
+@app.route("/sobre")
+def sobre():
+    """Aberta sem login: e' o que a pessoa lê antes de decidir criar conta."""
+    return render_template("sobre.html", user=current_user())
+
+
 @app.route("/termos")
 def termos():
     """Aberta sem login: quem ainda não criou conta precisa poder ler o combinado."""

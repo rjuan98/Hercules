@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% block title %}Conheça o Hércules{% endblock %}
+{% block page_title %}Conheça o Hércules{% endblock %}
+{% block page_subtitle %}O que ele é, pra quem é, e o que ele não promete.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:760px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Oi! Eu sou o Herc. 🦁</strong><br>
+            Meu trabalho é responder duas perguntas: <strong>quanto você tem</strong> e
+            <strong>quanto dá pra gastar</strong>. Sem planilha, sem você anotar cada café.
+        </div>
+    </div>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:12px;">Por que ele existe</h2>
+    <blockquote class="citacao">
+        “Eu estava falando com as meninas que não consigo juntar dinheiro. Não consigo.
+        Os meus filhos já são adultos e ainda assim eu fico sufocada.”
+        <cite>A primeira pessoa a testar o Hércules</cite>
+    </blockquote>
+    <p class="subtitle" style="margin-top:16px;">
+        Ela tem 65 anos, é servidora pública e tem uma lojinha. Como quase todo MEI brasileiro,
+        vive <strong>duas vidas financeiras ao mesmo tempo</strong> — a dela e a do negócio — e
+        nenhum aplicativo trata as duas.
+    </p>
+    <p class="subtitle" style="margin-top:12px;">
+        Os apps de finanças pessoais ignoram nota fiscal, DAS e limite anual. Os apps de MEI
+        tratam você como empresa e esquecem que você também tem aluguel e mercado. O Hércules
+        fica na costura entre os dois.
+    </p>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:14px;">O que ele faz por você</h2>
+    <ul class="data-list">
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title"><i class="icone-texto" data-lucide="calculator"></i> Responde antes de você gastar</p>
+            <div class="note-meta"><span>Em <strong>“Será que cabe?”</strong> você diz quanto quer
+            gastar. Eu olho as contas que ainda vencem e o seu ritmo, e respondo
+            <em>cabe</em>, <em>aperta</em> ou <em>não cabe</em> — com o valor que caberia.</span></div>
+        </li>
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title"><i class="icone-texto" data-lucide="target"></i> Aprende o que é cada gasto</p>
+            <div class="note-meta"><span>Você me diz uma vez que <em>Hops</em> é Bebidas, e eu acerto
+            pra sempre — inclusive arrumando os antigos.</span></div>
+        </li>
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title"><i class="icone-texto" data-lucide="credit-card"></i> Mostra o cartão sem susto</p>
+            <div class="note-meta"><span>Fatura por ciclo de fechamento, parcelas sem contar três
+            vezes a mesma compra, e quanto das próximas faturas já está comprometido.</span></div>
+        </li>
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title"><i class="icone-texto" data-lucide="calendar-range"></i> Fecha a semana com uma notícia</p>
+            <div class="note-meta"><span>Não repito seu saldo, que você já sabe. Digo o que
+            <em>mudou</em>: “Transporte caiu R$ 380.”</span></div>
+        </li>
+        <li class="data-item" style="padding:14px 16px;">
+            <p class="note-title"><i class="icone-texto" data-lucide="store"></i> Cuida do lado MEI</p>
+            <div class="note-meta"><span>Notas guardadas por foto, faturamento do ano, aviso antes de
+            chegar no limite, DAS, e o dossiê do contador num arquivo só.</span></div>
+        </li>
+    </ul>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:6px;">Você escolhe como os gastos chegam</h2>
+    <p class="topbar-subtitle" style="margin-bottom:14px;">Nenhum dos três custa nada.</p>
+    <ul class="lista-simples">
+        <li><strong>Conectando o banco</strong> pelo Open Finance. Depois de configurado, os gastos
+            entram sozinhos. Leva uns 10 minutos, uma vez só — e passa por um cadastro fora
+            daqui, que é o preço de fazer isso de graça.</li>
+        <li><strong>Importando o extrato</strong> em OFX ou PDF. Funciona com qualquer banco e
+            qualquer celular, sem configurar nada.</li>
+        <li><strong>Anotando na mão</strong> o que você quiser. Leva segundos e é o caminho de quem
+            prefere não conectar nada.</li>
+    </ul>
+    <p class="helper-text" style="margin-top:14px;">
+        Conectar o banco no Brasil custa a partir de R$ 2.500 por mês para quem oferece o
+        serviço. Em vez de repassar isso pra você, o Hércules usa o caminho gratuito — que tem
+        um passo a mais, e é por isso que existe um
+        <a href="{{ url_for('ajuda') }}">passo a passo</a>.
+    </p>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:12px;">A regra do dinheiro</h2>
+    <div class="auth-note">
+        <strong>Nunca vou cobrar pelo que evita um dano.</strong> O lembrete do DAS, o aviso de que
+        você está chegando no limite do MEI, o saldo, os gastos — isso é de graça para sempre.
+        Cobrar pelo aviso que evita uma multa seria lucrar com o seu aperto.
+    </div>
+    <p class="subtitle" style="margin-top:14px;">
+        Se um dia existir algo pago, será pelo que <strong>poupa trabalho</strong> — como o dossiê
+        do ano fechado, que substitui horas procurando papel. Quem nunca pagar um centavo continua
+        sendo avisado antes de estourar o limite.
+    </p>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:12px;">O que ele não é</h2>
+    <ul class="lista-simples">
+        <li><strong>Não é banco</strong> e não movimenta dinheiro. Quando você conecta sua conta, o
+            acesso é somente leitura — não dá pra transferir nem pagar nada por aqui.</li>
+        <li><strong>Não substitui contador.</strong> A Prévia do IR e o Painel MEI são estimativas
+            pra você se planejar, não o cálculo oficial.</li>
+        <li><strong>Não é um produto acabado.</strong> Está em teste, feito por uma pessoa. Pode ter
+            erro, e quando tiver eu quero saber.</li>
+    </ul>
+    <p class="helper-text" style="margin-top:16px;">
+        Os detalhes estão na <a href="{{ url_for('privacidade') }}">política de privacidade</a> e
+        nos <a href="{{ url_for('termos') }}">termos de uso</a> — os dois escritos em português
+        normal, sem letra miúda.
+    </p>
+</section>
+{% endblock %}

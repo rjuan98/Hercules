@@ -32,7 +32,7 @@ você configurar as chaves.
 python testes.py
 ```
 
-São **664 verificações** contra um banco temporário e isolado — não encostam nos seus
+São **676 verificações** contra um banco temporário e isolado — não encostam nos seus
 dados. Cobrem as contas de dinheiro, isolamento entre usuários, fuso horário, o ciclo
 da fatura, entrada hostil em todo formulário, envio duplicado, exclusão em cascata e
 duas abas abertas na mesma conta.

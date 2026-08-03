@@ -2313,6 +2313,37 @@ check("os três links do rodapé funcionam",
       all(_an.get(u).status_code == 200 for u in ("/privacidade", "/termos", "/ajuda")))
 
 
+secao("76. Conheça o Hércules")
+# Duas plateias, dois documentos: /sobre explica o app pra quem VAI USAR; a
+# apresentacao (fora do app) explica o projeto pra quem pergunta o que foi feito.
+_r_sobre = _an.get("/sobre")
+check("abre sem login (é o que se lê antes de criar conta)", _r_sobre.status_code == 200)
+_t_sobre = so_texto(_r_sobre.get_data(as_text=True))
+check("abre com o Herc falando", "Eu sou o Herc" in _t_sobre)
+check("conta por que o app existe, com gente de verdade",
+      "não consigo juntar dinheiro" in _t_sobre)
+check("explica os três caminhos pro gasto chegar",
+      "Conectando o banco" in _t_sobre and "Importando o extrato" in _t_sobre
+      and "Anotando na mão" in _t_sobre)
+check("explica por que existe o passo a mais do banco", "R$ 2.500" in _t_sobre)
+check("declara a régua de cobrança", "Nunca vou cobrar pelo que evita um dano" in _t_sobre)
+check("e o que o app NÃO é", "Não substitui contador" in _t_sobre)
+check("aponta pra privacidade e termos",
+      "/privacidade" in _r_sobre.get_data(as_text=True)
+      and "/termos" in _r_sobre.get_data(as_text=True))
+check("fala do simulador, que é a função mais nova", "Será que cabe?" in _t_sobre)
+
+check("o rodapé leva pra lá, em toda tela",
+      "Conheça o Hércules" in _an.get("/login").get_data(as_text=True)
+      and "Conheça o Hércules" in c1.get("/").get_data(as_text=True))
+# Rodape do app nao pode depender de servico de terceiro: se o link morrer, morre
+# no produto de quem confia dinheiro nele
+check("o rodapé NÃO aponta pra domínio de fora",
+      "claude.ai" not in c1.get("/").get_data(as_text=True))
+check("os quatro links do rodapé respondem",
+      all(_an.get(u).status_code == 200 for u in ("/sobre", "/privacidade", "/termos", "/ajuda")))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
