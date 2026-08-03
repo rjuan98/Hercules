@@ -37,8 +37,16 @@
 
 {% if insight %}
 <section class="page-card" style="margin-bottom:18px;">
-    <p class="metric-label" style="margin:0;"><i class="icone-texto" data-lucide="calendar-days"></i> Seus últimos 7 dias</p>
+    <p class="metric-label" style="margin:0;"><i class="icone-texto" data-lucide="calendar-days"></i> Saiu da conta nos últimos 7 dias</p>
     <p class="metric-value" style="font-size:1.6rem; margin-top:6px;">{{ insight.atual|money }}</p>
+    {% if insight.credito > 0 %}
+    {# Somado ao total, o cartão inflava a semana do pagamento e depois contava de
+       novo na fatura. Separado, os dois números são verdade ao mesmo tempo. #}
+    <p class="metric-footnote" style="margin-top:4px;">
+        <i class="icone-texto" data-lucide="credit-card"></i> Fora isso, você passou
+        <strong>{{ insight.credito|money }}</strong> no crédito — sai da conta quando a fatura vencer.
+    </p>
+    {% endif %}
     <p class="metric-footnote" style="margin-top:6px;">
         Média de {{ insight.media_dia|money }} por dia.
         {% if insight.tem_comparacao %}

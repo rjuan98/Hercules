@@ -1640,7 +1640,7 @@ def calc_transaction_totals(user_id: int):
         month_reserve_saved = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida' AND categoria = 'Reserva'
+               WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0 AND categoria = 'Reserva'
                AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
@@ -1950,7 +1950,7 @@ def calculate_business_summary(user_id: int):
         expenses_month = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida'
+               WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
                AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
@@ -2432,7 +2432,8 @@ def home():
     with get_db() as db:
         today_spent = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida' AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) = date(?)""",
+               WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) = date(?)""",
             (user["id"], today_iso),
         ).fetchone()["total"]
         tx_count = db.execute(
@@ -2837,23 +2838,39 @@ def insight_semanal(user_id: int) -> dict[str, Any] | None:
             return float(db.execute(
                 """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                    WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+                     AND no_credito = 0
                      AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
                 (user_id, ini, fim),
             ).fetchone()["t"])
         atual = gasto(ini_atual, fim_atual)
         anterior = gasto(ini_ant, fim_ant)
+        # O que foi no cartão fica SEPARADO, não somado. Juntar os dois inflava a
+        # semana do pagamento — que é justamente quando mais se usa cartão — e
+        # depois contava de novo quando a fatura era paga. O Matheus viu R$ 1.700
+        # numa semana e sabia que não era dele.
+        credito = float(db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+                 WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
+                   AND date(COALESCE(NULLIF(data_transacao, ''), created_at))
+                       BETWEEN date(?) AND date(?)""",
+            (user_id, ini_atual, fim_atual),
+        ).fetchone()["t"])
+        # Esta some com o crédito porque mora dentro do card "saiu da conta". Nas
+        # telas de "pra onde o dinheiro foi" (Meses, recado) o cartão continua
+        # contando — lá a pergunta é outra.
         top = db.execute(
             """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
                FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND no_credito = 0
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
                GROUP BY cat ORDER BY t DESC LIMIT 1""",
             (user_id, ini_atual, fim_atual),
         ).fetchone()
-    if atual <= 0:
+    if atual <= 0 and credito <= 0:
         return None
     return {
         "atual": atual,
+        "credito": credito,
         "anterior": anterior,
         "delta": atual - anterior,
         "tem_comparacao": anterior > 0,
@@ -3071,6 +3088,10 @@ def calc_ir_preview(user_id: int, year: int) -> dict[str, Any]:
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, *IR_RENDA_CATS, ini, fim),
         ).fetchone()["t"]
+        # Dedução de IR NÃO exclui crédito, e isso é de propósito: consulta paga no
+        # cartão é dedutível igual. Aqui a pergunta não é "saiu da conta", é "foi
+        # gasto no ano". O pagamento da fatura não cai em Saúde, então não conta
+        # duas vezes.
         saude = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND categoria = 'Saúde'

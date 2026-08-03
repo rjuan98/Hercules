@@ -2219,9 +2219,16 @@ check("soma as contas que ainda vencem no mês", abs(_base["contas"] - 900) < 0.
 check("não conta o dia de hoje duas vezes (o gasto de hoje já está na média)",
       _base["dias_futuros"] == A.days_left_in_month() - 1)
 
-for _v, _esperado in [(300, "cabe"), (450, "aperta"), (600, "nao_cabe")]:
-    check(f"gastar {_v} -> {_esperado}", A.simular_gasto(uid_sim, _v)["veredito"] == _esperado,
-          A.simular_gasto(uid_sim, _v)["veredito"])
+# Valores FIXOS aqui davam teste que passava dia 2 e falhava dia 3: a folga
+# muda com os dias que restam no mes. As fronteiras saem do proprio calculo.
+_teto = _base["teto"]
+_teto_folgado = _base["teto_folgado"]
+for _v, _esperado in [(_teto_folgado - 10, "cabe"),
+                      ((_teto_folgado + _teto) / 2, "aperta"),
+                      (_teto + 10, "nao_cabe")]:
+    check(f"gastar {A.money(_v)} -> {_esperado}",
+          A.simular_gasto(uid_sim, _v)["veredito"] == _esperado,
+          (A.simular_gasto(uid_sim, _v)["veredito"], _teto_folgado, _teto))
 
 check("diz até quanto cabe com folga", 0 < _base["teto_folgado"] < _base["teto"])
 check("e o teto sem folga é maior", _base["teto"] > _base["teto_folgado"])
@@ -2770,6 +2777,72 @@ _det_zero = A.detalhe_do_ritmo(uid_de("zero2@teste.com"))
 check("sem gasto, nao ha lista pra mostrar", _det_zero["maiores"] == [])
 _h_zero2 = c_zero2.post("/simular", data={"csrf_token": "t", "valor": "50,00"}).get_data(as_text=True)
 check("e a tela nao mostra bloco vazio", "De onde vem esses" not in _h_zero2)
+
+
+secao("84. Cartao nao e dinheiro que saiu da conta")
+# "Abri hoje e falou que meu gasto da semana foi uns 1700 reais." Era a semana do
+# pagamento, quando mais se usa cartao — e o card somava compra de credito junto
+# com debito. Depois contaria de novo quando a fatura fosse paga.
+c_sem = novo_cliente("semana@teste.com", nome="Sem")
+uid_sem = uid_de("semana@teste.com")
+
+def _mov_sem(tipo, valor, cat, dias, credito=0):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,'x',?,'ofx',95,?,?)""",
+                   (uid_sem, tipo, valor, cat,
+                    (date.today() - timedelta(days=dias)).isoformat(), credito))
+
+_mov_sem("entrada", 3000, "Salario", 6)
+for _i in range(7):
+    _mov_sem("saida", 45, "Mercado", _i)          # R$ 315 no debito
+for _v, _c, _dia in [(380, "Compras", 5), (260, "Mercado", 4), (190, "Alimentacao", 3),
+                     (240, "Saude", 2), (215, "Transporte", 1)]:
+    _mov_sem("saida", _v, _c, _dia, credito=1)     # R$ 1.285 no cartao
+
+_ins = A.insight_semanal(uid_sem)
+check("a semana mostra so o que saiu da conta", _ins["atual"] == 315, _ins["atual"])
+check("o cartao vem separado, nao somado", _ins["credito"] == 1285, _ins["credito"])
+check("a media do dia e do que saiu mesmo", abs(_ins["media_dia"] - 45) < 0.01, _ins["media_dia"])
+check("junto dava quase 5x o valor real", _ins["atual"] + _ins["credito"] == 1600)
+check("'onde mais foi' nao aponta categoria que so existe no cartao",
+      _ins["top_cat"] == "Mercado", _ins["top_cat"])
+
+_h_sem = c_sem.get("/dashboard").get_data(as_text=True)
+check("o titulo do card diz que e o que saiu da conta",
+      "Saiu da conta nos \u00faltimos 7 dias" in _h_sem)
+check("e a tela mostra o cartao logo abaixo, separado", "no cr\u00e9dito" in _h_sem)
+check("explicando quando esse dinheiro sai", "quando a fatura vencer" in _h_sem)
+
+# Quem so usa debito nao pode ver linha de cartao que nao existe.
+c_deb = novo_cliente("debito@teste.com", nome="Deb")
+uid_deb = uid_de("debito@teste.com")
+with get_db() as db:
+    for _i in range(5):
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'saida',60,'x','Mercado',
+                      'ofx',95,?,0)""", (uid_deb, (date.today() - timedelta(days=_i)).isoformat()))
+_ins_deb = A.insight_semanal(uid_deb)
+check("quem so usa debito tem credito zerado", _ins_deb["credito"] == 0)
+check("e nao ve a linha do cartao",
+      "no cr\u00e9dito" not in c_deb.get("/dashboard").get_data(as_text=True))
+
+# A semana que SO teve cartao nao pode sumir da tela como se nada tivesse havido.
+c_socc = novo_cliente("socartao@teste.com", nome="SoC")
+uid_socc = uid_de("socartao@teste.com")
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'saida',400,'x','Compras',
+                  'ofx',95,?,1)""", (uid_socc, date.today().isoformat()))
+_ins_so = A.insight_semanal(uid_socc)
+check("semana so de cartao ainda aparece", _ins_so is not None)
+check("com zero saindo da conta", _ins_so["atual"] == 0 if _ins_so else False)
+check("e o cartao visivel", _ins_so["credito"] == 400 if _ins_so else False)
+
+# As telas de "PRA ONDE o dinheiro foi" continuam contando o cartao — sao outra
+# pergunta, e a tela de Meses diz isso com todas as letras.
+check("a comparacao por categoria continua incluindo o cartao",
+      "inclusive o do cart\u00e3o" in c_ms.get("/meses?mes=2026-06").get_data(as_text=True))
 
 
 print("\n" + "=" * 62)
