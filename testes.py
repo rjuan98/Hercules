@@ -2630,6 +2630,80 @@ check("e o /dashboard mostra o aviso no lugar da conta",
       "dividido pelos" not in _h_cent_d and "daria centavos" in _h_cent_d)
 
 
+secao("82. Card de conteudo nao cabe em meia tela de celular")
+# O Matheus viu os cards depois de "Sua reserva neste mes" quebrados no celular.
+# Causa: a regra de 2 colunas no mobile foi escrita pros cartoes de NUMERO e
+# pegava tambem as secoes com grafico, lista e barra de progresso dentro.
+import io as _io
+import re as _re
+import glob as _glob
+
+_css = _io.open("static/styles.css", encoding="utf-8").read()
+check("existe regra que da largura inteira pros cards largos",
+      ".metric-grid.cards-largos" in _css)
+
+# A ordem importa: mesma especificidade da regra de 2 colunas, ganha quem vem depois.
+_i_duas = _css.rfind("grid-template-columns: repeat(2, minmax(0, 1fr));\n        gap: 12px;")
+_i_larga = _css.find(".metric-grid.cards-largos")
+check("e ela vem DEPOIS da regra de duas colunas, senao nao vale",
+      _i_duas != -1 and _i_larga > _i_duas, (_i_duas, _i_larga))
+
+# Varredura: toda metric-grid cujo primeiro filho NAO e cartao de numero
+# precisa de cards-largos. Assim secao nova nao repete o erro.
+_faltando = []
+for _arq in _glob.glob("templates/*.html"):
+    _linhas = _io.open(_arq, encoding="utf-8").read().split("\n")
+    for _n, _linha in enumerate(_linhas):
+        if "metric-grid" not in _linha or "class=" not in _linha:
+            continue
+        # Olha o primeiro elemento com class= dentro da secao
+        _filho = ""
+        for _m in _linhas[_n + 1:_n + 4]:
+            _achou = _re.search(r'class="([^"]*)"', _m)
+            if _achou:
+                _filho = _achou.group(1)
+                break
+        if "metric-card" in _filho:
+            continue                      # cartao de numero: 2 colunas esta certo
+        if not _filho:
+            continue
+        if "cards-largos" not in _linha:
+            _faltando.append(f"{_arq}:{_n+1} ({_filho})")
+check("toda grade de cards de conteudo esta marcada como larga", not _faltando, _faltando)
+
+# E os cartoes de numero NAO podem ter ganho a marca por engano.
+_errado = []
+for _arq in _glob.glob("templates/*.html"):
+    _linhas = _io.open(_arq, encoding="utf-8").read().split("\n")
+    for _n, _linha in enumerate(_linhas):
+        if "cards-largos" not in _linha:
+            continue
+        for _m in _linhas[_n + 1:_n + 4]:
+            _achou = _re.search(r'class="([^"]*)"', _m)
+            if _achou:
+                if "metric-card" in _achou.group(1):
+                    _errado.append(f"{_arq}:{_n+1}")
+                break
+check("cartao de numero continua em duas colunas no celular", not _errado, _errado)
+
+# As quatro secoes do relato, nominalmente.
+_dash = _io.open("templates/dashboard.html", encoding="utf-8").read()
+check("no Resumo, grafico + proximas contas ganham largura inteira",
+      _dash.count("metric-grid cols-2 cards-largos") == 2, _dash.count("cards-largos"))
+
+# A versao do CSS mora em dois arquivos. Se desencontrarem, o celular serve o
+# arquivo velho do cache e o conserto nao chega em quem instalou o app.
+_base = _io.open("templates/base.html", encoding="utf-8").read()
+_sw = _io.open("static/sw.js", encoding="utf-8").read()
+_v_base = _re.search(r"filename='styles\.css', v='(\d+)'", _base)
+_v_sw = _re.search(r'const V = "(\d+)"', _sw)
+check("base.html e sw.js declaram a mesma versao de CSS",
+      _v_base and _v_sw and _v_base.group(1) == _v_sw.group(1),
+      (_v_base and _v_base.group(1), _v_sw and _v_sw.group(1)))
+check("e o sw usa essa constante na lista de pre-cache",
+      'styles.css?v=" + V' in _sw)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

@@ -764,6 +764,12 @@ input[type="checkbox"]:focus-visible {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
     }
+    /* Duas colunas serve pra cartão de NÚMERO. Estes têm gráfico, lista com
+       título e valor, e barra de progresso dentro — em meia tela de celular
+       (~170px) eles se espremem e quebram. Foi o que apareceu no Resumo, logo
+       depois de "Sua reserva neste mês". Largura inteira.
+       Precisa vir DEPOIS da regra acima: mesma especificidade, ganha a ordem. */
+    .metric-grid.cards-largos { grid-template-columns: 1fr; }
     .metric-card { min-height: 0; padding: 16px; }
     .metric-value { font-size: clamp(1.15rem, 5.5vw, 1.7rem); overflow-wrap: anywhere; }
     .metric-label { font-size: 0.7rem; letter-spacing: 0.06em; }
