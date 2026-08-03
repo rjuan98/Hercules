@@ -3051,6 +3051,81 @@ check("o provedor sai do formato do id",
       == ("pluggy", "pdf", "ofx", None))
 
 
+secao("88. Limpeza das duplicadas que ja estao no banco")
+# O import parou de duplicar, mas quem ja tinha conectado o banco E importado o
+# extrato continua com as linhas repetidas la dentro. O script tem que tirar o
+# que dobrou e nao encostar no resto.
+import limpar_duplicadas as _limp
+
+c_lim = novo_cliente("limpeza@teste.com", nome="Lim")
+uid_lim = uid_de("limpeza@teste.com")
+_hoje_l = date.today().isoformat()
+
+def _ins_l(valor, fitid, desc, tipo="saida"):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,?,'Outros','ofx',95,?,0)""",
+                   (uid_lim, tipo, valor, desc, _hoje_l))
+        db.execute("UPDATE transacoes SET fitid=? WHERE id=last_insert_rowid()", (fitid,))
+
+_ins_l(120, "PLG-a", "MERCADO");            _ins_l(120, "700001", "MERCADO")
+_ins_l(3000, "PLG-b", "SALARIO", "entrada"); _ins_l(3000, "700002", "SALARIO", "entrada")
+_ins_l(5, "PLG-c", "CAFE");                 _ins_l(5, "PLG-d", "CAFE")     # dois cafes REAIS
+_ins_l(9, "PLG-e", "PAO");                  _ins_l(9, "PLG-f", "PAO")
+_ins_l(9, "700003", "PAO");                 _ins_l(9, "700004", "PAO")     # 4 linhas, 2 paes
+_ins_l(42, "PLG-g", "UBER")
+_ins_l(60, None, "ALMOCO");                 _ins_l(60, "700005", "ALMOCO")
+
+check("o provedor sai do formato do id, igual ao import",
+      (_limp._provedor("PLG-1"), _limp._provedor("PDF-1"), _limp._provedor("77"), _limp._provedor(None))
+      == ("pluggy", "pdf", "ofx", None))
+
+_achados = [a for a in _limp.encontrar() if a["chave"][0] == uid_lim]
+_para_apagar = sum(len(a["apagar"]) for a in _achados)
+check("acha as 5 linhas repetidas", _para_apagar == 5, _para_apagar)
+check("e nao marca os dois cafes iguais, que sao reais",
+      all("CAFE" not in (r["descricao"] or "") for a in _achados for r in a["apagar"]),
+      [r["descricao"] for a in _achados for r in a["apagar"]])
+check("mantem o lancamento da mao, que tem a categoria da pessoa",
+      all(r["fitid"] is not None for a in _achados for r in a["apagar"]),
+      [r["fitid"] for a in _achados for r in a["apagar"]])
+
+# So mostrar nao pode apagar nada — o padrao do script e nao mexer.
+with get_db() as db:
+    _antes_l = db.execute("SELECT COUNT(*) c FROM transacoes WHERE user_id=?",
+                          (uid_lim,)).fetchone()["c"]
+_limp.encontrar()
+with get_db() as db:
+    _depois_olhar = db.execute("SELECT COUNT(*) c FROM transacoes WHERE user_id=?",
+                               (uid_lim,)).fetchone()["c"]
+check("procurar nao apaga nada", _antes_l == _depois_olhar, (_antes_l, _depois_olhar))
+
+# Agora apagando de verdade.
+with get_db() as db:
+    db.execute("BEGIN IMMEDIATE")
+    db.executemany("DELETE FROM transacoes WHERE id = ?",
+                   [(r["id"],) for a in _achados for r in a["apagar"]])
+    db.commit()
+with get_db() as db:
+    _restou = db.execute("""SELECT descricao, COUNT(*) n FROM transacoes
+                             WHERE user_id=? GROUP BY descricao""", (uid_lim,)).fetchall()
+_conta_l = {r["descricao"]: r["n"] for r in _restou}
+check("depois da limpeza sobra exatamente o que e real",
+      _conta_l == {"MERCADO": 1, "SALARIO": 1, "CAFE": 2, "PAO": 2, "UBER": 1, "ALMOCO": 1},
+      _conta_l)
+check("e o saldo fica certo",
+      A.calc_transaction_totals(uid_lim)["balance"] == 3000 - 250,
+      A.calc_transaction_totals(uid_lim)["balance"])
+
+# Base limpa nao pode dar falso positivo.
+c_ok = novo_cliente("semdobra@teste.com", nome="Ok")
+uid_ok = uid_de("semdobra@teste.com")
+A.import_ofx_transactions(uid_ok, [{"valor": 50, "tipo": "saida", "data": _hoje_l,
+                                    "descricao": "X", "fitid": "PLG-só", "no_credito": False}])
+check("base sem duplicata nao acusa nada",
+      not [a for a in _limp.encontrar() if a["chave"][0] == uid_ok])
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
