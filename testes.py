@@ -2973,6 +2973,84 @@ check("o ritmo diario segue sem o ajuste",
       all(m["total"] not in (75.0, 120.0) for m in _det_aj["maiores"]), _det_aj["maiores"])
 
 
+secao("87. Banco conectado + extrato importado nao pode dobrar")
+# Quem conecta o banco E importa o extrato via a mesma compra duas vezes. A
+# reconciliacao exigia `fitid IS NULL AND fonte != 'ofx'`, e a linha da Pluggy
+# tem as duas coisas — fitid PLG-... e fonte 'ofx', porque entra pela mesma
+# funcao. Saldo, gasto do mes e ritmo diario, tudo em dobro.
+_hoje_d = date.today().isoformat()
+_seq_d = [0]
+
+def _user_dedup():
+    _seq_d[0] += 1
+    _e = f"dedup{_seq_d[0]}@teste.com"
+    novo_cliente(_e, nome="D")
+    return uid_de(_e)
+
+def _n_tx(uid):
+    with get_db() as db:
+        return db.execute("SELECT COUNT(*) c FROM transacoes WHERE user_id=?", (uid,)).fetchone()["c"]
+
+def _it(v, fitid, desc="COMPRA", tipo="saida"):
+    return {"valor": v, "tipo": tipo, "data": _hoje_d, "descricao": desc,
+            "fitid": fitid, "no_credito": False}
+
+_u = _user_dedup()
+A.import_ofx_transactions(_u, [_it(120, "PLG-abc", "MERCADO"), _it(45.5, "PLG-def", "POSTO"),
+                               _it(3000, "PLG-ghi", "SALARIO", "entrada")])
+_r_ofx = A.import_ofx_transactions(_u, [_it(120, "202601", "MERCADO"), _it(45.5, "202602", "POSTO"),
+                                        _it(3000, "202603", "SALARIO", "entrada")])
+check("o extrato reconhece o que o banco ja trouxe", _r_ofx["reconciliadas"] == 3, _r_ofx)
+check("e nao insere nada de novo", _r_ofx["importadas"] == 0, _r_ofx)
+check("3 gastos reais continuam 3 linhas", _n_tx(_u) == 3, _n_tx(_u))
+_st_d = A.calc_transaction_totals(_u)
+check("o saldo nao dobra", _st_d["balance"] == 3000 - 165.5, _st_d["balance"])
+check("nem o gasto do mes", _st_d["month_expenses"] == 165.5, _st_d["month_expenses"])
+
+# O id antigo tem que SOBREVIVER, senao a fonte antiga reimporta no proximo sync.
+_u2 = _user_dedup()
+A.import_ofx_transactions(_u2, [_it(120, "PLG-xyz", "MERCADO")])
+A.import_ofx_transactions(_u2, [_it(120, "700001", "MERCADO")])
+A.import_ofx_transactions(_u2, [_it(120, "PLG-xyz", "MERCADO")])
+check("o sync seguinte reconhece a linha pelo id antigo", _n_tx(_u2) == 1, _n_tx(_u2))
+
+# --- E agora o lado perigoso: deduplicar nao pode COMER gasto de verdade ---
+_u3 = _user_dedup()
+A.import_ofx_transactions(_u3, [_it(5, "PLG-1", "CAFE"), _it(5, "PLG-2", "CAFE")])
+check("dois cafes iguais no mesmo dia continuam dois", _n_tx(_u3) == 2, _n_tx(_u3))
+A.import_ofx_transactions(_u3, [_it(5, "900001", "CAFE"), _it(5, "900002", "CAFE")])
+check("e o extrato com os dois nao vira quatro", _n_tx(_u3) == 2, _n_tx(_u3))
+
+_u4 = _user_dedup()
+A.import_ofx_transactions(_u4, [_it(15, "PLG-x"), _it(15, "PLG-y"), _it(15, "PLG-z")])
+A.import_ofx_transactions(_u4, [_it(15, "400001")])
+check("extrato parcial nao apaga o que ele nao tinha", _n_tx(_u4) == 3, _n_tx(_u4))
+
+_u5 = _user_dedup()
+A.import_ofx_transactions(_u5, [_it(200, "PLG-e", "PIX", "entrada"), _it(200, "PLG-s", "PIX")])
+A.import_ofx_transactions(_u5, [_it(200, "300001", "PIX", "entrada"), _it(200, "300002", "PIX")])
+check("entrada e saida do mesmo valor nao se anulam", _n_tx(_u5) == 2, _n_tx(_u5))
+
+# Lancamento na mao continua sendo reconciliado, que era o comportamento antigo.
+_u6 = _user_dedup()
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'saida',60,'ALMOCO','Outros',
+                  'manual',100,?,0)""", (_u6, _hoje_d))
+A.import_ofx_transactions(_u6, [_it(60, "600001", "ALMOCO")])
+check("lancamento manual segue casando com o extrato", _n_tx(_u6) == 1, _n_tx(_u6))
+
+check("reimportar o mesmo extrato segue sem duplicar",
+      (lambda u: (A.import_ofx_transactions(u, [_it(80, "500001")]),
+                  A.import_ofx_transactions(u, [_it(80, "500001")]),
+                  _n_tx(u))[-1])(_user_dedup()) == 1)
+
+check("o provedor sai do formato do id",
+      (A._provedor_do_fitid("PLG-9") , A._provedor_do_fitid("PDF-9"),
+       A._provedor_do_fitid("12345"), A._provedor_do_fitid(None))
+      == ("pluggy", "pdf", "ofx", None))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

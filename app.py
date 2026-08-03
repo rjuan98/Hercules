@@ -605,10 +605,29 @@ def calc_parcelas_futuras(user_id: int) -> dict[str, Any]:
     return {"total": total, "meses": meses, "itens": itens, "tem": bool(itens)}
 
 
+def _provedor_do_fitid(fitid: str | None) -> str | None:
+    """De onde veio esse identificador.
+
+    Cada fonte numera do seu jeito: a Pluggy manda PLG-<id>, o PDF vira PDF-<hash>
+    e o OFX traz o FITID do banco. Saber a origem e o que permite reconhecer que
+    dois ids diferentes sao a MESMA compra vista por caminhos diferentes.
+    """
+    if not fitid:
+        return None
+    if fitid.startswith("PLG-"):
+        return "pluggy"
+    if fitid.startswith("PDF-"):
+        return "pdf"
+    return "ofx"
+
+
 def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_credito: bool = False) -> dict[str, int]:
     """Importa com reconciliação: FITID já visto = pula; valor+data já registrado
     (captura/manual) = casa e marca; anterior ao saldo inicial = pula (protege o saldo)."""
     stats = {"importadas": 0, "ja_importadas": 0, "reconciliadas": 0, "antigas": 0}
+    # Linhas ja casadas NESTE import. Sem isso, dois cafes de R$ 5 no mesmo dia
+    # colapsariam num so: o segundo acharia a mesma linha que o primeiro.
+    ja_casadas: set[int] = set()
     # As regras aprendidas não mudam durante o import: lê uma vez, não uma por linha.
     # Um extrato de 3 meses são centenas de lançamentos — eram centenas de conexões.
     regras = user_rules(user_id)
@@ -636,18 +655,35 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
                     continue
             no_credito = 1 if (item.get("no_credito") or forcar_credito) else 0
 
-            # Reconciliação: o Herc (ou o usuário) já registrou esse valor nesse dia?
-            match = db.execute(
-                """SELECT id FROM transacoes
+            # Reconciliação: esse valor, nesse dia, já está registrado?
+            #
+            # Candidata é toda linha do mesmo tipo/valor/dia que veio de OUTRO
+            # caminho — anotada na mão, capturada pelo Herc, ou trazida por outra
+            # fonte. Era aqui que a conta dobrava: exigia `fitid IS NULL AND fonte
+            # != 'ofx'`, e a linha da Pluggy tem as duas coisas (fitid PLG-… e
+            # fonte 'ofx', porque entra por esta mesma função). Resultado: quem
+            # conectava o banco E importava o extrato via tudo em dobro — saldo,
+            # gasto do mês, ritmo diário.
+            provedor_novo = _provedor_do_fitid(item["fitid"])
+            candidatas = db.execute(
+                """SELECT id, fitid FROM transacoes
                    WHERE user_id = ? AND tipo = ? AND ABS(valor - ?) < 0.005
                      AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) = date(?)
-                     AND fitid IS NULL AND fonte != 'ofx'
-                   LIMIT 1""",
+                   ORDER BY id""",
                 (user_id, item["tipo"], item["valor"], item["data"]),
-            ).fetchone()
+            ).fetchall()
+            match = next(
+                (c for c in candidatas
+                 if c["id"] not in ja_casadas
+                 and _provedor_do_fitid(c["fitid"]) != provedor_novo),
+                None,
+            )
             if match:
+                ja_casadas.add(match["id"])
+                # NÃO troca o fitid: o id antigo é o que a fonte antiga vai
+                # procurar no próximo sync. Sobrescrever faria ela reimportar.
                 db.execute(
-                    "UPDATE transacoes SET fitid = ?, no_credito = ? WHERE id = ?",
+                    "UPDATE transacoes SET fitid = COALESCE(fitid, ?), no_credito = ? WHERE id = ?",
                     (item["fitid"], no_credito, match["id"]),
                 )
                 stats["reconciliadas"] += 1
@@ -672,6 +708,7 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
                 (user_id, item["tipo"], item["valor"], item["descricao"], item["descricao"],
                  categoria, item["data"], item["fitid"], no_credito, p_num, p_total),
             )
+            ja_casadas.add(db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"])
             stats["importadas"] += 1
     return stats
 
