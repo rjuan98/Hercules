@@ -2845,6 +2845,55 @@ check("a comparacao por categoria continua incluindo o cartao",
       "inclusive o do cart\u00e3o" in c_ms.get("/meses?mes=2026-06").get_data(as_text=True))
 
 
+secao("85. Card com grafico dentro nao cabe em meia tela de celular")
+# O Matheus abriu no celular e os cards depois de "Sua reserva neste mes"
+# estavam quebrados. Causa: a regra de 2 colunas no mobile foi escrita pros
+# cartoes de NUMERO e pegava tambem os cards de conteudo — grafico, lista com
+# titulo e valor, barra de progresso — que em ~170px se espremem.
+import io as _io_layout
+import re as _re_layout
+
+_css = _io_layout.open("static/styles.css", encoding="utf-8").read()
+check("existe regra que devolve largura inteira pros cards largos",
+      ".metric-grid.cards-largos" in _css)
+# Mesma especificidade das outras: quem vem depois ganha. Se alguem mover, quebra.
+_pos_cols = _css.find(".metric-grid.cols-2,\n    .metric-grid.cols-3")
+_pos_largos = _css.find(".metric-grid.cards-largos {")
+check("e ela vem DEPOIS da regra de 2 colunas (senao perde por ordem)",
+      0 < _pos_cols < _pos_largos, (_pos_cols, _pos_largos))
+
+# Toda grade cujo primeiro filho e card de conteudo precisa da classe. Sem isso,
+# um card novo com grafico dentro volta a quebrar sem ninguem perceber.
+_faltando = []
+for _nome in ("dashboard.html", "business_dashboard.html", "home.html", "meses.html",
+              "ir.html", "dividas.html", "saude.html"):
+    _tpl = _io_layout.open(f"templates/{_nome}", encoding="utf-8").read()
+    for _m in _re_layout.finditer(r'<section class="metric-grid([^"]*)"', _tpl):
+        _classes = _m.group(1)
+        _resto = _tpl[_m.end():_m.end() + 400]
+        _primeiro = _re_layout.search(r'<article class="([^"]*)"', _resto)
+        if not _primeiro:
+            continue
+        _largo = ("chart-card" in _primeiro.group(1)) or (
+            "page-card" in _primeiro.group(1) and "metric-card" not in _primeiro.group(1))
+        if _largo and "cards-largos" not in _classes:
+            _faltando.append(f"{_nome}: {_primeiro.group(1)}")
+check("toda grade de card largo tem a classe que empilha no celular",
+      not _faltando, _faltando)
+
+# E o contrario: grade de cartao de numero NAO pode empilhar, senao vira tres
+# telas de rolagem so de numero — foi a queixa de dois testadores.
+_numeros_empilhando = []
+for _nome in ("dashboard.html", "home.html", "ir.html", "dividas.html", "saude.html"):
+    _tpl = _io_layout.open(f"templates/{_nome}", encoding="utf-8").read()
+    for _m in _re_layout.finditer(r'<section class="metric-grid([^"]*)"', _tpl):
+        _resto = _tpl[_m.end():_m.end() + 400]
+        _primeiro = _re_layout.search(r'<article class="([^"]*)"', _resto)
+        if _primeiro and "metric-card" in _primeiro.group(1) and "cards-largos" in _m.group(1):
+            _numeros_empilhando.append(_nome)
+check("e cartao de numero continua lado a lado", not _numeros_empilhando, _numeros_empilhando)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
