@@ -34,6 +34,7 @@ from flask import (
 from markupsafe import Markup
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.routing import IntegerConverter
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -119,6 +120,21 @@ def _load_secret_key() -> str:
 
 
 app = Flask(__name__)
+
+
+class _IdConverter(IntegerConverter):
+    """Id de URL cabe em 64 bits, que é o teto do SQLite.
+
+    O conversor `<int:>` do Flask aceita número de qualquer tamanho. Um id de 40
+    dígitos passava pela rota, chegava no banco e estourava com OverflowError —
+    erro 500 em 16 rotas, e uma linha de traceback no log pra cada varredura
+    automática que passasse por aqui. Um id impossível não é erro do servidor: é
+    página que não existe, e agora dá 404.
+    """
+    regex = r"\d{1,18}"
+
+
+app.url_map.converters["int"] = _IdConverter
 app.secret_key = _load_secret_key()
 app.config["UPLOAD_FOLDER"] = str(UPLOAD_DIR)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
@@ -615,42 +631,44 @@ def possiveis_duplicatas(user_id: int) -> list[dict[str, Any]]:
     aproximação de algo que o banco ainda vai confirmar) e o outro veio do banco,
     perto na data e no valor.
     """
-    col = "date(COALESCE(NULLIF(data_transacao, ''), created_at))"
+    # Uma consulta so. Antes era uma por lancamento anotado na mao (ate 40), e
+    # isso roda em TODA carga da tela inicial — no PythonAnywhere, onde o
+    # orcamento e de 100 segundos de CPU por dia, 40 idas ao banco por visita
+    # custam de verdade.
+    col_m = "date(COALESCE(NULLIF(m.data_transacao, ''), m.created_at))"
+    col_b = "date(COALESCE(NULLIF(b.data_transacao, ''), b.created_at))"
     with get_db() as db:
-        manuais = db.execute(
-            f"""SELECT id, tipo, valor, descricao, {col} AS dia
-                  FROM transacoes
-                 WHERE user_id = ? AND fonte = 'manual' AND fitid IS NULL
-                   AND dup_ok = 0 AND no_credito = 0
-                   AND COALESCE(NULLIF(categoria, ''), '') != 'Reserva'
-                 ORDER BY {col} DESC LIMIT 40""",
+        linhas = db.execute(
+            f"""SELECT m.id AS m_id, m.valor AS m_valor, m.descricao AS m_desc,
+                       {col_m} AS m_dia, m.tipo AS tipo,
+                       b.id AS b_id, b.valor AS b_valor, b.descricao AS b_desc,
+                       {col_b} AS b_dia,
+                       MIN(ABS(b.valor - m.valor)) AS _perto
+                  FROM transacoes m
+                  JOIN transacoes b
+                    ON b.user_id = m.user_id AND b.id != m.id AND b.tipo = m.tipo
+                   AND b.fitid IS NOT NULL
+                   -- Tolerancia proporcional: quem digita "2.600" pra um salario
+                   -- de R$ 2.660,41 erra 2,3%, nao centavos. O piso e baixo de
+                   -- proposito: com R$ 20 de folga, R$ 30 casaria com R$ 45.
+                   AND ABS(b.valor - m.valor) <= MAX(5.0, m.valor * 0.05)
+                   AND ABS(julianday({col_b}) - julianday({col_m})) <= 4
+                 WHERE m.user_id = ? AND m.fonte = 'manual' AND m.fitid IS NULL
+                   AND m.dup_ok = 0 AND m.no_credito = 0
+                   AND COALESCE(NULLIF(m.categoria, ''), '') != 'Reserva'
+                   AND m.valor > 0
+                 GROUP BY m.id
+                 ORDER BY {col_m} DESC
+                 LIMIT 20""",
             (user_id,),
         ).fetchall()
-        pares = []
-        for m in manuais:
-            valor = float(m["valor"])
-            # Tolerância proporcional: quem digita "2.600" pra um salário de
-            # R$ 2.660,41 erra 2,3%, não centavos. O piso é baixo de propósito —
-            # com R$ 20 de folga, R$ 30 casaria com R$ 45, que são compras
-            # diferentes. Errar pra menos aqui só significa perguntar menos.
-            folga = max(5.0, valor * 0.05)
-            achado = db.execute(
-                f"""SELECT id, valor, descricao, {col} AS dia FROM transacoes
-                     WHERE user_id = ? AND id != ? AND tipo = ? AND fitid IS NOT NULL
-                       AND ABS(valor - ?) <= ?
-                       AND ABS(julianday({col}) - julianday(?)) <= 4
-                     ORDER BY ABS(valor - ?) LIMIT 1""",
-                (user_id, m["id"], m["tipo"], valor, folga, m["dia"], valor),
-            ).fetchone()
-            if achado:
-                pares.append({
-                    "manual": {"id": m["id"], "valor": valor, "descricao": m["descricao"],
-                               "dia": m["dia"]},
-                    "banco": {"id": achado["id"], "valor": float(achado["valor"]),
-                              "descricao": achado["descricao"], "dia": achado["dia"]},
-                    "tipo": m["tipo"],
-                })
-        return pares
+    return [{
+        "manual": {"id": r["m_id"], "valor": float(r["m_valor"]),
+                   "descricao": r["m_desc"], "dia": r["m_dia"]},
+        "banco": {"id": r["b_id"], "valor": float(r["b_valor"]),
+                  "descricao": r["b_desc"], "dia": r["b_dia"]},
+        "tipo": r["tipo"],
+    } for r in linhas]
 
 
 def calc_parcelas_futuras(user_id: int) -> dict[str, Any]:
@@ -1054,7 +1072,8 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
         for cat in cats:
             gasto = db.execute(
                 """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
-                   WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND categoria = ?
+                   WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND interno = 0
+                     AND categoria = ?
                      AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
                 (user_id, cat["nome"], ini, fim),
             ).fetchone()["t"]
@@ -1079,7 +1098,7 @@ def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
                       COALESCE(SUM(CASE WHEN tipo='saida' THEN valor ELSE 0 END), 0) AS s,
                       COUNT(*) AS n
                FROM transacoes
-               WHERE user_id = ? AND fonte != 'ajuste'
+               WHERE user_id = ? AND fonte != 'ajuste' AND interno = 0
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, ini, fim),
         ).fetchone()
@@ -1309,7 +1328,7 @@ def pending_suggestions(user_id: int, limit: int = 2):
                       COUNT(*) AS vezes,
                       SUM(valor) AS total
                FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND interno = 0
                  AND COALESCE(NULLIF(categoria, ''), 'Outros') = 'Outros'
                  AND COALESCE(NULLIF(estabelecimento, ''), descricao) IS NOT NULL
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date('now', '-60 day')
@@ -1350,7 +1369,7 @@ def category_month_spending(user_id: int) -> dict[str, float]:
         rows = db.execute(
             """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS categoria, SUM(valor) AS total
                FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND interno = 0
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
                GROUP BY categoria""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
@@ -1763,6 +1782,7 @@ def calc_transaction_totals(user_id: int):
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0 AND fonte != 'ajuste'
+                    AND interno = 0
                  AND categoria = 'Reserva'
                AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
@@ -2067,6 +2087,7 @@ def calculate_business_summary(user_id: int):
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'entrada' AND no_credito = 0 AND fonte != 'ajuste'
+               AND interno = 0
                AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
@@ -2074,6 +2095,7 @@ def calculate_business_summary(user_id: int):
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0 AND fonte != 'ajuste'
+               AND interno = 0
                AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
@@ -2773,7 +2795,7 @@ def detalhe_do_ritmo(user_id: int, dias: int = 60) -> dict[str, Any]:
         ).fetchall()
         guardado = float(db.execute(
             f"""SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
-                 WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
+                 WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0 AND interno = 0
                    AND fonte != 'ajuste' AND categoria = 'Reserva' AND {col} >= date(?)""",
             (user_id, desde.isoformat()),
         ).fetchone()["t"])
@@ -2886,7 +2908,7 @@ def sugerir_guardar_mensal(user_id: int, meses: int = 6) -> dict[str, Any] | Non
                       SUM(CASE WHEN tipo = 'entrada' AND no_credito = 0 THEN valor ELSE 0 END) AS entrou,
                       SUM(CASE WHEN tipo = 'saida' AND no_credito = 0 THEN valor ELSE 0 END) AS saiu
                FROM transacoes
-               WHERE user_id = ? AND fonte != 'ajuste'
+               WHERE user_id = ? AND fonte != 'ajuste' AND interno = 0
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)
                GROUP BY mes ORDER BY mes DESC""",
             (user_id, desde),
@@ -3128,7 +3150,7 @@ def comparar_categorias(user_id: int, mes: str, mes_anterior: str) -> list[dict[
             return {r["cat"]: float(r["t"] or 0) for r in db.execute(
                 f"""SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
                      FROM transacoes
-                    WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+                    WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND interno = 0
                       AND {sql_mes(virada, "COALESCE(NULLIF(data_transacao, ''), created_at)")} = ?
                     GROUP BY cat""", (user_id, m)).fetchall()}
         agora, antes = gastos(mes), gastos(mes_anterior)
@@ -3179,7 +3201,7 @@ def recado_da_semana(user_id: int, hoje: date | None = None) -> dict[str, Any] |
             return {r["cat"]: float(r["t"] or 0) for r in db.execute(
                 """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
                      FROM transacoes
-                    WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+                    WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND interno = 0
                       AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
                     GROUP BY cat""", (user_id, a.isoformat(), b.isoformat())).fetchall()}
 
@@ -3189,7 +3211,7 @@ def recado_da_semana(user_id: int, hoje: date | None = None) -> dict[str, Any] |
                           COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=0 THEN valor END), 0) AS saiu,
                           COUNT(*) AS n
                      FROM transacoes
-                    WHERE user_id = ? AND fonte != 'ajuste'
+                    WHERE user_id = ? AND fonte != 'ajuste' AND interno = 0
                       AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
                 (user_id, a.isoformat(), b.isoformat())).fetchone()
             return float(r["entrou"]), float(r["saiu"]), r["n"]
@@ -3237,7 +3259,7 @@ def calc_ir_preview(user_id: int, year: int) -> dict[str, Any]:
     with get_db() as db:
         renda = db.execute(
             f"""SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
-               WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste'
+               WHERE user_id = ? AND tipo = 'entrada' AND fonte != 'ajuste' AND interno = 0
                  AND categoria IN ({marks})
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, *IR_RENDA_CATS, ini, fim),
@@ -3248,13 +3270,15 @@ def calc_ir_preview(user_id: int, year: int) -> dict[str, Any]:
         # duas vezes.
         saude = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND categoria = 'Saúde'
+               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND interno = 0
+                 AND categoria = 'Saúde'
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, ini, fim),
         ).fetchone()["t"]
         educ = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
-               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND categoria = 'Educação'
+               WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND interno = 0
+                 AND categoria = 'Educação'
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, ini, fim),
         ).fetchone()["t"]
@@ -4012,8 +4036,11 @@ def resolver_duplicata():
     """A pessoa respondeu se os dois lançamentos são a mesma coisa."""
     user = current_user()
     try:
+        # Limite de 64 bits: acima disso o SQLite estoura em vez de não achar.
         id_manual = int(request.form.get("id_manual") or 0)
-    except ValueError:
+        if not 0 < id_manual < 2**63:
+            id_manual = 0
+    except (ValueError, TypeError):
         id_manual = 0
     resposta = request.form.get("resposta")
     with get_db() as db:

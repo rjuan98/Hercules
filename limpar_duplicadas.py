@@ -19,18 +19,10 @@ movimentação de verdade.
 import sys
 from collections import defaultdict
 
+# A regra de "de onde veio esse id" vem do app, nao de uma copia aqui: se ela
+# mudar la e nao aqui, este script passa a apagar a linha errada.
+from app import _provedor_do_fitid as _provedor
 from database import get_db
-
-
-def _provedor(fitid):
-    """Mesma regra do import: o formato do id diz de onde ele veio."""
-    if not fitid:
-        return None
-    if fitid.startswith("PLG-"):
-        return "pluggy"
-    if fitid.startswith("PDF-"):
-        return "pdf"
-    return "ofx"
 
 
 def encontrar():

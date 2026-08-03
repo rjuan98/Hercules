@@ -3457,6 +3457,109 @@ _an_cf = A.app.test_client()
 check("precisa estar logado", _an_cf.get("/conferir", follow_redirects=False).status_code == 302)
 
 
+secao("93. Id de URL absurdo e pagina que nao existe, nao erro 500")
+# O conversor <int:> do Flask aceita numero de qualquer tamanho. Um id de 40
+# digitos passava pela rota, chegava no SQLite e estourava com OverflowError:
+# erro 500 em 16 rotas, e uma linha de traceback no log pra cada varredura
+# automatica que passasse por aqui.
+import re as _re93
+
+c_id = novo_cliente("ids@teste.com", nome="Id")
+uid_id = uid_de("ids@teste.com")
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'saida',10,'x','Outros',
+                  'manual',100,?,0)""", (uid_id, date.today().isoformat()))
+    _tid = db.execute("SELECT id FROM transacoes WHERE user_id=?", (uid_id,)).fetchone()["id"]
+
+_rotas_id = [r for r in A.app.url_map.iter_rules() if "<int:" in r.rule]
+check("o app tem rotas com id na URL", len(_rotas_id) >= 10, len(_rotas_id))
+
+_quebradas = []
+for _r in _rotas_id:
+    for _gigante in ("9" * 40, "9" * 19, "1" * 25):
+        _url = _re93.sub(r"<int:[^>]+>", _gigante, _r.rule)
+        _m = "POST" if "POST" in _r.methods and "GET" not in _r.methods else "GET"
+        _resp = c_id.open(_url, method=_m, data={"csrf_token": "t"} if _m == "POST" else None)
+        if _resp.status_code == 500:
+            _quebradas.append((_m, _url[:40]))
+check("nenhum id gigante derruba rota nenhuma", not _quebradas, _quebradas[:3])
+
+check("id normal continua abrindo",
+      c_id.get(f"/transacoes/{_tid}/editar").status_code == 200)
+check("id que nao existe nao da 500",
+      c_id.get("/transacoes/999999/editar").status_code in (302, 404))
+
+# O mesmo pelo formulario, que nao passa pelo conversor da URL.
+for _lixo in ("9" * 40, "-1", "0", "abc", "1e30", "1.5", ""):
+    _r93 = c_id.post("/duplicata", data={"csrf_token": "t", "id_manual": _lixo},
+                     follow_redirects=True)
+    check(f"/duplicata com id {_lixo[:12]!r:<14} nao quebra", _r93.status_code == 200,
+          _r93.status_code)
+
+# E o conversor nao pode ter ficado permissivo demais nem restrito demais.
+check("id de 18 digitos ainda e aceito pela rota",
+      c_id.get("/transacoes/" + "9" * 18 + "/editar").status_code in (302, 404))
+check("id com letra nao casa a rota",
+      c_id.get("/transacoes/12a/editar").status_code == 404)
+
+
+secao("94. Tela inicial nao vira parede de perguntas")
+# O detector pode achar muitos pares. Vinte cards empurrariam o saldo — que e o
+# motivo de a pessoa ter aberto o app — pra fora da tela.
+c_mt = novo_cliente("muitos@teste.com", nome="Mt")
+uid_mt = uid_de("muitos@teste.com")
+for _i in range(8):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'saida',?,?,'Outros',
+                      'manual',100,?,0)""",
+                   (uid_mt, 100 + _i * 50, f"gasto {_i}",
+                    (date.today() - timedelta(days=_i)).isoformat()))
+    A.import_ofx_transactions(uid_mt, [{"valor": 100 + _i * 50 + 2, "tipo": "saida",
+                                        "data": (date.today() - timedelta(days=_i)).isoformat(),
+                                        "descricao": f"BANCO {_i}", "fitid": f"PLG-{_i}",
+                                        "no_credito": False}])
+_dups_mt = A.possiveis_duplicatas(uid_mt)
+check("o detector acha os oito pares", len(_dups_mt) == 8, len(_dups_mt))
+_h_mt = c_mt.get("/").get_data(as_text=True)
+check("mas a tela mostra so tres", _h_mt.count("mesmo dinheiro") == 3,
+      _h_mt.count("mesmo dinheiro"))
+check("e avisa que tem mais esperando", "Tem mais 5 par" in _h_mt)
+
+# Uma consulta so: isto roda em toda carga da tela inicial.
+import database as _dbmod93
+_contador93 = {"n": 0}
+_orig93 = _dbmod93.get_db
+
+
+class _Espia93:
+    def __init__(self, conn):
+        self._c = conn
+
+    def execute(self, *a, **k):
+        _contador93["n"] += 1
+        return self._c.execute(*a, **k)
+
+    def __getattr__(self, nome):
+        return getattr(self._c, nome)
+
+    def __enter__(self):
+        self._c.__enter__()
+        return self
+
+    def __exit__(self, *a):
+        return self._c.__exit__(*a)
+
+
+A.get_db = lambda: _Espia93(_orig93())
+_contador93["n"] = 0
+A.possiveis_duplicatas(uid_mt)
+A.get_db = _orig93
+check("o detector faz UMA consulta, nao uma por lancamento",
+      _contador93["n"] == 1, _contador93["n"])
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

@@ -233,7 +233,9 @@
 {# ---- Dois lançamentos que parecem o mesmo dinheiro ----
    O app NÃO junta sozinho: casar por aproximação um dia apagaria um gasto de
    verdade. Ele pergunta, e a resposta fica guardada. ---- #}
-{% for d in duplicatas %}
+{# Tres por vez. Vinte cards empurrariam o saldo — que e o motivo de ter aberto
+   o app — pra fora da tela, e a pessoa desistiria de responder qualquer um. #}
+{% for d in duplicatas[:3] %}
 <section class="page-card" style="margin-bottom:14px; border-left:4px solid var(--primary-deep);">
     <p class="note-title" style="margin:0 0 8px;">
         <i class="icone-texto" data-lucide="copy"></i> Isso aqui é o mesmo dinheiro?
@@ -271,6 +273,12 @@
     </div>
 </section>
 {% endfor %}
+{% if duplicatas|length > 3 %}
+<p class="helper-text" style="margin:-4px 0 14px;">
+    Tem mais {{ duplicatas|length - 3 }} par{{ '' if duplicatas|length - 3 == 1 else 'es' }}
+    esperando resposta. Eles aparecem conforme você for respondendo estes.
+</p>
+{% endif %}
 
 {# ---- Saldo em primeiro: é o que a pessoa abre o app pra ver ---- #}
 <section class="page-card balance-hero">
