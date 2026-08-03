@@ -18,8 +18,12 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="money-input" style="flex:1;">
             <span class="money-prefix">R$</span>
+            {# autofocus SÓ quando ainda não há resposta. Depois de calcular ele
+               reabria o teclado do celular, que subia e tapava justamente o
+               veredito que a pessoa pediu. #}
             <input type="text" name="valor" data-money placeholder="0,00" required
-                   inputmode="decimal" autofocus value="{{ valor_digitado }}">
+                   inputmode="decimal"{% if not resultado %} autofocus{% endif %}
+                   value="{{ valor_digitado }}">
         </div>
         <button type="submit" class="button button-primary">
             <i data-lucide="calculator"></i> Será que cabe?
@@ -29,7 +33,7 @@
 
 {% if resultado %}
 {% set r = resultado %}
-<section class="page-card veredito veredito-{{ r.veredito }}" style="max-width:640px; margin:18px auto 0;">
+<section id="resposta" class="page-card veredito veredito-{{ r.veredito }}" style="max-width:640px; margin:18px auto 0;">
     {% if r.veredito == 'ja_apertado' %}
         <p class="veredito-selo">O mês já está apertado</p>
         <p class="veredito-frase">
@@ -157,5 +161,20 @@
         fatura for paga.
     </p>
 </section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if resultado %}
+<script>
+// Depois de calcular, a resposta e' o que interessa — nao o campo de digitar.
+// Sem isso o celular voltava com o teclado aberto e a tela rolada la em cima.
+window.addEventListener('DOMContentLoaded', () => {
+    const alvo = document.getElementById('resposta');
+    if (!alvo) return;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    alvo.scrollIntoView({ block: 'start', behavior: 'smooth' });
+});
+</script>
 {% endif %}
 {% endblock %}

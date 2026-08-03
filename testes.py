@@ -2711,6 +2711,19 @@ check("e o sw usa essa constante na lista de pre-cache",
       'styles.css?v=" + V' in _sw)
 
 
+secao("82. Teclado nao pode tapar a resposta")
+# "quando calcula o teclado continua aberto" — o autofocus rodava de novo depois
+# do POST, o teclado do celular subia e cobria justamente o veredito.
+c_tec = novo_cliente("teclado@teste.com", nome="Tec")
+_h_vazio = c_tec.get("/simular").get_data(as_text=True)
+check("com a tela vazia, o cursor ja fica no campo", "autofocus" in _h_vazio)
+_h_resp = c_tec.post("/simular", data={"csrf_token": "t", "valor": "150,00"}).get_data(as_text=True)
+check("depois de calcular, nao ha autofocus pra reabrir o teclado",
+      "autofocus" not in _h_resp)
+check("e a pagina rola pra resposta", 'id="resposta"' in _h_resp and "scrollIntoView" in _h_resp)
+check("o valor digitado continua no campo pra ajustar", 'value="150,00"' in _h_resp)
+
+
 secao("83. O ritmo tem que se explicar sozinho")
 # O Matheus olhou "R$ 129 por dia" e disse "que isso". Eu chutei tres explicacoes
 # sem ver os dados dele. Duas estavam erradas. Um numero sozinho nao se defende:
@@ -3124,6 +3137,65 @@ A.import_ofx_transactions(uid_ok, [{"valor": 50, "tipo": "saida", "data": _hoje_
                                     "descricao": "X", "fitid": "PLG-só", "no_credito": False}])
 check("base sem duplicata nao acusa nada",
       not [a for a in _limp.encontrar() if a["chave"][0] == uid_ok])
+
+
+secao("89. Conferir os numeros contra o extrato do banco")
+# O Matheus comparou com o resumo do Nubank e o ritmo do app estava 48% acima do
+# que saiu da conta dele. Eu ja tinha chutado errado antes por nao ver os dados,
+# entao o diagnostico le os numeros DELE e mostra a conta aberta.
+import subprocess as _sp
+import sys as _sys
+
+c_conf = novo_cliente("conferir@teste.com", nome="Conf")
+uid_conf = uid_de("conferir@teste.com")
+_hoje_c = date.today()
+
+def _mov_c(tipo, v, desc, cat, dias, cred=0, fonte="ofx", fitid=None):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,?,?,?,95,?,?)""",
+                   (uid_conf, tipo, v, desc, cat, fonte,
+                    (_hoje_c - timedelta(days=dias)).isoformat(), cred))
+        if fitid:
+            db.execute("UPDATE transacoes SET fitid=? WHERE id=last_insert_rowid()", (fitid,))
+
+_mov_c("entrada", 2660, "SALARIO", "Salario", 3, fitid="PLG-s")
+for _i in range(31):
+    _mov_c("saida", 60, f"gasto {_i}", "Mercado", _i + 3, fitid=f"PLG-g{_i}")
+_mov_c("saida", 900, "ALUGUEL", "Moradia", 10, fitid="PLG-alu")
+_mov_c("saida", 900, "ALUGUEL", "Moradia", 10, fitid="700001")      # duplicata
+_mov_c("saida", 420, "ROUPA", "Compras", 8, cred=1, fitid="PLG-c")
+_mov_c("saida", 300, "Guardado", "Reserva", 15, fonte="manual")
+_mov_c("saida", 55, "Ajuste de saldo", "Outros", 20, fonte="ajuste")
+
+_r_conf = _sp.run([_sys.executable, "conferir_numeros.py", "conferir@teste.com"],
+                  capture_output=True, text=True, encoding="utf-8",
+                  env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+_saida_c = _r_conf.stdout
+check("o diagnostico roda sem erro", _r_conf.returncode == 0, _r_conf.stderr[-300:])
+check("separa o que e cartao do que saiu da conta",
+      "compras no cart" in _saida_c and "420" in _saida_c)
+check("mostra o guardado em meta como fora da conta", "guardado em meta" in _saida_c)
+check("e o ajuste de saldo tambem", "ajuste de saldo" in _saida_c)
+check("mostra mes a mes pra comparar com o banco", "compare com o resumo do seu banco" in _saida_c)
+check("abre os maiores dias, que e onde a media mora", "MAIORES DIAS" in _saida_c)
+check("acusa a duplicata e aponta o script que limpa",
+      "repetidos" in _saida_c and "limpar_duplicadas" in _saida_c, _saida_c[-400:])
+check("mostra o ritmo antes de qualquer corte", "sem cortar nada" in _saida_c)
+
+# Nao pode vazar dado de outra pessoa: so imprime quem foi pedido.
+check("so mostra a pessoa pedida", "Conf" in _saida_c and "Fulano" not in _saida_c)
+_r_zero = _sp.run([_sys.executable, "conferir_numeros.py", "naoexiste@teste.com"],
+                  capture_output=True, text=True, encoding="utf-8",
+                  env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+check("email desconhecido nao imprime nada de ninguem",
+      _r_zero.returncode != 0 and "Nao achei" in _r_zero.stdout.replace("ã", "a"),
+      _r_zero.stdout[:200])
+_r_sem = _sp.run([_sys.executable, "conferir_numeros.py"],
+                 capture_output=True, text=True, encoding="utf-8",
+                 env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+check("sem email, explica como usar em vez de despejar tudo",
+      _r_sem.returncode != 0 and "seu@email.com" in _r_sem.stdout)
 
 
 print("\n" + "=" * 62)
