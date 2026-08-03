@@ -37,7 +37,7 @@
 
 {% if insight %}
 <section class="page-card" style="margin-bottom:18px;">
-    <p class="metric-label" style="margin:0;">📅 Seus últimos 7 dias</p>
+    <p class="metric-label" style="margin:0;"><i class="icone-texto" data-lucide="calendar-days"></i> Seus últimos 7 dias</p>
     <p class="metric-value" style="font-size:1.6rem; margin-top:6px;">{{ insight.atual|money }}</p>
     <p class="metric-footnote" style="margin-top:6px;">
         Média de {{ insight.media_dia|money }} por dia.
@@ -55,7 +55,7 @@
     <article class="glass-card metric-card">
         <p class="metric-label">Saldo atual</p>
         <p class="metric-value">{{ stats['balance']|money }}</p>
-        <p class="metric-footnote">{{ '🟢 No azul' if stats['balance'] >= 0 else '🟡 Atenção: negativo' }}</p>
+        <p class="metric-footnote">{{ 'No azul' if stats['balance'] >= 0 else 'Atenção: negativo' }}</p>
     </article>
     <article class="glass-card metric-card">
         <p class="metric-label">Entradas do mês</p>
@@ -92,7 +92,7 @@
 {% if assinaturas and assinaturas.tem %}
 <section class="page-card" style="margin-top:18px;">
     <div class="note-header" style="margin-bottom:4px;">
-        <p class="metric-label" style="margin:0;">🔁 O que se repete todo mês</p>
+        <p class="metric-label" style="margin:0;"><i class="icone-texto" data-lucide="repeat"></i> O que se repete todo mês</p>
     </div>
     <p class="metric-value" style="font-size:1.5rem;">{{ assinaturas.total_mes|money }} <span style="font-size:0.9rem; font-weight:700; color:var(--muted);">por mês</span></p>
     <p class="metric-footnote" style="margin-top:6px;">

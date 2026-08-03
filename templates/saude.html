@@ -43,23 +43,23 @@
     </p>
     {% else %}
     <div class="auth-note" style="margin-top:12px; border-color:var(--danger);">
-        ⚠️ <strong>Nenhuma cópia ainda.</strong> Toque em “Fazer agora”.
+        <i class="icone-texto" data-lucide="alert-triangle"></i> <strong>Nenhuma cópia ainda.</strong> Toque em “Fazer agora”.
     </div>
     {% endif %}
 
     {% if not cifrado %}
     <div class="auth-note" style="margin-top:14px; border-color:var(--danger);">
-        🔓 <strong>As cópias estão em texto claro.</strong> Qualquer um que pegar o arquivo lê os
+        <i class="icone-texto" data-lucide="lock-open"></i> <strong>As cópias estão em texto claro.</strong> Qualquer um que pegar o arquivo lê os
         dados de todo mundo — e ele é feito pra sair daqui. Defina <code>BACKUP_SENHA</code> no
         servidor e as próximas já saem cifradas.
     </div>
     {% else %}
-    <p class="helper-text" style="margin-top:12px;">🔒 As cópias saem cifradas — sem a
+    <p class="helper-text" style="margin-top:12px;"><i class="icone-texto" data-lucide="lock"></i> As cópias saem cifradas — sem a
     <code>BACKUP_SENHA</code> o arquivo não abre em lugar nenhum.</p>
     {% endif %}
 
     <div class="auth-note" style="margin-top:14px;">
-        📥 <strong>Baixe uma de vez em quando.</strong> As cópias ficam no mesmo disco do servidor:
+        <i class="icone-texto" data-lucide="download"></i> <strong>Baixe uma de vez em quando.</strong> As cópias ficam no mesmo disco do servidor:
         elas salvam de migração ruim e de arquivo corrompido, mas <strong>não</strong> salvam se o
         servidor inteiro se perder. Uma cópia no seu computador resolve isso.
     </div>
@@ -69,7 +69,7 @@
         {% for b in backups[:7] %}
         <li class="data-item" style="padding:12px 16px;">
             <div class="note-header">
-                <p class="note-title" style="font-family:monospace;">{{ "🔒" if cifrado else "🔓" }} {{ b.name }}</p>
+                <p class="note-title" style="font-family:monospace;"><i class="icone-texto" data-lucide="{{ 'lock' if cifrado else 'lock-open' }}"></i> {{ b.name }}</p>
                 <a href="{{ url_for('saude_baixar_backup', nome=b.name) }}" class="button button-outline"
                    style="padding:6px 12px;"><i data-lucide="download"></i> Baixar</a>
             </div>
@@ -99,7 +99,7 @@
                 </div>
                 <span class="helper-text" style="white-space:nowrap;">
                     {% if not p['last_seen'] %}nunca voltou
-                    {% elif p['last_seen'] == hoje.isoformat() %}✅ hoje
+                    {% elif p['last_seen'] == hoje.isoformat() %}hoje
                     {% else %}{{ p['last_seen']|format_date }}{% endif %}
                 </span>
             </div>
@@ -127,7 +127,7 @@
     </ul>
     <p class="helper-text" style="margin-top:12px;">O traceback completo está em <code>erros.log</code>, no servidor.</p>
     {% else %}
-    <p class="subtitle" style="margin:0;">✅ Nenhum erro registrado. É pra ser assim.</p>
+    <p class="subtitle" style="margin:0;">Nenhum erro registrado. É pra ser assim.</p>
     {% endif %}
 </section>
 {% endblock %}

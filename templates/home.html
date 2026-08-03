@@ -76,7 +76,7 @@
 
     {% if pluggy_ativo and not pluggy_tem_banco %}
     <div class="auth-note" style="margin-top:16px;">
-        🏦 <strong>Quer que eu veja seus gastos sozinho também?</strong> Dá pra conectar o banco —
+        <i class="icone-texto" data-lucide="landmark"></i> <strong>Quer que eu veja seus gastos sozinho também?</strong> Dá pra conectar o banco —
         mas isso é <strong>extra</strong>, leva uns 10 minutos e passa por um cadastro fora daqui.
         Faça quando tiver paciência; o app já é útil sem.
         <div class="page-actions" style="justify-content:flex-start; margin-top:12px;">
@@ -244,7 +244,7 @@
             </p>
             {% if stats['saldo_investido'] %}
             <p class="metric-footnote" style="margin-top:4px;">
-                💰 Guardado (investimentos): <strong style="color:var(--success);">{{ stats['saldo_investido']|money }}</strong>
+                <i class="icone-texto" data-lucide="wallet"></i> Guardado (investimentos): <strong style="color:var(--success);">{{ stats['saldo_investido']|money }}</strong>
                 <span class="helper-text">— não conta como saldo em conta</span>
             </p>
             {% endif %}
@@ -265,7 +265,7 @@
     {% if pluggy_tem_banco %}
     <p class="helper-text" id="syncStatus" style="margin-top:10px;">
         {% if dias_ofx is none %}Banco conectado — toque em Sincronizar pra puxar seus gastos.
-        {% elif dias_ofx == 0 %}Sincronizado com o banco hoje ✓
+        {% elif dias_ofx == 0 %}Sincronizado com o banco hoje
         {% else %}Última sincronização com o banco há {{ dias_ofx }} {{ 'dia' if dias_ofx == 1 else 'dias' }}.{% endif %}
     </p>
     {% endif %}
@@ -300,9 +300,9 @@
             {% if proximas %}{{ stats['commitments_total']|money }}{% elif vencidas %}{{ vencidas }} vencida{{ 's' if vencidas != 1 }}{% else %}Tudo pago{% endif %}
         </p>
         <p class="metric-footnote">
-            {% if proximas %}{{ proximas }} conta{{ 's' if proximas != 1 }} vence{{ 'm' if proximas != 1 }} em 7 dias{% if vencidas %} · ⚠️ {{ vencidas }} vencida{{ 's' if vencidas != 1 }}{% endif %}
-            {% elif vencidas %}⚠️ contas vencidas — <a href="{{ url_for('compromissos') }}" style="color:var(--primary-deep); font-weight:800;">ver</a>
-            {% else %}Nada vencendo agora ✓{% endif %}
+            {% if proximas %}{{ proximas }} conta{{ 's' if proximas != 1 }} vence{{ 'm' if proximas != 1 }} em 7 dias{% if vencidas %} · <i class="icone-texto" data-lucide="alert-triangle"></i> {{ vencidas }} vencida{{ 's' if vencidas != 1 }}{% endif %}
+            {% elif vencidas %}<i class="icone-texto" data-lucide="alert-triangle"></i> contas vencidas — <a href="{{ url_for('compromissos') }}" style="color:var(--primary-deep); font-weight:800;">ver</a>
+            {% else %}Nada vencendo agora{% endif %}
         </p>
     </article>
     <article class="glass-card metric-card">
@@ -320,7 +320,7 @@
 <section class="page-card" style="margin-top:14px;">
     <div class="note-header">
         <div>
-            <p class="metric-label" style="margin:0;">🤝 Dívidas</p>
+            <p class="metric-label" style="margin:0;"><i class="icone-texto" data-lucide="handshake"></i> Dívidas</p>
             <p class="metric-footnote" style="margin-top:6px;">
                 {% if dividas_resumo.devo %}Você deve <strong style="color:var(--danger);">{{ dividas_resumo.devo|money }}</strong>{% endif %}
                 {% if dividas_resumo.devo and dividas_resumo.me_devem %} · {% endif %}
@@ -343,7 +343,7 @@
         <li class="data-item" style="padding:12px 14px;">
             <div class="note-header linha-valor">
                 <div>
-                    <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}{% if tx['no_credito'] %} 💳{% endif %}</p>
+                    <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}{% if tx['no_credito'] %} <i class="icone-texto" data-lucide="credit-card"></i>{% endif %}</p>
                     <div class="note-meta">
                         <span>{{ tx['categoria'] or 'Outros' }}</span>
                         <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
@@ -404,7 +404,7 @@ window.addEventListener('DOMContentLoaded', () => {
         .then((d) => {
             girando(false);
             if (d && d.ok) {
-                status.textContent = '✓ ' + (d.novas > 0
+                status.textContent = '' + (d.novas > 0
                     ? d.novas + ' movimentação' + (d.novas > 1 ? 'ões' : '') + ' nova' + (d.novas > 1 ? 's' : '') + '. Atualizando…'
                     : 'Sincronizado — nada novo por enquanto.');
                 if (d.novas > 0) setTimeout(() => window.location.reload(), 900);

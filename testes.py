@@ -2255,6 +2255,64 @@ check("valor absurdo é recusado no simulador",
 check("está no menu", "/simular" in c_sim.get("/").get_data(as_text=True))
 
 
+secao("74. Emoji é o Herc falando; a interface usa ícone")
+import glob as _glob
+_EMOJI = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u23F0-\u23FF]")
+_VOZ_OK = set("🦁😅💚👏🎉🤔🤖🍬😉🏛👀✕✓✅")
+_fora_da_voz = []
+for _arq in _glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "*.html")):
+    _s = open(_arq, encoding="utf-8").read()
+    _prot = []
+    for _m in re.finditer(r'<div class="hercules-bubble">.*?</div>', _s, re.S):
+        _prot.append((_m.start(), _m.end()))
+    for _m in re.finditer(r"<script.*?</script>", _s, re.S):
+        _prot.append((_m.start(), _m.end()))
+    for _m in _EMOJI.finditer(_s):
+        if any(a <= _m.start() < b for a, b in _prot):
+            continue
+        if _m.group(0) in _VOZ_OK:
+            continue
+        _fora_da_voz.append((os.path.basename(_arq), _m.group(0)))
+check("nenhum emoji decorando a interface (fora a voz do Herc)",
+      not _fora_da_voz, str(_fora_da_voz[:4]))
+check("o Herc continua com carinha onde ele fala",
+      "🦁" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "templates", "ajuda.html"), encoding="utf-8").read())
+check("existe CSS pro ícone dentro de texto", ".icone-texto {" in _css_src_3
+      or ".icone-texto {" in open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                               "static", "styles.css"), encoding="utf-8").read())
+
+# Icone dentro de expressao Jinja quebra as aspas e derruba a tela inteira —
+# aconteceu escrevendo isto, em saude.html e settings.html.
+_jinja_quebrado = [os.path.basename(a) for a in
+                   _glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           "templates", "*.html"))
+                   if re.search(r"\{\{[^}]*icone-texto[^}]*\}\}", open(a, encoding="utf-8").read())]
+check("nenhum ícone dentro de expressão Jinja", not _jinja_quebrado, str(_jinja_quebrado))
+
+secao("75. Rodapé: quem responde pelo app")
+for _rota in ("/login", "/register", "/termos", "/privacidade", "/ajuda"):
+    _h = _an.get(_rota).get_data(as_text=True)
+    check(f"rodapé em {_rota}", "rodape-legal" in _h)
+_h_rod = c1.get("/").get_data(as_text=True)
+check("rodapé também nas telas logadas", "rodape-legal" in _h_rod)
+check("mostra o CNPJ", "41.026.294/0001-08" in _h_rod)
+check("diz o que o app NÃO é", "não substitui contador" in _h_rod)
+
+_h_termos = _an.get("/termos")
+check("termos abrem sem login (dá pra ler antes de criar conta)", _h_termos.status_code == 200)
+_t = so_texto(_h_termos.get_data(as_text=True))
+check("termos dizem que não é aconselhamento financeiro",
+      "Não é aconselhamento financeiro" in _t)
+check("e que o app pode ficar fora do ar", "fora do ar" in _t)
+check("e que o extrato do banco é a fonte oficial", "registro oficial" in _t)
+check("e que o que evita dano é grátis pra sempre", "sempre gratuito" in _t)
+check("e admitem que não há recuperação de senha ainda",
+      "recuperação automática" in _t)
+check("os três links do rodapé funcionam",
+      all(_an.get(u).status_code == 200 for u in ("/privacidade", "/termos", "/ajuda")))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

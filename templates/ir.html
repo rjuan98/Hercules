@@ -50,7 +50,7 @@
 
 <section class="page-card" style="margin-top:18px;">
     <p class="subtitle" style="margin:0;">
-        💡 Junte os comprovantes de <strong>saúde</strong> e <strong>educação</strong> — são eles que abatem seu imposto.
+        <i class="icone-texto" data-lucide="lightbulb"></i> Junte os comprovantes de <strong>saúde</strong> e <strong>educação</strong> — são eles que abatem seu imposto.
         {% if session.get('perfil', 'pf') in ['mei', 'lojista', 'hibrido'] %}
         Guarde as notas em <a href="{{ url_for('listar_notas') }}" style="color:var(--primary-deep); font-weight:800;">Notas</a> e categorize seus gastos certinho pra eu somar tudo.
         {% else %}
@@ -59,7 +59,7 @@
     </p>
     {% if ehmei %}
     <div class="auth-note" style="margin-top:14px;">
-        🏪 <strong>Você é MEI, então tem duas contas separadas:</strong> a do negócio (faturamento, DAS,
+        <i class="icone-texto" data-lucide="store"></i> <strong>Você é MEI, então tem duas contas separadas:</strong> a do negócio (faturamento, DAS,
         limite anual — tudo no <a href="{{ url_for('painel_mei') }}" style="color:var(--primary-deep); font-weight:800;">Painel MEI</a>)
         e a sua, pessoa física. Boa parte do lucro do MEI costuma ser isenta de imposto pessoal, mas a
         regra depende do tipo de atividade e da sua contabilidade — <strong>essa é uma conta pra fazer
@@ -67,7 +67,7 @@
     </div>
     {% endif %}
     <div class="auth-note" style="margin-top:14px;">
-        ⚠️ Isto é uma <strong>estimativa</strong> pra você se planejar e não deixar dedução na mesa. <strong>Não é o cálculo oficial</strong> e não substitui um contador nem o programa da Receita. Os limites acima são valores de referência — confirme os do ano vigente.
+        <i class="icone-texto" data-lucide="alert-triangle"></i> Isto é uma <strong>estimativa</strong> pra você se planejar e não deixar dedução na mesa. <strong>Não é o cálculo oficial</strong> e não substitui um contador nem o programa da Receita. Os limites acima são valores de referência — confirme os do ano vigente.
     </div>
 </section>
 {% endblock %}

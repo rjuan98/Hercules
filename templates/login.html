@@ -30,14 +30,14 @@
 
         <p class="footer-note">Não tem conta? <a href="{{ url_for('register') }}" style="color:var(--primary-deep); font-weight:800;">Criar conta grátis</a></p>
         <p class="footer-note" style="margin-top:6px;">
-            <a href="{{ url_for('privacidade') }}" style="color:var(--muted); font-weight:700;">🔒 Como seus dados são tratados</a>
+            <a href="{{ url_for('privacidade') }}" style="color:var(--muted); font-weight:700;"><i class="icone-texto" data-lucide="shield-check"></i> Como seus dados são tratados</a>
         </p>
     </section>
 
     <section class="auth-brand-panel">
         <div class="auth-brand-art">
             <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Hércules" class="auth-mark">
-            <div class="hero-kicker">⚔️ Seu copiloto financeiro</div>
+            <div class="hero-kicker">Seu copiloto financeiro</div>
             <h1 class="page-title" style="margin-bottom:0;">Saldo, gastos, notas e metas — sem planilha, sem complicação.</h1>
         </div>
     </section>

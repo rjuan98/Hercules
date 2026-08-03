@@ -36,6 +36,20 @@
    projeto (o modal de confirmação e a barra de instalar). Uma regra só, no topo,
    em vez de um remendo por componente na próxima vez que acontecer. */
 [hidden] { display: none !important; }
+
+/* Ícone dentro de texto corrido. Emoji é o Herc falando; o resto da interface
+   usa o sistema de ícones, que acompanha a fonte e o tema em vez de depender
+   de como cada aparelho desenha o emoji. */
+.icone-texto {
+    width: 1.05em;
+    height: 1.05em;
+    vertical-align: -0.16em;
+    flex: 0 0 auto;
+    stroke-width: 2.2;
+}
+/* Lucide troca o <i> por <svg> depois que a página carrega; sem isto o ícone
+   pisca em tamanho errado nesse intervalo. */
+i.icone-texto { display: inline-block; }
 /* Formulário já enviado: só sinal visual. O segundo toque é barrado no JS, não
    aqui — e nada de `disabled`, que faria botão com name/value parar de enviar. */
 form.enviando button[type="submit"],
@@ -1618,3 +1632,26 @@ html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
     font-size: 1.05rem;
 }
 .conta-total span { color: var(--text); font-weight: 800; }
+
+/* ---- Rodapé com os dados de quem responde pelo app ---- */
+.rodape-legal {
+    margin-top: 40px;
+    padding: 22px 0 8px;
+    border-top: 1.5px solid var(--border);
+    display: grid;
+    gap: 10px;
+    justify-items: center;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.84rem;
+}
+.rodape-links { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center; }
+.rodape-links a { font-weight: 700; color: var(--primary-deep); }
+.rodape-links a:hover { text-decoration: underline; }
+.rodape-legal p { margin: 0; line-height: 1.6; }
+.rodape-cnpj { font-variant-numeric: tabular-nums; }
+
+/* Lista simples de texto corrido (termos, avisos) */
+.lista-simples { margin: 0; padding-left: 20px; display: grid; gap: 9px; color: var(--muted); }
+.lista-simples li { line-height: 1.6; }
+.lista-simples strong { color: var(--text); }

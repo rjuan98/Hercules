@@ -4756,6 +4756,12 @@ def ajuda():
     return render_template("ajuda.html")
 
 
+@app.route("/termos")
+def termos():
+    """Aberta sem login: quem ainda não criou conta precisa poder ler o combinado."""
+    return render_template("termos.html", user=current_user())
+
+
 @app.route("/privacidade")
 def privacidade():
     """Página pública: qualquer um pode ler ANTES de criar conta ou conectar o banco."""

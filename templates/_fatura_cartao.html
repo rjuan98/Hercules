@@ -4,7 +4,7 @@
 <section class="page-card" style="margin-top:14px;">
     <div class="note-header" style="margin-bottom:4px;">
         <p class="metric-label" style="margin:0;">
-            {% if stats['fatura_por_ciclo'] %}💳 Fatura aberta{% else %}💳 Fatura do cartão (este mês){% endif %}
+            {% if stats['fatura_por_ciclo'] %}<i class="icone-texto" data-lucide="credit-card"></i> Fatura aberta{% else %}<i class="icone-texto" data-lucide="credit-card"></i> Fatura do cartão (este mês){% endif %}
         </p>
         {% if not stats['cartao_orcamento'] %}
         <a href="{{ url_for('settings') }}" style="color:var(--primary-deep); font-weight:800; font-size:0.85rem;">Definir um teto</a>
@@ -33,7 +33,7 @@
     </div>
     <p class="metric-footnote" style="margin-top:8px;">
         {{ pct|round(0)|int }}% do seu teto de {{ stats['cartao_orcamento']|money }}
-        {% if pct >= 100 %} · ⚠️ você passou do teto{% elif pct >= 80 %} · ⚠️ chegando no teto{% else %} · ainda cabem {{ (stats['cartao_orcamento'] - stats['fatura_credito_mes'])|money }}{% endif %}
+        {% if pct >= 100 %} · <i class="icone-texto" data-lucide="alert-triangle"></i> você passou do teto{% elif pct >= 80 %} · <i class="icone-texto" data-lucide="alert-triangle"></i> chegando no teto{% else %} · ainda cabem {{ (stats['cartao_orcamento'] - stats['fatura_credito_mes'])|money }}{% endif %}
     </p>
     {% endif %}
 
@@ -53,7 +53,7 @@
 {% if parcelas and parcelas.tem %}
 <section class="page-card" style="margin-top:14px;">
     <div class="note-header" style="margin-bottom:4px;">
-        <p class="metric-label" style="margin:0;">📅 Já comprometido nas próximas faturas</p>
+        <p class="metric-label" style="margin:0;"><i class="icone-texto" data-lucide="calendar-clock"></i> Já comprometido nas próximas faturas</p>
     </div>
     <p class="metric-value" style="font-size:1.5rem;">{{ parcelas.total|money }}</p>
     <p class="metric-footnote" style="margin-top:6px;">

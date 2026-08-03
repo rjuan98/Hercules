@@ -75,7 +75,7 @@
                 <div>
                     <p class="note-title">
                         {{ r['descricao'] }}
-                        {% if novo == r['id'] %}<span class="just-created-tag">✓ salva agora</span>{% endif %}
+                        {% if novo == r['id'] %}<span class="just-created-tag">salva agora</span>{% endif %}
                     </p>
                     <div class="note-meta">
                         <span class="tx-tag {{ 'tx-tag-credito' if r['tipo'] == 'devo' else 'tx-tag-debito' }}">
@@ -83,7 +83,7 @@
                         </span>
                         {% if r['pessoa'] %}<span>{{ r['pessoa'] }}</span>{% endif %}
                         {% if r['vencimento'] %}<span>até {{ r['vencimento']|format_date }}</span>{% endif %}
-                        {% if r['quitada'] %}<span>✓ quitada</span>{% endif %}
+                        {% if r['quitada'] %}<span>quitada</span>{% endif %}
                     </div>
                 </div>
                 <span class="badge {{ 'tx-badge-entrada' if r['tipo'] == 'me_devem' else 'tx-badge-saida' }}">

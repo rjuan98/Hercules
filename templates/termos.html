@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}Termos de uso · Hércules{% endblock %}
+{% block page_title %}Termos de uso{% endblock %}
+{% block page_subtitle %}O combinado, em português normal.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:760px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Sem letra miúda. 🦁</strong><br>
+            Isto aqui é o que eu prometo, o que eu <em>não</em> prometo, e o que acontece se
+            algo der errado. Se alguma parte não estiver clara, é falha minha — me avise.
+        </div>
+    </div>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:12px;">O que o Hércules é</h2>
+    <p class="subtitle">
+        Uma ferramenta para você organizar seu próprio dinheiro: ver saldo, acompanhar gastos,
+        guardar notas fiscais e planejar o mês. É de uso pessoal e gratuito.
+    </p>
+    <p class="subtitle" style="margin-top:12px;">
+        Você continua dono dos seus dados. Pode exportar e pode apagar a conta a qualquer
+        momento, levando tudo junto — como está escrito na
+        <a href="{{ url_for('privacidade') }}">política de privacidade</a>.
+    </p>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:12px;">O que ele não é</h2>
+
+    <div class="auth-note" style="margin-bottom:14px;">
+        <i class="icone-texto" data-lucide="alert-triangle"></i>
+        <strong>Não é aconselhamento financeiro, contábil ou de investimento.</strong>
+        Os números, projeções e sugestões daqui — inclusive a Prévia do IR, o Painel MEI e o
+        “Será que cabe?” — são estimativas feitas a partir do que você registrou. Servem para
+        você se planejar, e <strong>não substituem um contador</strong> nem os programas
+        oficiais da Receita.
+    </div>
+
+    <p class="subtitle">
+        Não é um banco e não movimenta dinheiro. A conexão com seu banco, quando você escolhe
+        usá-la, é <strong>somente leitura</strong>: dá para ver saldo e lançamentos, e não dá
+        para transferir nem pagar nada por aqui.
+    </p>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:12px;">O que eu prometo — e o que não dá pra prometer</h2>
+
+    <p class="subtitle"><strong>Prometo:</strong> cuidar dos seus dados com as proteções
+    descritas na política de privacidade, avisar você se houver um vazamento, e manter o
+    que evita dano (lembrete de conta, aviso de limite do MEI) sempre gratuito.</p>
+
+    <p class="subtitle" style="margin-top:12px;"><strong>Não dá pra prometer:</strong>
+    disponibilidade ininterrupta. O Hércules está em fase de testes, roda em hospedagem
+    compartilhada e pode ficar fora do ar, apresentar erro ou perder um lançamento. Faço
+    cópia de segurança diária, mas <strong>não trate o Hércules como sua única fonte de
+    verdade</strong> — o extrato do seu banco e as notas originais continuam sendo o
+    registro oficial.</p>
+
+    <p class="subtitle" style="margin-top:12px;">
+        Decisões de dinheiro são suas. Se você usar um número daqui para decidir algo e o
+        número estiver errado, eu vou querer saber e corrigir — mas a responsabilidade pela
+        decisão continua sendo sua.
+    </p>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:12px;">O combinado do seu lado</h2>
+    <ul class="lista-simples">
+        <li>Use para organizar o <strong>seu</strong> dinheiro, não o de outra pessoa sem que ela saiba.</li>
+        <li>Não tente invadir, sobrecarregar ou quebrar o serviço.</li>
+        <li>Cuide da sua senha. Se você a perder hoje, ainda não existe recuperação automática —
+            entre em contato que eu ajudo.</li>
+    </ul>
+</section>
+
+<section class="page-card" style="max-width:760px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.2rem; margin-bottom:12px;">Se algo mudar</h2>
+    <p class="subtitle">
+        Se estes termos mudarem de forma relevante, você será avisado dentro do app antes de
+        continuar usando. Se um dia o serviço for encerrado, você será avisado com
+        antecedência e poderá baixar tudo o que é seu.
+    </p>
+    <p class="helper-text" style="margin-top:14px;">
+        Última atualização: agosto de 2026.
+    </p>
+</section>
+{% endblock %}

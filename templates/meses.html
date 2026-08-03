@@ -66,7 +66,7 @@
 
     {% if detalhe and detalhe.em_curso %}
     <div class="auth-note" style="margin-top:12px;">
-        ⏳ <strong>{{ mes_nome|capitalize }} ainda não acabou.</strong> Comparar um mês pela metade
+        <i class="icone-texto" data-lucide="hourglass"></i> <strong>{{ mes_nome|capitalize }} ainda não acabou.</strong> Comparar um mês pela metade
         com um mês inteiro sempre faz parecer que você gastou menos — leve isso em conta.
     </div>
     {% endif %}
@@ -109,7 +109,7 @@
 
     {% if detalhe.credito or detalhe_ant.credito %}
     <p class="helper-text" style="margin-top:12px;">
-        💳 Fora isso, você comprou <strong>{{ detalhe.credito|money }}</strong> no cartão neste mês
+        <i class="icone-texto" data-lucide="credit-card"></i> Fora isso, você comprou <strong>{{ detalhe.credito|money }}</strong> no cartão neste mês
         (contra {{ detalhe_ant.credito|money }} no anterior). Isso não está no “saiu” porque sai da
         conta quando a fatura é paga.
     </p>

@@ -62,16 +62,16 @@
             <div class="note-header linha-valor">
                 <div>
                     <p class="note-title">{{ tx['descricao'] or tx['estabelecimento'] or 'Movimentação' }}
-                        {% if novo == tx['id'] %}<span class="just-created-tag">✓ registrado agora</span>{% endif %}
+                        {% if novo == tx['id'] %}<span class="just-created-tag">registrado agora</span>{% endif %}
                     </p>
                     <div class="note-meta">
                         {% if tx['tipo'] == 'saida' %}
                         <span class="tx-tag {{ 'tx-tag-credito' if tx['no_credito'] else 'tx-tag-debito' }}">
-                            {% if tx['no_credito'] %}💳 Crédito{% else %}🏦 Débito{% endif %}
+                            {% if tx['no_credito'] %}<i class="icone-texto" data-lucide="credit-card"></i> Crédito{% else %}<i class="icone-texto" data-lucide="landmark"></i> Débito{% endif %}
                         </span>
                         {% endif %}
                         {% if tx['parcela_total'] and tx['parcela_total'] > 1 %}
-                        <span class="tx-tag tx-tag-parcela">📅 {{ tx['parcela_num'] }}/{{ tx['parcela_total'] }}</span>
+                        <span class="tx-tag tx-tag-parcela"><i class="icone-texto" data-lucide="calendar-days"></i> {{ tx['parcela_num'] }}/{{ tx['parcela_total'] }}</span>
                         {% endif %}
                         <span>{{ tx['categoria'] or 'Outros' }}</span>
                         <span>{{ tx['data_transacao']|format_date if tx['data_transacao'] else tx['created_at']|format_date }}</span>
