@@ -1,9 +1,13 @@
 /* Service worker do Hércules
    Estratégia: estáticos em cache-first; páginas em network-first
    (dados financeiros precisam estar atualizados; o cache só segura offline). */
-const CACHE = "hercules-v35";
+/* Uma versao so. Ela ficou em dois lugares e eles desencontraram: o cache subiu
+   pra v35 e a lista de pre-cache continuou pedindo o v34, entao o arquivo
+   guardado nunca era o que a pagina pedia — e offline a tela ficava sem CSS. */
+const V = "35";
+const CACHE = "hercules-v" + V;
 const STATIC_ASSETS = [
-  "/static/styles.css?v=34",
+  "/static/styles.css?v=" + V,
   "/static/vendor/lucide.min.js",
   "/static/vendor/chart.umd.min.js",
   "/static/herc.svg?v=2",

@@ -914,15 +914,22 @@ TRABALHOS = [
 ]
 
 
-def _prev_month_bounds():
-    first_this = hoje_br().replace(day=1)
-    last_prev = first_this - timedelta(days=1)
-    first_prev = last_prev.replace(day=1)
-    return first_prev.isoformat(), last_prev.isoformat()
+def _prev_month_bounds(dia_virada: int | None = None):
+    """O mês passado DA PESSOA, em ISO.
+
+    Tem que usar a mesma régua do mês atual. Com a virada configurada, o mês
+    corrente virou ciclo e este aqui continuava no calendário — os dois se
+    sobrepunham num dia e a comparação "gastei mais ou menos que mês passado"
+    comparava períodos diferentes.
+    """
+    inicio_atual, _ = month_bounds(hoje_br(), dia_virada)
+    fim_anterior = inicio_atual - timedelta(days=1)
+    inicio_anterior, _ = month_bounds(fim_anterior, dia_virada)
+    return inicio_anterior.isoformat(), fim_anterior.isoformat()
 
 
 def _trabalho_conquistado(user_id: int, key: str, db) -> bool:
-    ini, fim = _prev_month_bounds()
+    ini, fim = _prev_month_bounds(virada_do_usuario(user_id))
     if key == "leao":
         cats = db.execute(
             "SELECT nome, limite_mensal FROM categorias WHERE user_id = ? AND limite_mensal > 0", (user_id,)
@@ -3060,7 +3067,7 @@ def dashboard():
     # Retrato do mês: a narrativa curta que abre o Resumo
     by_cat = stats["monthly_by_category"]
     maior_cat = max(by_cat, key=lambda r: r["total"] or 0) if by_cat else None
-    prev_start, prev_end = _prev_month_bounds()
+    prev_start, prev_end = _prev_month_bounds(virada_do_usuario(user["id"]))
     with get_db() as db:
         prev_expenses = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
