@@ -3392,6 +3392,71 @@ with get_db() as db:
 check("ninguem apaga lancamento de outra conta", _vive == 1, _vive)
 
 
+secao("92. Tela pra conferir os numeros contra o banco")
+# Passei uma sessao inteira deduzindo a causa de numeros que nao batiam sem ver
+# um dado real dele, e errei quase todas. A tela poe tudo aberto: ele fotografa
+# e a conversa deixa de depender de palpite.
+c_cf = novo_cliente("conferir2@teste.com", nome="Cf")
+uid_cf = uid_de("conferir2@teste.com")
+_hoje_cf = date.today()
+
+def _mv(tipo, v, desc, cat, dias, cred=0, fonte="ofx", fitid=None, interno=0):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,estabelecimento,
+                      categoria,fonte,confidence,data_transacao,no_credito,interno)
+                      VALUES (?,?,?,?,?,?,?,95,?,?,?)""",
+                   (uid_cf, tipo, v, desc, desc, cat, fonte,
+                    (_hoje_cf - timedelta(days=dias)).isoformat(), cred, interno))
+        if fitid:
+            db.execute("UPDATE transacoes SET fitid=? WHERE id=last_insert_rowid()", (fitid,))
+
+_mv("entrada", 2660.41, "Transferencia Recebida", "Salario", 3, fitid="PLG-s")
+for _i in range(30):
+    _mv("saida", 62, f"COMPRA {_i}", "Mercado", _i, fitid=f"PLG-g{_i}")
+_mv("saida", 900, "ALUGUEL", "Moradia", 10, fitid="PLG-al")
+_mv("saida", 420, "ROUPA", "Compras", 8, cred=1, fitid="PLG-c")
+_mv("saida", 800, "Aplicacao RDB", "Outros", 12, fitid="PLG-rdb", interno=1)
+_mv("saida", 55, "Ajuste de saldo", "Outros", 20, fonte="ajuste")
+_mv("saida", 300, "Guardado na meta", "Reserva", 15, fonte="manual")
+
+_r_cf = c_cf.get("/conferir")
+check("a tela abre", _r_cf.status_code == 200, _r_cf.status_code)
+_h_cf = _r_cf.get_data(as_text=True)
+
+check("mostra o mes a mes pra comparar com o banco", "Compare linha a linha" in _h_cf)
+check("abre a conta do ritmo diario", "O ritmo di" in _h_cf and "aberto" in _h_cf)
+check("diz por quantos dias esta dividindo", "Dividido por" in _h_cf)
+check("mostra o ritmo ANTES do corte e o que o app usa",
+      "por dia" in _h_cf and "o n\u00famero que o app usa" in _h_cf)
+
+# Cada exclusao tem que aparecer com o valor, senao a pessoa nao consegue conferir.
+for _rotulo, _valor in [("compras no cr", "420,00"), ("guardado em meta", "300,00"),
+                        ("trocou de bolso", "800,00"), ("ajuste de saldo", "55,00")]:
+    check(f"mostra o que ficou de fora: {_rotulo}",
+          _rotulo in _h_cf and _valor in _h_cf, _rotulo)
+
+check("lista TODOS os dias com gasto, nao so os seis maiores",
+      "dias com gasto" in _h_cf and _h_cf.count("dias-do-ritmo") >= 1)
+check("e mostra como cada lancamento esta marcado", "est\u00e3o marcados" in _h_cf)
+check("aponta onde corrigir", "/transacoes" in _h_cf)
+
+# O caminho pra chegar la nao pode ser adivinhado.
+check("Configuracoes leva pra tela", "/conferir" in c_cf.get("/settings").get_data(as_text=True))
+check("com um titulo que a pessoa reconhece",
+      "n\u00e3o parece seu" in c_cf.get("/settings").get_data(as_text=True))
+
+# Conta vazia nao pode quebrar nem mentir.
+c_vz = novo_cliente("conferirvazio@teste.com", nome="Vz")
+_h_vz = c_vz.get("/conferir")
+check("conta sem movimento nenhum abre igual", _h_vz.status_code == 200)
+check("e diz que nao ha gasto, em vez de mostrar zero seco",
+      "Nenhum gasto nos \u00faltimos 60 dias" in _h_vz.get_data(as_text=True))
+
+# Ninguem ve o numero de outra pessoa.
+_an_cf = A.app.test_client()
+check("precisa estar logado", _an_cf.get("/conferir", follow_redirects=False).status_code == 302)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

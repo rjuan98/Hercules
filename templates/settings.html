@@ -148,6 +148,21 @@
     </form>
 </section>
 
+{# Quem olha um numero e pensa "isso nao e meu" precisa de um lugar pra conferir
+   sem depender de ninguem explicar. #}
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:10px;">
+        <h2 class="topbar-title" style="font-size:1.2rem;">Algum número não parece seu?</h2>
+        <p class="topbar-subtitle">
+            Dá pra ver de onde sai cada conta que eu faço e comparar com o extrato do
+            seu banco, linha por linha.
+        </p>
+    </div>
+    <a href="{{ url_for('conferir') }}" class="button button-outline">
+        <i data-lucide="search-check"></i> Conferir meus números
+    </a>
+</section>
+
 <section class="page-card" style="margin-top:18px;">
     <div class="topbar-copy" style="margin-bottom:14px;">
         <h2 class="topbar-title" style="font-size:1.25rem;">Conectar banco (Open Finance) <i class="icone-texto" data-lucide="link"></i></h2>

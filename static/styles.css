@@ -1634,6 +1634,21 @@ html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
 .conta-linha .tira { color: var(--danger); }
 /* A explicação do que entra na média mora DENTRO da linha, senão a borda de cima
    faz ela parecer nota da linha seguinte. */
+/* Tabela da tela de conferência: precisa rolar sozinha no celular, senão a
+   página inteira anda pro lado. */
+.tabela-rolavel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tabela-conferir { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.tabela-conferir th, .tabela-conferir td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+}
+.tabela-conferir th { color: var(--muted); font-size: 0.74rem; text-transform: uppercase;
+                      letter-spacing: 0.06em; }
+.tabela-conferir .num { text-align: right; font-variant-numeric: tabular-nums; }
+.tabela-conferir .suave, .conta-linha .suave { color: var(--muted); font-weight: 700; }
+
 /* "De onde vem esse número" — o bloco que abre e mostra dia por dia. */
 .de-onde-vem {
     margin-top: 16px;

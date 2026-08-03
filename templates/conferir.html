@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+{% block title %}Conferir os números · Hércules{% endblock %}
+{% block page_title %}Conferir os números{% endblock %}
+{% block page_subtitle %}Tudo aberto, pra comparar com o extrato do banco.{% endblock %}
+
+{% block content %}
+<section class="page-card">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Se algum número aqui não parece seu, ele provavelmente não é.</strong><br>
+            Esta tela mostra de onde sai cada conta que eu faço. Compare com o resumo do
+            seu banco — e se algo estiver errado, dá pra apontar exatamente onde.
+        </div>
+    </div>
+</section>
+
+{% if duplicatas %}
+<section class="page-card" style="margin-top:18px; border-left:4px solid var(--danger);">
+    <p class="note-title" style="margin:0 0 6px;">
+        <i class="icone-texto" data-lucide="copy"></i>
+        {{ duplicatas|length }} lançamento{{ '' if duplicatas|length == 1 else 's' }} contado{{ '' if duplicatas|length == 1 else 's' }} possivelmente em dobro
+    </p>
+    <p class="helper-text" style="margin:0;">
+        Tem resposta esperando na <a href="{{ url_for('home') }}">tela inicial</a>.
+    </p>
+</section>
+{% endif %}
+
+<section class="page-card" style="margin-top:18px;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:4px;">Mês a mês</h2>
+    <p class="topbar-subtitle" style="margin-bottom:12px;">
+        Compare linha a linha com o resumo do seu banco. Se “saiu da conta” não bater,
+        o problema está nos lançamentos, não na conta que eu faço depois.
+    </p>
+    <div class="tabela-rolavel">
+        <table class="tabela-conferir">
+            <thead>
+                <tr><th>Mês</th><th>Entrou</th><th>Saiu da conta</th><th>No cartão</th></tr>
+            </thead>
+            <tbody>
+                {% for m in meses %}
+                <tr>
+                    <td>{{ m.mes }}</td>
+                    <td class="num">{{ m.entrou|money }}</td>
+                    <td class="num">{{ m.saiu|money }}</td>
+                    <td class="num suave">{{ m.cartao|money }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4">Nenhum movimento registrado ainda.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="page-card" style="margin-top:18px;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:4px;">O ritmo diário, aberto</h2>
+    <p class="topbar-subtitle" style="margin-bottom:12px;">
+        É este número que decide o “Será que cabe?”. De {{ desde|format_date }} até {{ hoje|format_date }}.
+    </p>
+    <div class="conta-aberta">
+        <div class="conta-linha">
+            <span>Gasto que entra na conta do ritmo</span>
+            <strong>{{ janela.conta|money }}</strong>
+        </div>
+        <div class="conta-linha">
+            <span>Fora: compras no crédito
+                <small class="conta-nota">saem quando a fatura vence</small></span>
+            <strong class="suave">{{ janela.cartao|money }}</strong>
+        </div>
+        <div class="conta-linha">
+            <span>Fora: guardado em meta
+                <small class="conta-nota">é seu, não é gasto</small></span>
+            <strong class="suave">{{ janela.guardado|money }}</strong>
+        </div>
+        <div class="conta-linha">
+            <span>Fora: trocou de bolso
+                <small class="conta-nota">caixinha, transferência entre contas suas</small></span>
+            <strong class="suave">{{ janela.trocou_bolso|money }}</strong>
+        </div>
+        <div class="conta-linha">
+            <span>Fora: ajuste de saldo
+                <small class="conta-nota">correção, não gasto</small></span>
+            <strong class="suave">{{ janela.ajuste|money }}</strong>
+        </div>
+        <div class="conta-linha conta-total">
+            <span>Dividido por {{ corridos }} dias{% if primeiro %} (desde {{ primeiro|format_date }}){% endif %}</span>
+            <strong>{{ bruto|money }} por dia</strong>
+        </div>
+    </div>
+    <p class="helper-text" style="margin-top:12px;">
+        Depois de descontar os dias fora da curva, o número que o app usa é
+        <strong>{{ media|money }} por dia</strong>.
+        {% if media < bruto - 0.01 %}
+        A diferença são dias que destoam tanto do seu normal que tratei como evento —
+        aluguel, fatura — e não como ritmo.
+        {% else %}
+        Nenhum dia foi cortado: nenhum destoou o bastante do seu normal.
+        {% endif %}
+    </p>
+</section>
+
+<section class="page-card" style="margin-top:18px;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:4px;">
+        Todos os {{ total_dias }} dia{{ '' if total_dias == 1 else 's' }} com gasto
+    </h2>
+    <p class="topbar-subtitle" style="margin-bottom:12px;">
+        Do maior pro menor. É a soma desta lista, dividida pelos dias corridos, que vira
+        o ritmo. Se algum dia aqui não é seu, é ele que está inflando tudo.
+    </p>
+    <ul class="dias-do-ritmo">
+        {% for d in dias %}
+        <li>
+            <span>{{ d.dia|format_date }}</span>
+            <span class="dia-itens">{{ (d.o_que or '')|truncate(46) }}</span>
+            <strong>{{ d.t|money }}</strong>
+        </li>
+        {% else %}
+        <li><span>Nenhum gasto nos últimos 60 dias.</span></li>
+        {% endfor %}
+    </ul>
+</section>
+
+<section class="page-card" style="margin-top:18px;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:4px;">Como seus lançamentos estão marcados</h2>
+    <p class="topbar-subtitle" style="margin-bottom:12px;">
+        Se compra de cartão estiver marcada como conta, ela conta na compra <em>e</em> de
+        novo quando você paga a fatura.
+    </p>
+    <div class="tabela-rolavel">
+        <table class="tabela-conferir">
+            <thead>
+                <tr><th>De onde veio</th><th>Onde</th><th>Tipo</th><th>Quantos</th><th>Total</th></tr>
+            </thead>
+            <tbody>
+                {% for r in marcacoes %}
+                <tr>
+                    <td>{{ r.fonte }}</td>
+                    <td>{% if r.interno %}trocou de bolso{% elif r.no_credito %}cartão{% else %}conta{% endif %}</td>
+                    <td>{{ r.tipo }}</td>
+                    <td class="num">{{ r.n }}</td>
+                    <td class="num">{{ r.t|money }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<p class="helper-text" style="margin-top:18px; text-align:center;">
+    Achou uma linha que não devia estar aqui? Em
+    <a href="{{ url_for('listar_transacoes') }}">Entradas e saídas</a> você apaga ou corrige.
+</p>
+{% endblock %}

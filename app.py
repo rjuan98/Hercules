@@ -3926,6 +3926,86 @@ def meses():
     )
 
 
+@app.route("/conferir")
+@login_required
+def conferir():
+    """Todos os números abertos, pra comparar com o extrato do banco.
+
+    Existe porque eu (Claude) passei uma sessão inteira deduzindo a causa de
+    números que não batiam, sem nunca ver um dado real do Matheus — e errei
+    quase todas. Aqui ele fotografa a tela e a conversa deixa de depender de
+    palpite. Serve pra qualquer pessoa que olhe um número e pense "isso não é
+    meu".
+    """
+    user = current_user()
+    uid = user["id"]
+    hoje = hoje_br()
+    desde = hoje - timedelta(days=60)
+    col = "date(COALESCE(NULLIF(data_transacao, ''), created_at))"
+
+    with get_db() as db:
+        marcacoes = db.execute(
+            """SELECT fonte, no_credito, interno, tipo, COUNT(*) n,
+                      COALESCE(SUM(valor), 0) t
+                 FROM transacoes WHERE user_id = ?
+                GROUP BY fonte, no_credito, interno, tipo
+                ORDER BY t DESC""", (uid,)).fetchall()
+
+        meses = db.execute(
+            f"""SELECT {sql_mes(virada_do_usuario(uid), "COALESCE(NULLIF(data_transacao, ''), created_at)")} AS mes,
+                   COALESCE(SUM(CASE WHEN tipo='entrada' AND no_credito=0 AND fonte!='ajuste'
+                                      AND interno=0 THEN valor END),0) entrou,
+                   COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=0 AND fonte!='ajuste'
+                                      AND interno=0 THEN valor END),0) saiu,
+                   COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=1 THEN valor END),0) cartao
+                 FROM transacoes WHERE user_id = ?
+                GROUP BY mes ORDER BY mes DESC LIMIT 6""", (uid,)).fetchall()
+
+        janela = db.execute(
+            f"""SELECT
+                  COALESCE(SUM(CASE WHEN no_credito=0 AND fonte!='ajuste' AND interno=0
+                       AND COALESCE(NULLIF(categoria,''),'')!='Reserva' THEN valor END),0) conta,
+                  COALESCE(SUM(CASE WHEN no_credito=1 THEN valor END),0) cartao,
+                  COALESCE(SUM(CASE WHEN fonte='ajuste' THEN valor END),0) ajuste,
+                  COALESCE(SUM(CASE WHEN interno=1 THEN valor END),0) trocou_bolso,
+                  COALESCE(SUM(CASE WHEN COALESCE(NULLIF(categoria,''),'')='Reserva'
+                       AND no_credito=0 THEN valor END),0) guardado,
+                  MIN({col}) primeiro
+                FROM transacoes
+               WHERE user_id=? AND tipo='saida' AND {col} >= date(?)""",
+            (uid, desde.isoformat())).fetchone()
+
+        dias = db.execute(
+            f"""SELECT {col} dia, SUM(valor) t, COUNT(*) n,
+                       GROUP_CONCAT(descricao, ' · ') o_que
+                  FROM transacoes
+                 WHERE user_id=? AND tipo='saida' AND no_credito=0 AND fonte!='ajuste'
+                   AND interno=0 AND COALESCE(NULLIF(categoria,''),'')!='Reserva'
+                   AND {col} >= date(?)
+                 GROUP BY dia ORDER BY t DESC""",
+            (uid, desde.isoformat())).fetchall()
+
+    primeiro = None
+    corridos = 1
+    if janela["primeiro"]:
+        try:
+            primeiro = date.fromisoformat(janela["primeiro"])
+            corridos = max(1, (hoje - max(primeiro, desde)).days + 1)
+        except (TypeError, ValueError):
+            primeiro = None
+    media, _ = media_gasto_diario(uid)
+    bruto = float(janela["conta"] or 0) / corridos
+
+    return render_template(
+        "conferir.html", user=user,
+        marcacoes=marcacoes, meses=meses, janela=janela,
+        dias=[dict(d) for d in dias], total_dias=len(dias),
+        desde=desde, hoje=hoje, primeiro=primeiro, corridos=corridos,
+        media=media, bruto=bruto,
+        duplicatas=possiveis_duplicatas(uid),
+    )
+
+
 @app.route("/duplicata", methods=["POST"])
 @login_required
 def resolver_duplicata():
