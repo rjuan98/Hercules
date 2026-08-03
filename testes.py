@@ -2518,6 +2518,54 @@ check("dois pix de R$ 20 nao viram motivo pra mudar o mes",
       A.salario_perto_da_virada(uid_pix) is False)
 
 
+secao("80. 'Termina o mes com' nao pode extrapolar aluguel")
+# A frase do MODO SIMPLES, que e a tela de quem menos vai desconfiar do numero.
+# Dividia o gasto do mes pelos dias corridos: quem pagou aluguel no dia 1 virava,
+# no dia 2, alguem que gasta o aluguel inteiro todo dia.
+c_proj = novo_cliente("projecao@teste.com", nome="Proj")
+uid_proj = uid_de("projecao@teste.com")
+_ini_mes, _fim_mes = A.month_bounds(date.today())
+
+def _mov_proj(tipo, valor, cat, quando, fonte="ofx"):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,'x',?,?,95,?,0)""",
+                   (uid_proj, tipo, valor, cat, fonte, quando.isoformat()))
+
+_mov_proj("entrada", 3000, "Salario", _ini_mes)
+for _i in range(60):
+    _mov_proj("saida", 35 if _i % 3 else 12, "Mercado", date.today() - timedelta(days=_i))
+_mov_proj("saida", 900, "Moradia", _ini_mes)                              # aluguel dia 1
+_mov_proj("saida", 500, "Reserva", _ini_mes + timedelta(days=1), "manual")  # guardado dia 2
+
+_st_proj = A.calc_transaction_totals(uid_proj)
+_h_proj = c_proj.get("/").get_data(as_text=True)
+
+# A projecao nao pode dizer que quem ganha 3 mil termina o mes devendo dezenas de
+# milhares. O piso: nao da pra perder mais do que o dia a dia vezes os dias.
+_media_proj, _ = A.media_gasto_diario(uid_proj)
+_dias_proj = max(0, A.days_left_in_month() - 1)
+_pior_honesto = _st_proj["balance"] - A.contas_ate_fim_do_mes(uid_proj) - _media_proj * _dias_proj
+check("a projecao usa o ritmo do dia a dia, nao a soma do mes",
+      _media_proj < 60, _media_proj)
+check("quem ganha 3 mil nao termina o mes devendo 20 mil",
+      _pior_honesto > -3000, _pior_honesto)
+
+# O aluguel nao pode entrar duas vezes: uma diluido no ritmo, outra como conta.
+_antes_conta, _ = A.media_gasto_diario(uid_proj)
+with get_db() as db:
+    db.execute("""INSERT INTO compromissos (user_id,descricao,valor,vencimento,tipo,status)
+                  VALUES (?,'Aluguel',900,?,'saida','pendente')""",
+               (uid_proj, (date.today() + timedelta(days=3)).isoformat()))
+_depois_conta, _ = A.media_gasto_diario(uid_proj)
+check("cadastrar a conta nao mexe no ritmo (senao contaria duas vezes)",
+      abs(_antes_conta - _depois_conta) < 0.01, (_antes_conta, _depois_conta))
+check("mas a conta entra inteira, por fora", A.contas_ate_fim_do_mes(uid_proj) == 900)
+
+# E a tela tem que continuar de pe.
+check("o modo simples continua abrindo", c_proj.get("/").status_code == 200)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

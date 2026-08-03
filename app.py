@@ -2473,11 +2473,19 @@ def home():
             if vale and not tip_seen(user["id"], chave):
                 herc_tip = chave
                 break
+    # "Seguindo assim, termina o mês com X" — a frase do modo simples, que é onde
+    # mais gente confia. Dividir o gasto do mês pelos dias corridos parecia certo
+    # e era um desastre: no dia 2, quem pagou aluguel e guardou dinheiro no dia 1
+    # virava alguém gastando R$ 723 por dia. Medido, a frase prometia terminar o
+    # mês com R$ -21.021 pra quem ganha R$ 3.000.
+    #
+    # O jeito certo é o mesmo do simulador: ritmo é o gasto miúdo, e as contas que
+    # ainda vencem entram inteiras, por fora — cada coisa contada uma vez só.
     virada_usuario = virada_do_usuario(user["id"])
-    inicio_mes, _ = month_bounds(hoje_br(), virada_usuario)
-    dias_corridos = max(1, (hoje_br() - inicio_mes).days + 1)
-    avg_daily_spend = stats["month_expenses"] / dias_corridos
-    projected_end = stats["balance"] - (avg_daily_spend * (days_left_in_month(virada_usuario) - 1))
+    avg_daily_spend, _ = media_gasto_diario(user["id"])
+    dias_a_viver = max(0, days_left_in_month(virada_usuario) - 1)
+    projected_end = (stats["balance"] - contas_ate_fim_do_mes(user["id"])
+                     - avg_daily_spend * dias_a_viver)
     view_mode = (user["view_mode"] if "view_mode" in user.keys() else "completo") or "completo"
     # O menu (base.html) lê da sessão e o conteúdo lê do banco. Duas fontes pra mesma
     # verdade dá menu completo com tela simples — realinha aqui, que o banco manda.
