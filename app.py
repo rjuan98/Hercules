@@ -1611,6 +1611,13 @@ def calc_transaction_totals(user_id: int):
         if c["vencimento"] and hoje_br() <= date.fromisoformat(c["vencimento"]) <= due_soon_cutoff
     ]
     commitments_total = sum(float(c["valor"]) for c in due_soon_commitments)
+    # As dos 7 dias servem pro card "contas próximas". Mas o que sobra NO MÊS tem
+    # que descontar tudo que vence no mês — senão o aluguel do dia 20 fica
+    # invisível no dia 2, e o app diz que dá pra gastar mais do que dá.
+    contas_do_mes = sum(
+        float(c["valor"]) for c in upcoming_commitments
+        if c["vencimento"] and date.fromisoformat(c["vencimento"]) <= month_end
+    )
     goal_active = False
     goal_progress = 0.0
     current_goal = None
@@ -1660,7 +1667,7 @@ def calc_transaction_totals(user_id: int):
     reserve_remaining_month = max(0.0, reserve_monthly_needed - reserve_saved_month)
 
     # Sem reserva: quanto sobra e quanto dá para gastar por dia
-    remaining_month = float(balance) - commitments_total
+    remaining_month = float(balance) - contas_do_mes
     # Com reserva: o que dá para gastar sem comprometer o que precisa ser guardado
     spendable_month = remaining_month - reserve_remaining_month
     available_today = max(0.0, spendable_month / days_left_in_month(virada))
@@ -1706,6 +1713,10 @@ def calc_transaction_totals(user_id: int):
         "overdue_commitments": overdue_commitments,
         "due_soon_commitments": due_soon_commitments,
         "commitments_total": float(commitments_total),
+        "contas_do_mes": float(contas_do_mes),
+        # Quantos dias esse número está dividindo. Sem isso a tela não consegue
+        # explicar a conta, e a pessoa tem que adivinhar de onde vem o valor.
+        "dias_restantes": days_left_in_month(virada),
         "goals": goals,
         "notes": notes,
         "recent_transactions": recent,

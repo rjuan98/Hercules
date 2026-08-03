@@ -242,6 +242,16 @@
                 {% if stats['diaria_util'] %}· pode gastar hoje <strong style="color:var(--primary-deep);">{{ can_spend_today|money }}</strong>
                 {% else %}· o saldo está curto demais pra dividir pelo mês{% endif %}{% endif %}
             </p>
+            {% if not onboarding and stats['diaria_util'] %}
+            {# Um amigo do Matheus viu esse número e perguntou de onde vinha. Ninguém
+               soube responder — porque a tela não contava. Agora conta. #}
+            <p class="metric-footnote" style="margin-top:3px; opacity:0.75;">
+                É o seu saldo{% if stats['contas_do_mes'] > 0 %}, menos {{ stats['contas_do_mes']|money }}
+                de contas que ainda vencem{% endif %}{% if stats['reserve_remaining_month'] > 0 %}, menos
+                {{ stats['reserve_remaining_month']|money }} da reserva{% endif %}, dividido pelos
+                {{ stats['dias_restantes'] }} dia{{ '' if stats['dias_restantes'] == 1 else 's' }} que faltam.
+            </p>
+            {% endif %}
             {% if stats['saldo_investido'] %}
             <p class="metric-footnote" style="margin-top:4px;">
                 <i class="icone-texto" data-lucide="wallet"></i> Guardado (investimentos): <strong style="color:var(--success);">{{ stats['saldo_investido']|money }}</strong>

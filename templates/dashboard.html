@@ -78,10 +78,14 @@
         <p class="metric-footnote">
             {% if not stats['diaria_util'] %}
                 Dividir o que sobrou pelos dias que faltam daria centavos — não ajudaria em nada.
-            {% elif stats['reserve_remaining_month'] > 0 %}
-                Já separando {{ stats['reserve_remaining_month']|money }} para a reserva este mês.
             {% else %}
-                Mantendo o mês previsível até o fim.
+                {# Um amigo do Matheus perguntou de onde saíam os R$ 0,02 e ninguém
+                   soube responder. A conta tem que estar escrita, não deduzida. #}
+                Seu saldo{% if stats['contas_do_mes'] > 0 %} menos {{ stats['contas_do_mes']|money }}
+                de contas{% endif %}{% if stats['reserve_remaining_month'] > 0 %} menos
+                {{ stats['reserve_remaining_month']|money }} da reserva{% endif %}, dividido pelos
+                {{ stats['dias_restantes'] }} dia{{ '' if stats['dias_restantes'] == 1 else 's' }}
+                que faltam no mês.
             {% endif %}
         </p>
     </article>
@@ -122,7 +126,7 @@
     <article class="glass-card metric-card">
         <p class="metric-label">Sobra prevista no mês</p>
         <p class="metric-value" style="font-size:1.6rem;">{{ stats['remaining_month']|money }}</p>
-        <p class="metric-footnote">Saldo menos contas próximas.</p>
+        <p class="metric-footnote">Saldo menos tudo que ainda vence este mês.</p>
     </article>
     <article class="glass-card metric-card">
         <p class="metric-label">Contas próximas (7 dias)</p>

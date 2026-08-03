@@ -2566,6 +2566,70 @@ check("mas a conta entra inteira, por fora", A.contas_ate_fim_do_mes(uid_proj) =
 check("o modo simples continua abrindo", c_proj.get("/").status_code == 200)
 
 
+secao("81. 'Pode gastar hoje' tem que dizer de onde vem")
+# Um amigo do Matheus perguntou como a conta acontece. A resposta que ele deu —
+# metas e gastos fixos — nao batia: o amigo nao tinha cadastrado nenhum dos dois
+# e mesmo assim viu um numero. A conta precisa estar escrita na tela.
+c_exp = novo_cliente("explica@teste.com", nome="Exp")
+uid_exp = uid_de("explica@teste.com")
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'entrada',600,'x','Salario',
+                  'ofx',95,?,0)""", (uid_exp, date.today().isoformat()))
+
+# O numero aparece em DUAS telas: inline na inicial e num card no /dashboard.
+# O amigo provavelmente viu o da inicial, que era o que menos explicava.
+_h_exp = c_exp.get("/").get_data(as_text=True)
+_h_dash = c_exp.get("/dashboard").get_data(as_text=True)
+check("na tela inicial, diz que e o saldo dividido pelos dias",
+      "E o seu saldo, dividido pelos" in _h_exp or
+      "É o seu saldo, dividido pelos" in _h_exp, _h_exp[_h_exp.find("pode gastar hoje"):][:300])
+check("no /dashboard tambem", "Seu saldo, dividido pelos" in _h_dash,
+      _h_dash[_h_dash.find("Pode gastar"):][:300])
+check("e as duas dizem quantos dias sao",
+      f"{A.days_left_in_month()} dia" in _h_exp and f"{A.days_left_in_month()} dia" in _h_dash)
+
+# Com conta cadastrada, a frase tem que crescer e mostrar o desconto.
+with get_db() as db:
+    db.execute("""INSERT INTO compromissos (user_id,descricao,valor,vencimento,tipo,status)
+                  VALUES (?,'Aluguel',200,?,'saida','pendente')""",
+               (uid_exp, A.month_bounds()[1].isoformat()))
+_h_exp2 = c_exp.get("/").get_data(as_text=True)
+_h_dash2 = c_exp.get("/dashboard").get_data(as_text=True)
+check("com conta cadastrada, as duas telas mostram o desconto",
+      "de contas" in _h_exp2 and "de contas" in _h_dash2)
+
+# A CONTA QUE VENCE DIA 30 NAO PODE SER INVISIVEL NO DIA 2.
+# Era o bug: descontava so 7 dias, mas dividia pelos dias todos do mes.
+_st_exp = A.calc_transaction_totals(uid_exp)
+check("conta que vence no fim do mes ja entra na sobra do mes",
+      abs(_st_exp["remaining_month"] - (_st_exp["balance"] - 200)) < 0.01,
+      (_st_exp["remaining_month"], _st_exp["balance"]))
+check("e o card de 7 dias continua contando so 7 dias",
+      _st_exp["commitments_total"] == 0 or A.month_bounds()[1] <= date.today() + timedelta(days=7),
+      _st_exp["commitments_total"])
+check("a sobra do mes nunca e maior que o saldo quando ha conta pendente",
+      _st_exp["remaining_month"] < _st_exp["balance"])
+
+# O rotulo 'no mes' agora corresponde ao que a conta faz.
+check("o rodape do card nao promete mais so 'contas proximas'",
+      "tudo que ainda vence este m" in _h_dash2)
+
+# E quem tem centavos continua sem ouvir bobagem.
+c_cent = novo_cliente("centavos@teste.com", nome="Cent")
+uid_cent = uid_de("centavos@teste.com")
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'entrada',0.5,'x','Salario',
+                  'ofx',95,?,0)""", (uid_cent, date.today().isoformat()))
+_h_cent = c_cent.get("/").get_data(as_text=True)
+_h_cent_d = c_cent.get("/dashboard").get_data(as_text=True)
+check("com R$ 0,50 a inicial nao mostra conta nenhuma",
+      "dividido pelos" not in _h_cent and "curto demais" in _h_cent)
+check("e o /dashboard mostra o aviso no lugar da conta",
+      "dividido pelos" not in _h_cent_d and "daria centavos" in _h_cent_d)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
