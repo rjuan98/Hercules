@@ -360,6 +360,9 @@ def init_db():
     # saldo — mas não é receita nem gasto, e somar isso inflava "entrou" e "saiu"
     # sem que nada tivesse entrado ou saído da vida da pessoa.
     _add_column_if_missing(conn, "transacoes", "interno", "INTEGER NOT NULL DEFAULT 0")
+    # "Ja perguntei se isso era duplicata e a pessoa disse que nao." Sem guardar a
+    # resposta, o app perguntaria a mesma coisa toda vez que ela abrisse a tela.
+    _add_column_if_missing(conn, "transacoes", "dup_ok", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "categorias", "limite_mensal", "REAL NOT NULL DEFAULT 0.0")
     _add_column_if_missing(conn, "categorias", "created_at", "TIMESTAMP")
     # Cópias antigas do banco tinham categoria_id e nenhum timestamp nas regras

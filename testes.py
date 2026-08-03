@@ -3298,6 +3298,100 @@ check("e a caixinha nao aparece la, porque nao e receita",
       "Resgate RDB" not in _h_meses_int)
 
 
+secao("91. Salario contado duas vezes: mao + banco")
+# Ele mandou print da tela: "31/07 Transferencia Recebida  + R$ 2.660,41" e
+# "30/07 salário  + R$ 2.600,00". O mesmo salario duas vezes. Ele tinha digitado
+# na mao (por causa daquele bug de entrada) e depois o banco trouxe o de verdade.
+# A reconciliacao do import nao pega: exige valor igual ao centavo e mesmo dia,
+# e aqui sao R$ 60,41 e um dia de diferenca.
+_hoje_d91 = date.today()
+
+def _cli91(email):
+    c = novo_cliente(email, nome="R")
+    return c, uid_de(email)
+
+def _mao(uid, tipo, valor, desc, dias=0, cat="Outros"):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,?,?,'manual',100,?,0)""",
+                   (uid, tipo, valor, desc, cat,
+                    (_hoje_d91 - timedelta(days=dias)).isoformat()))
+
+def _banco(uid, tipo, valor, desc, fitid, dias=0):
+    A.import_ofx_transactions(uid, [{"valor": valor, "tipo": tipo, "no_credito": False,
+                                     "data": (_hoje_d91 - timedelta(days=dias)).isoformat(),
+                                     "descricao": desc, "fitid": fitid}])
+
+c91, u91 = _cli91("dup91@teste.com")
+_mao(u91, "entrada", 2600, "salário", 1, "Salário")
+_banco(u91, "entrada", 2660.41, "Transferencia Recebida|RJUAN DE ANDRADE", "PLG-1", 0)
+
+check("o mes conta o salario em dobro antes de resolver",
+      A.calc_transaction_totals(u91)["month_income"] == 5260.41,
+      A.calc_transaction_totals(u91)["month_income"])
+_d91 = A.possiveis_duplicatas(u91)
+check("o app percebe o par", len(_d91) == 1, _d91)
+check("e sabe qual foi anotado na mao", _d91[0]["manual"]["valor"] == 2600, _d91[0])
+
+_h91 = c91.get("/").get_data(as_text=True)
+check("a tela inicial pergunta em vez de decidir", "mesmo dinheiro" in _h91)
+check("mostrando os dois lado a lado", "voc\u00ea anotou na m\u00e3o" in _h91 and "veio do banco" in _h91)
+check("e avisando que o mes esta contando em dobro", "contado em dobro" in _h91)
+
+c91.post("/duplicata", data={"csrf_token": "t", "id_manual": _d91[0]["manual"]["id"],
+                             "resposta": "juntar"})
+check("juntando, fica o valor do banco",
+      A.calc_transaction_totals(u91)["month_income"] == 2660.41,
+      A.calc_transaction_totals(u91)["month_income"])
+check("e nao pergunta de novo", A.possiveis_duplicatas(u91) == [])
+
+# "Sao coisas diferentes" nao pode apagar nada, e a resposta tem que ficar.
+c92, u92 = _cli91("dup92@teste.com")
+_mao(u92, "saida", 100, "mercado", 0, "Mercado")
+_banco(u92, "saida", 103, "OUTRO MERCADO", "PLG-9", 0)
+_d92 = A.possiveis_duplicatas(u92)
+check("tambem pergunta em gasto, nao so em entrada", len(_d92) == 1, _d92)
+c92.post("/duplicata", data={"csrf_token": "t", "id_manual": _d92[0]["manual"]["id"],
+                             "resposta": "separado"})
+with get_db() as db:
+    _n92 = db.execute("SELECT COUNT(*) c FROM transacoes WHERE user_id=?", (u92,)).fetchone()["c"]
+check("dizer que sao diferentes NAO apaga nada", _n92 == 2, _n92)
+check("e a resposta fica guardada", A.possiveis_duplicatas(u92) == [])
+
+# O caro: nao pode inventar par onde nao ha.
+c93, u93 = _cli91("dup93@teste.com")
+_mao(u93, "saida", 50, "cafe")
+_banco(u93, "saida", 900, "ALUGUEL", "PLG-a")            # valor longe
+_banco(u93, "entrada", 50, "PIX RECEBIDO", "PLG-b")      # tipo diferente
+_banco(u93, "saida", 50, "LONGE NO TEMPO", "PLG-c", 9)   # 9 dias depois
+check("valor distante, tipo diferente e data distante nao viram par",
+      A.possiveis_duplicatas(u93) == [], A.possiveis_duplicatas(u93))
+
+# Valor pequeno precisa de piso, senao 5% casaria com qualquer troco.
+c94, u94 = _cli91("dup94@teste.com")
+_mao(u94, "saida", 30, "pao")
+_banco(u94, "saida", 45, "PADARIA", "PLG-p")
+check("R$ 30 e R$ 45 nao sao a mesma coisa",
+      A.possiveis_duplicatas(u94) == [], A.possiveis_duplicatas(u94))
+
+# Aporte de meta e lancamento manual, mas nunca e duplicata de nada.
+c95, u95 = _cli91("dup95@teste.com")
+_mao(u95, "saida", 500, "Guardado na meta: Viagem", 0, "Reserva")
+_banco(u95, "saida", 500, "APLICACAO", "PLG-r")
+check("aporte de meta nao entra na pergunta",
+      A.possiveis_duplicatas(u95) == [], A.possiveis_duplicatas(u95))
+
+# Lancamento de outra pessoa nao pode ser apagado por aqui.
+c96, u96 = _cli91("dup96@teste.com")
+_mao(u96, "entrada", 2600, "salário", 1, "Salário")
+_banco(u96, "entrada", 2660.41, "TRANSFERENCIA", "PLG-z", 0)
+_alheio = A.possiveis_duplicatas(u96)[0]["manual"]["id"]
+c91.post("/duplicata", data={"csrf_token": "t", "id_manual": _alheio, "resposta": "juntar"})
+with get_db() as db:
+    _vive = db.execute("SELECT COUNT(*) c FROM transacoes WHERE id=?", (_alheio,)).fetchone()["c"]
+check("ninguem apaga lancamento de outra conta", _vive == 1, _vive)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

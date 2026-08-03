@@ -230,6 +230,48 @@
 </section>
 
 {% else %}
+{# ---- Dois lançamentos que parecem o mesmo dinheiro ----
+   O app NÃO junta sozinho: casar por aproximação um dia apagaria um gasto de
+   verdade. Ele pergunta, e a resposta fica guardada. ---- #}
+{% for d in duplicatas %}
+<section class="page-card" style="margin-bottom:14px; border-left:4px solid var(--primary-deep);">
+    <p class="note-title" style="margin:0 0 8px;">
+        <i class="icone-texto" data-lucide="copy"></i> Isso aqui é o mesmo dinheiro?
+    </p>
+    <div class="conta-aberta" style="margin-top:0;">
+        <div class="conta-linha">
+            <span>{{ d.manual.dia|format_date }} · {{ (d.manual.descricao or 'Sem descrição')|truncate(30) }}
+                <small class="conta-nota">você anotou na mão</small>
+            </span>
+            <strong>{{ d.manual.valor|money }}</strong>
+        </div>
+        <div class="conta-linha">
+            <span>{{ d.banco.dia|format_date }} · {{ (d.banco.descricao or 'Sem descrição')|truncate(30) }}
+                <small class="conta-nota">veio do banco</small>
+            </span>
+            <strong>{{ d.banco.valor|money }}</strong>
+        </div>
+    </div>
+    <p class="helper-text" style="margin:10px 0;">
+        Se for a mesma coisa, eu apago o que você anotou e fico com o do banco, que
+        tem o valor certo. Enquanto os dois existirem, seu
+        {{ 'ganho' if d.tipo == 'entrada' else 'gasto' }} do mês está contado em dobro.
+    </p>
+    <div class="page-actions" style="justify-content:flex-start;">
+        <form method="POST" action="{{ url_for('resolver_duplicata') }}" class="suggestion-actions">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="id_manual" value="{{ d.manual.id }}">
+            <button type="submit" name="resposta" value="juntar" class="button button-primary">
+                <i data-lucide="check"></i> É o mesmo, pode juntar
+            </button>
+            <button type="submit" name="resposta" value="separado" class="button button-outline">
+                São coisas diferentes
+            </button>
+        </form>
+    </div>
+</section>
+{% endfor %}
+
 {# ---- Saldo em primeiro: é o que a pessoa abre o app pra ver ---- #}
 <section class="page-card balance-hero">
     <div class="note-header" style="align-items:flex-start; gap:14px;">

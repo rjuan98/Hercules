@@ -598,6 +598,61 @@ def _chave_compra(descricao: str) -> str:
     return re.sub(r"\s+", " ", base).strip().lower()
 
 
+def possiveis_duplicatas(user_id: int) -> list[dict[str, Any]]:
+    """Lançamento anotado na mão que parece ser a MESMA coisa que o banco trouxe.
+
+    O caso real: o Matheus digitou "salário R$ 2.600" no dia 30, porque o dinheiro
+    ainda não tinha caído. No dia 31 o banco trouxe "Transferência Recebida —
+    R$ 2.660,41". Para a reconciliação do import, que exige mesmo dia e mesmo
+    valor ao centavo, são duas coisas. Para a vida dele, é o salário — e o mês
+    fechou com R$ 2.600 de renda que não existiu.
+
+    Casar por aproximação SOZINHO seria pior: um dia isso apagaria um gasto de
+    verdade. Então o app não decide, ele pergunta. O que aparece aqui é candidato,
+    não veredito.
+
+    O sinal é forte e específico: um lado foi anotado na mão (é sempre uma
+    aproximação de algo que o banco ainda vai confirmar) e o outro veio do banco,
+    perto na data e no valor.
+    """
+    col = "date(COALESCE(NULLIF(data_transacao, ''), created_at))"
+    with get_db() as db:
+        manuais = db.execute(
+            f"""SELECT id, tipo, valor, descricao, {col} AS dia
+                  FROM transacoes
+                 WHERE user_id = ? AND fonte = 'manual' AND fitid IS NULL
+                   AND dup_ok = 0 AND no_credito = 0
+                   AND COALESCE(NULLIF(categoria, ''), '') != 'Reserva'
+                 ORDER BY {col} DESC LIMIT 40""",
+            (user_id,),
+        ).fetchall()
+        pares = []
+        for m in manuais:
+            valor = float(m["valor"])
+            # Tolerância proporcional: quem digita "2.600" pra um salário de
+            # R$ 2.660,41 erra 2,3%, não centavos. O piso é baixo de propósito —
+            # com R$ 20 de folga, R$ 30 casaria com R$ 45, que são compras
+            # diferentes. Errar pra menos aqui só significa perguntar menos.
+            folga = max(5.0, valor * 0.05)
+            achado = db.execute(
+                f"""SELECT id, valor, descricao, {col} AS dia FROM transacoes
+                     WHERE user_id = ? AND id != ? AND tipo = ? AND fitid IS NOT NULL
+                       AND ABS(valor - ?) <= ?
+                       AND ABS(julianday({col}) - julianday(?)) <= 4
+                     ORDER BY ABS(valor - ?) LIMIT 1""",
+                (user_id, m["id"], m["tipo"], valor, folga, m["dia"], valor),
+            ).fetchone()
+            if achado:
+                pares.append({
+                    "manual": {"id": m["id"], "valor": valor, "descricao": m["descricao"],
+                               "dia": m["dia"]},
+                    "banco": {"id": achado["id"], "valor": float(achado["valor"]),
+                              "descricao": achado["descricao"], "dia": achado["dia"]},
+                    "tipo": m["tipo"],
+                })
+        return pares
+
+
 def calc_parcelas_futuras(user_id: int) -> dict[str, Any]:
     """Quanto das PRÓXIMAS faturas já está comprometido por parcelamento.
     Agrupa por compra e conta só a parcela mais recente de cada uma."""
@@ -2602,6 +2657,7 @@ def home():
     session["meta_mensal"] = user["meta_mensal"]
     return render_template(
         "home.html",
+        duplicatas=possiveis_duplicatas(user["id"]),
         recado=recado,
         suggestions=suggestions,
         suggestion_categories=expense_category_names(user["id"]),
@@ -3868,6 +3924,34 @@ def meses():
         entradas=movimentos_do_mes(user["id"], escolhido, "entrada"),
         saidas=movimentos_do_mes(user["id"], escolhido, "saida"),
     )
+
+
+@app.route("/duplicata", methods=["POST"])
+@login_required
+def resolver_duplicata():
+    """A pessoa respondeu se os dois lançamentos são a mesma coisa."""
+    user = current_user()
+    try:
+        id_manual = int(request.form.get("id_manual") or 0)
+    except ValueError:
+        id_manual = 0
+    resposta = request.form.get("resposta")
+    with get_db() as db:
+        dono = db.execute("SELECT id FROM transacoes WHERE id = ? AND user_id = ?",
+                          (id_manual, user["id"])).fetchone()
+        if not dono:
+            flash("Não achei esse lançamento.")
+            return redirect(request.referrer or url_for("home"))
+        if resposta == "juntar":
+            # Some o da mão: o do banco tem o valor e a data de verdade.
+            db.execute("DELETE FROM transacoes WHERE id = ? AND user_id = ?",
+                       (id_manual, user["id"]))
+            flash("Juntei os dois. O valor que fica é o que o banco registrou.")
+        else:
+            db.execute("UPDATE transacoes SET dup_ok = 1 WHERE id = ? AND user_id = ?",
+                       (id_manual, user["id"]))
+            flash("Certo, são coisas diferentes. Não pergunto de novo.")
+    return redirect(request.referrer or url_for("home"))
 
 
 @app.route("/simular", methods=["GET", "POST"])
