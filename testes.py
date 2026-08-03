@@ -3198,6 +3198,106 @@ check("sem email, explica como usar em vez de despejar tudo",
       _r_sem.returncode != 0 and "seu@email.com" in _r_sem.stdout)
 
 
+secao("90. Dinheiro trocando de bolso nao e receita nem gasto")
+# "mes a mes mostra que sobrou 2980 de 6045 que entrou e 3065 que saiu" — num mes
+# em que ele recebeu 2.660. Faltava um conceito no modelo: o app tinha tipo,
+# no_credito e fonte, e nada que dissesse "isso e dinheiro seu mudando de lugar".
+# A caixinha do Nubank e um RDB: guardar vira "Aplicacao RDB", tirar vira
+# "Resgate RDB" — e quem usa caixinha mexe nela todo mes.
+check("reconhece a caixinha do Nubank",
+      A.e_movimento_interno("Aplicacao RDB") and A.e_movimento_interno("Resgate RDB"))
+check("e outras formas de guardar", all(A.e_movimento_interno(t) for t in
+      ["Resgate CDB", "Aplicacao poupanca", "Transferencia entre contas",
+       "RESGATE AUTOMATICO", "Caixinha da viagem", "Reserva de emergencia"]))
+check("NAO confunde salario com movimento interno",
+      not any(A.e_movimento_interno(t) for t in
+              ["Transferencia recebida - EMPRESA LTDA", "Pix recebido - Fulano",
+               "SALARIO", "Pagamento de cliente", "MERCADO CENTRAL", "Uber"]))
+
+c_int = novo_cliente("interno@teste.com", nome="Int")
+uid_int = uid_de("interno@teste.com")
+_fim_ant = date.today().replace(day=1) - timedelta(days=1)
+_ini_ant = _fim_ant.replace(day=1)
+_mes_ant = _fim_ant.strftime("%Y-%m")
+
+_itens_int = []
+def _add_int(tipo, v, desc, dia, fitid):
+    _itens_int.append({"valor": v, "tipo": tipo,
+                       "data": (_ini_ant + timedelta(days=dia)).isoformat(),
+                       "descricao": desc, "fitid": fitid, "no_credito": False})
+
+_add_int("entrada", 2660, "Transferencia recebida - EMPRESA LTDA", 0, "PLG-1")
+_add_int("entrada", 250, "Pix recebido - Fulano", 4, "PLG-2")
+for _i in range(20):
+    _add_int("saida", 60, f"Compra no debito {_i}", _i, f"PLG-g{_i}")
+for _i, (_v, _dia) in enumerate([(800, 3), (600, 8), (900, 13)]):
+    _add_int("entrada", _v, "Resgate RDB", _dia, f"PLG-r{_i}")
+for _i, (_v, _dia) in enumerate([(500, 1), (400, 6)]):
+    _add_int("saida", _v, "Aplicacao RDB", _dia, f"PLG-a{_i}")
+A.import_ofx_transactions(uid_int, _itens_int)
+
+_m_int = {x["mes"]: x for x in A.historico_mensal(uid_int, 4)}[_mes_ant]
+check("'entrou' mostra o que entrou de verdade, nao 5.210",
+      _m_int["entrou"] == 2910, _m_int["entrou"])
+check("'saiu' mostra o que saiu de verdade, nao 2.100",
+      _m_int["saiu"] == 1200, _m_int["saiu"])
+check("e 'sobrou' para de inflar", _m_int["sobrou"] == 1710, _m_int["sobrou"])
+
+# O saldo NAO pode mudar: o dinheiro trocou de conta de verdade.
+check("o saldo continua contando a caixinha",
+      A.calc_transaction_totals(uid_int)["balance"] == 2910 + 2300 - 1200 - 900,
+      A.calc_transaction_totals(uid_int)["balance"])
+
+# O ritmo diario tambem nao pode contar aplicacao como gasto.
+with get_db() as db:
+    _internos = db.execute("SELECT COUNT(*) c FROM transacoes WHERE user_id=? AND interno=1",
+                           (uid_int,)).fetchone()["c"]
+check("os 5 movimentos de caixinha ficaram marcados", _internos == 5, _internos)
+_det_int = A.detalhe_do_ritmo(uid_int)
+check("e nenhum deles aparece nos maiores dias do ritmo",
+      all(m["total"] not in (500.0, 400.0) for m in _det_int["maiores"]), _det_int["maiores"])
+
+# O script que marca o que ja estava no banco.
+import subprocess as _sp2
+import sys as _sys2
+c_velho = novo_cliente("velho@teste.com", nome="Velho")
+uid_velho = uid_de("velho@teste.com")
+with get_db() as db:
+    for _v, _desc, _tipo in [(800, "Resgate RDB", "entrada"), (500, "Aplicacao RDB", "saida"),
+                             (2660, "SALARIO", "entrada")]:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito,interno)
+                      VALUES (?,?,?,?,'Outros','ofx',95,?,0,0)""",
+                   (uid_velho, _tipo, _v, _desc, date.today().isoformat()))
+
+_amb = dict(os.environ, PYTHONIOENCODING="utf-8")
+_r_ver = _sp2.run([_sys2.executable, "marcar_internos.py", "velho@teste.com"],
+                  capture_output=True, text=True, encoding="utf-8", env=_amb)
+check("o script lista sem alterar nada", "Nada foi alterado" in _r_ver.stdout, _r_ver.stdout[-300:])
+with get_db() as db:
+    check("e nada foi mesmo marcado",
+          db.execute("SELECT COUNT(*) c FROM transacoes WHERE user_id=? AND interno=1",
+                     (uid_velho,)).fetchone()["c"] == 0)
+
+_r_apl = _sp2.run([_sys2.executable, "marcar_internos.py", "velho@teste.com", "--aplicar"],
+                  capture_output=True, text=True, encoding="utf-8", env=_amb)
+check("com --aplicar ele marca", _r_apl.returncode == 0, _r_apl.stderr[-300:])
+with get_db() as db:
+    _marcados = db.execute(
+        "SELECT descricao FROM transacoes WHERE user_id=? AND interno=1", (uid_velho,)).fetchall()
+check("marcou os dois da caixinha", len(_marcados) == 2, [r["descricao"] for r in _marcados])
+check("e NAO tocou no salario",
+      all("SALARIO" not in r["descricao"] for r in _marcados),
+      [r["descricao"] for r in _marcados])
+
+# A tela de Meses tem que deixar abrir o que formou cada total.
+_h_meses_int = c_int.get(f"/meses?mes={_mes_ant}").get_data(as_text=True)
+check("da pra abrir de onde vem o 'entrou'", "De onde v" in _h_meses_int)
+check("com as linhas listadas", "Transferencia recebida" in _h_meses_int)
+check("e a caixinha nao aparece la, porque nao e receita",
+      "Resgate RDB" not in _h_meses_int)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

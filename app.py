@@ -325,6 +325,30 @@ def _ofx_field(block: str, tag: str) -> str:
 _PAGAMENTO_FATURA = ("pagamento", "pagto", "pgto", "pag fatura", "pag. fatura")
 
 
+# Dinheiro que só troca de bolso. A caixinha do Nubank é um RDB: guardar aparece
+# como "Aplicação RDB" e tirar como "Resgate RDB". Sem reconhecer isso, quem usa
+# caixinha vê o próprio dinheiro entrando como se fosse salário e saindo como se
+# fosse gasto — e ninguém guarda dinheiro sem mexer nele.
+#
+# A lista é curta de propósito. Marcar receita de verdade como "interno" some com
+# a renda da pessoa, que é o erro pior; na dúvida, deixa passar como movimento
+# normal e ela corrige na tela.
+_MOVIMENTO_INTERNO = (
+    "aplicacao rdb", "resgate rdb",
+    "aplicacao automatica", "resgate automatico",
+    "aplicacao cdb", "resgate cdb",
+    "aplicacao poupanca", "resgate poupanca", "deposito poupanca",
+    "aplicacao investimento", "resgate investimento",
+    "transferencia entre contas", "transf entre contas",
+    "caixinha", "reserva de emergencia",
+)
+
+
+def e_movimento_interno(descricao: str) -> bool:
+    """É dinheiro seu mudando de lugar, não entrando nem saindo da sua vida."""
+    return any(p in _strip_accents(descricao or "").lower() for p in _MOVIMENTO_INTERNO)
+
+
 def e_pagamento_de_fatura(descricao: str) -> bool:
     """Distingue PAGAR A FATURA de ESTORNAR UMA COMPRA — no cartão, os dois vêm
     com valor negativo, mas significam coisas opostas.
@@ -703,10 +727,11 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
             db.execute(
                 """INSERT INTO transacoes
                    (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao,
-                    fonte, confidence, fitid, no_credito, parcela_num, parcela_total)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'ofx', 95, ?, ?, ?, ?)""",
+                    fonte, confidence, fitid, no_credito, parcela_num, parcela_total, interno)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'ofx', 95, ?, ?, ?, ?, ?)""",
                 (user_id, item["tipo"], item["valor"], item["descricao"], item["descricao"],
-                 categoria, item["data"], item["fitid"], no_credito, p_num, p_total),
+                 categoria, item["data"], item["fitid"], no_credito, p_num, p_total,
+                 1 if e_movimento_interno(item["descricao"]) else 0),
             )
             ja_casadas.add(db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"])
             stats["importadas"] += 1
@@ -1571,6 +1596,7 @@ def calc_transaction_totals(user_id: int):
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'entrada' AND no_credito = 0 AND fonte != 'ajuste'
+                 AND interno = 0
                AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
@@ -1580,6 +1606,7 @@ def calc_transaction_totals(user_id: int):
             """SELECT COALESCE(SUM(valor), 0) AS total
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0 AND fonte != 'ajuste'
+                 AND interno = 0
                AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user_id, month_start.isoformat(), month_end.isoformat()),
         ).fetchone()["total"]
@@ -1625,7 +1652,7 @@ def calc_transaction_totals(user_id: int):
             """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS categoria,
                       SUM(valor) AS total
                  FROM transacoes
-                WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
+                WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND interno = 0
                   AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
                 GROUP BY categoria
                HAVING total > 0
@@ -2474,6 +2501,7 @@ def home():
         today_spent = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0 AND fonte != 'ajuste'
+                 AND interno = 0
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) = date(?)""",
             (user["id"], today_iso),
         ).fetchone()["total"]
@@ -2632,7 +2660,7 @@ def media_gasto_diario(user_id: int, dias: int = 60) -> tuple[float, int]:
                       SUM(valor) AS total
                  FROM transacoes
                 WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
-                  AND fonte != 'ajuste'
+                  AND fonte != 'ajuste' AND interno = 0
                   AND COALESCE(NULLIF(categoria, ''), '') != 'Reserva'
                   AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)
                 GROUP BY dia ORDER BY dia""",
@@ -2681,7 +2709,7 @@ def detalhe_do_ritmo(user_id: int, dias: int = 60) -> dict[str, Any]:
             f"""SELECT {col} AS dia, SUM(valor) AS total, COUNT(*) AS n
                   FROM transacoes
                  WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
-                   AND fonte != 'ajuste'
+                   AND fonte != 'ajuste' AND interno = 0
                    AND COALESCE(NULLIF(categoria, ''), '') != 'Reserva'
                    AND {col} >= date(?)
                  GROUP BY dia ORDER BY total DESC""",
@@ -2879,7 +2907,7 @@ def insight_semanal(user_id: int) -> dict[str, Any] | None:
             return float(db.execute(
                 """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                    WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste'
-                     AND no_credito = 0
+                     AND no_credito = 0 AND interno = 0
                      AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
                 (user_id, ini, fim),
             ).fetchone()["t"])
@@ -2904,6 +2932,7 @@ def insight_semanal(user_id: int) -> dict[str, Any] | None:
             """SELECT COALESCE(NULLIF(categoria, ''), 'Outros') AS cat, SUM(valor) AS t
                FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND fonte != 'ajuste' AND no_credito = 0
+                 AND interno = 0
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)
                GROUP BY cat ORDER BY t DESC LIMIT 1""",
             (user_id, ini_atual, fim_atual),
@@ -2986,7 +3015,7 @@ def historico_mensal(user_id: int, meses: int = 12) -> list[dict[str, Any]]:
                       COALESCE(SUM(CASE WHEN tipo='saida' AND no_credito=1 THEN valor END), 0) AS credito,
                       COUNT(*) AS n
                  FROM transacoes
-                WHERE user_id = ? AND fonte != 'ajuste'
+                WHERE user_id = ? AND fonte != 'ajuste' AND interno = 0
                 GROUP BY mes ORDER BY mes DESC LIMIT ?""",
             (user_id, meses),
         ).fetchall()
@@ -3006,6 +3035,33 @@ def historico_mensal(user_id: int, meses: int = 12) -> list[dict[str, Any]]:
             "em_curso": r["mes"] == atual,
         })
     return saida
+
+
+def movimentos_do_mes(user_id: int, mes: str, tipo: str, limite: int = 60) -> list[dict[str, Any]]:
+    """As linhas que formam o "entrou" ou o "saiu" daquele mês, maior primeiro.
+
+    Existe porque um total sozinho não se defende. O Matheus viu "entrou
+    R$ 6.045" num mês em que recebeu R$ 2.660 e nem ele nem eu conseguíamos
+    dizer de onde vinha a diferença — eu chutei três causas sem ver os dados.
+    Com a lista aberta, a resposta para de depender de palpite.
+
+    Mesma régua do total: crédito e ajuste ficam de fora, porque a pergunta aqui
+    é o que entrou e saiu DA CONTA.
+    """
+    virada = virada_do_usuario(user_id)
+    col = "COALESCE(NULLIF(data_transacao, ''), created_at)"
+    with get_db() as db:
+        linhas = db.execute(
+            f"""SELECT valor, descricao, estabelecimento, categoria, fonte, fitid,
+                       date({col}) AS dia
+                  FROM transacoes
+                 WHERE user_id = ? AND tipo = ? AND no_credito = 0 AND fonte != 'ajuste'
+                   AND interno = 0
+                   AND {sql_mes(virada, col)} = ?
+                 ORDER BY valor DESC LIMIT ?""",
+            (user_id, tipo, mes, limite),
+        ).fetchall()
+    return [dict(r) for r in linhas]
 
 
 def comparar_categorias(user_id: int, mes: str, mes_anterior: str) -> list[dict[str, Any]]:
@@ -3196,6 +3252,7 @@ def dashboard():
         prev_expenses = db.execute(
             """SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
                WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0 AND fonte != 'ajuste'
+                 AND interno = 0
                  AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) BETWEEN date(?) AND date(?)""",
             (user["id"], prev_start, prev_end),
         ).fetchone()["t"]
@@ -3808,6 +3865,8 @@ def meses():
         linhas=comparar_categorias(user["id"], escolhido, anterior),
         detalhe=next((m for m in historico if m["mes"] == escolhido), None),
         detalhe_ant=next((m for m in historico if m["mes"] == anterior), None),
+        entradas=movimentos_do_mes(user["id"], escolhido, "entrada"),
+        saidas=movimentos_do_mes(user["id"], escolhido, "saida"),
     )
 
 

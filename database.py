@@ -355,6 +355,11 @@ def init_db():
     # um mês que não é o do calendário: o salário do dia 31 é dinheiro de agosto.
     # NULL/1 = mês do calendário, que é o comportamento de sempre.
     _add_column_if_missing(conn, "usuarios", "dia_virada", "INTEGER")
+    # Dinheiro que só mudou de bolso: aplicar na caixinha, resgatar dela,
+    # transferir entre duas contas suas. O saldo muda de verdade, então CONTA no
+    # saldo — mas não é receita nem gasto, e somar isso inflava "entrou" e "saiu"
+    # sem que nada tivesse entrado ou saído da vida da pessoa.
+    _add_column_if_missing(conn, "transacoes", "interno", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "categorias", "limite_mensal", "REAL NOT NULL DEFAULT 0.0")
     _add_column_if_missing(conn, "categorias", "created_at", "TIMESTAMP")
     # Cópias antigas do banco tinham categoria_id e nenhum timestamp nas regras

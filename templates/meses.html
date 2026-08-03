@@ -71,6 +71,41 @@
     </div>
     {% endif %}
 
+    {# Um total sozinho não se defende. O Matheus viu "entrou R$ 6.045" num mês em
+       que recebeu R$ 2.660 e nem ele nem eu sabíamos dizer de onde vinha — eu
+       chutei três causas sem ver os dados. Aberto, o número responde por si.
+       Fica FORA do bloco de comparação: quem não tem mês anterior também precisa
+       conseguir conferir o próprio mês. #}
+    {% if detalhe %}
+    {% for bloco in [
+        {'titulo': 'entrou', 'itens': entradas, 'total': detalhe.entrou, 'sinal': '+'},
+        {'titulo': 'saiu da conta', 'itens': saidas, 'total': detalhe.saiu, 'sinal': '−'}] %}
+    {% if bloco.itens %}
+    <details class="de-onde-vem" style="margin-top:12px;">
+        <summary>De onde vêm os {{ bloco.total|money }} que {{ bloco.titulo }}?</summary>
+        <p class="helper-text" style="margin:10px 0 8px;">
+            {{ bloco.itens|length }} lançamento{{ '' if bloco.itens|length == 1 else 's' }},
+            do maior pro menor. Compra no crédito, ajuste de saldo e dinheiro que você
+            só moveu entre contas suas não entram aqui.
+        </p>
+        <ul class="dias-do-ritmo">
+            {% for m in bloco.itens %}
+            <li>
+                <span>{{ m.dia|format_date }}</span>
+                <span class="dia-itens">{{ (m.descricao or m.estabelecimento or 'Movimentação')|truncate(38) }}</span>
+                <strong>{{ bloco.sinal }} {{ m.valor|money }}</strong>
+            </li>
+            {% endfor %}
+        </ul>
+        <p class="helper-text" style="margin-top:10px;">
+            Confere com o extrato do seu banco. Se aparecer linha repetida, ou alguma que
+            não é gasto nem receita, me diz qual — é assim que o número fica certo.
+        </p>
+    </details>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+
     {% if not detalhe_ant %}
     <p class="subtitle" style="margin-top:12px;">
         Não tenho {{ anterior_nome }} pra comparar. Escolha um mês que tenha o anterior registrado.
