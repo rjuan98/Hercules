@@ -2625,6 +2625,65 @@ def media_gasto_diario(user_id: int, dias: int = 60) -> tuple[float, int]:
     return sum(tipicos) / corridos, com_gasto
 
 
+def detalhe_do_ritmo(user_id: int, dias: int = 60) -> dict[str, Any]:
+    """De onde sai o "seu dia a dia" — dia por dia, pra pessoa poder conferir.
+
+    Existe porque um número sozinho não se defende. O Matheus olhou R$ 129 por
+    dia e disse "que isso"; eu chutei três explicações sem ver os dados dele e
+    errei. Com a lista na tela, ele não precisa de mim pra saber o que é.
+    """
+    desde = hoje_br() - timedelta(days=dias)
+    col = "date(COALESCE(NULLIF(data_transacao, ''), created_at))"
+    with get_db() as db:
+        linhas = db.execute(
+            f"""SELECT {col} AS dia, SUM(valor) AS total, COUNT(*) AS n
+                  FROM transacoes
+                 WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
+                   AND fonte != 'ajuste'
+                   AND COALESCE(NULLIF(categoria, ''), '') != 'Reserva'
+                   AND {col} >= date(?)
+                 GROUP BY dia ORDER BY total DESC""",
+            (user_id, desde.isoformat()),
+        ).fetchall()
+        guardado = float(db.execute(
+            f"""SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+                 WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
+                   AND categoria = 'Reserva' AND {col} >= date(?)""",
+            (user_id, desde.isoformat()),
+        ).fetchone()["t"])
+        no_credito = float(db.execute(
+            f"""SELECT COALESCE(SUM(valor), 0) AS t FROM transacoes
+                 WHERE user_id = ? AND tipo = 'saida' AND no_credito = 1
+                   AND {col} >= date(?)""",
+            (user_id, desde.isoformat()),
+        ).fetchone()["t"])
+
+    media, _ = media_gasto_diario(user_id, dias)
+    if not linhas:
+        return {"media": 0.0, "maiores": [], "guardado": guardado,
+                "no_credito": no_credito, "limite": None, "cortou": False,
+                "dias_com_gasto": 0}
+
+    totais = sorted(float(r["total"] or 0) for r in linhas)
+    com_gasto = len(totais)
+    limite = None
+    if com_gasto >= 4:
+        mediana = totais[com_gasto // 2]
+        limite = max(3 * mediana, mediana + 100.0)
+        if len([t for t in totais if t <= limite]) < com_gasto * 0.8:
+            limite = None          # a trava desligou o corte: nada foi tirado
+
+    maiores = []
+    for r in linhas[:6]:
+        total = float(r["total"] or 0)
+        maiores.append({"dia": r["dia"], "total": total, "itens": r["n"],
+                        "contou": limite is None or total <= limite})
+    return {"media": media, "maiores": maiores, "guardado": guardado,
+            "no_credito": no_credito, "limite": limite,
+            "cortou": any(not m["contou"] for m in maiores),
+            "dias_com_gasto": com_gasto}
+
+
 def contas_ate_fim_do_mes(user_id: int) -> float:
     """O que ainda vence neste mês e não foi pago."""
     _, fim = mes_do_usuario(user_id)
@@ -2681,6 +2740,8 @@ def simular_gasto(user_id: int, valor: float) -> dict[str, Any]:
         "tem_historico": dias_com_dado >= 5,
         "dias_com_dado": dias_com_dado,
         "saldo_depois": saldo - valor,
+        # A pessoa tem que conseguir conferir o ritmo sem depender de ninguém.
+        "ritmo": detalhe_do_ritmo(user_id),
     }
 
 

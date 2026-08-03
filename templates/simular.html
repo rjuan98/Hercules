@@ -86,8 +86,8 @@
         {% endif %}
         <div class="conta-linha">
             <span>Seu dia a dia: {{ r.media|money }} por dia × {{ r.dias_futuros }} dia{{ '' if r.dias_futuros == 1 else 's' }}
-                <small class="conta-nota">só o gasto miúdo — aluguel, fatura e o que você
-                guardou ficam de fora, senão entrariam duas vezes</small>
+                <small class="conta-nota">o que você guardou e as compras no crédito
+                ficam de fora, senão entrariam duas vezes</small>
             </span>
             <strong class="tira">− {{ (r.media * r.dias_futuros)|money }}</strong>
         </div>
@@ -107,6 +107,48 @@
         com gasto registrado), então o “ritmo por dia” é um chute fraco. Conforme você usar,
         essa conta fica boa.
     </div>
+    {% endif %}
+
+    {% if r.ritmo.maiores %}
+    {# Um número sozinho não se defende. Se o ritmo parecer alto, a pessoa tem
+       que conseguir ver o que está dentro dele sem perguntar pra ninguém. #}
+    <details class="de-onde-vem">
+        <summary>De onde vem esses {{ r.media|money }} por dia?</summary>
+        <p class="helper-text" style="margin:10px 0 8px;">
+            Somei seus gastos dos últimos {{ r.ritmo.dias_com_gasto }} dia{{ '' if r.ritmo.dias_com_gasto == 1 else 's' }}
+            com movimento e dividi pelo período. Seus maiores dias:
+        </p>
+        <ul class="dias-do-ritmo">
+            {% for d in r.ritmo.maiores %}
+            <li{% if not d.contou %} class="dia-fora"{% endif %}>
+                <span>{{ d.dia|format_date }}</span>
+                <span class="dia-itens">{{ d.itens }} lançamento{{ '' if d.itens == 1 else 's' }}</span>
+                <strong>{{ d.total|money }}</strong>
+                {% if not d.contou %}<em>fora da conta</em>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% if r.ritmo.cortou %}
+        <p class="helper-text" style="margin-top:10px;">
+            Os dias marcados destoam tanto do seu normal que tratei como evento, não como
+            ritmo — em geral é aluguel ou fatura. Se for uma conta que se repete,
+            <a href="{{ url_for('compromissos') }}">cadastre ela</a>: aí entra inteira e na
+            data certa, em vez de diluída.
+        </p>
+        {% endif %}
+        {% if r.ritmo.guardado > 0 or r.ritmo.no_credito > 0 %}
+        <p class="helper-text" style="margin-top:10px;">
+            Já ficaram de fora:
+            {% if r.ritmo.guardado > 0 %}<strong>{{ r.ritmo.guardado|money }}</strong> que você
+            guardou em metas (é seu, não é gasto){% endif %}{% if r.ritmo.guardado > 0 and r.ritmo.no_credito > 0 %};
+            {% endif %}{% if r.ritmo.no_credito > 0 %}<strong>{{ r.ritmo.no_credito|money }}</strong>
+            de compras no crédito (saem quando a fatura é paga){% endif %}.
+        </p>
+        {% endif %}
+        <p class="helper-text" style="margin-top:10px;">
+            Se esse número não parece o seu, me diz — é a conta mais importante desta tela.
+        </p>
+    </details>
     {% endif %}
 
     <p class="helper-text" style="margin-top:16px;">

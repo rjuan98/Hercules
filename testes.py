@@ -2704,6 +2704,74 @@ check("e o sw usa essa constante na lista de pre-cache",
       'styles.css?v=" + V' in _sw)
 
 
+secao("83. O ritmo tem que se explicar sozinho")
+# O Matheus olhou "R$ 129 por dia" e disse "que isso". Eu chutei tres explicacoes
+# sem ver os dados dele. Duas estavam erradas. Um numero sozinho nao se defende:
+# agora a tela mostra dia a dia o que tem dentro.
+c_rit2 = novo_cliente("ritmo2@teste.com", nome="R2")
+uid_rit2 = uid_de("ritmo2@teste.com")
+
+def _g2(valor, cat, dias, credito=0, fonte="ofx"):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'saida',?,'x',?,?,95,?,?)""",
+                   (uid_rit2, valor, cat, fonte,
+                    (date.today() - timedelta(days=dias)).isoformat(), credito))
+
+for _i in range(60):
+    _g2(35 if _i % 3 else 12, "Mercado", _i)
+_g2(900, "Moradia", 5); _g2(900, "Moradia", 35)
+_g2(500, "Reserva", 20, fonte="manual")
+_g2(1200, "Outros", 8, credito=1)
+
+_det = A.detalhe_do_ritmo(uid_rit2)
+check("lista os maiores dias, do maior pro menor",
+      [m["total"] for m in _det["maiores"]] == sorted(
+          [m["total"] for m in _det["maiores"]], reverse=True), _det["maiores"])
+check("marca quais dias ficaram de fora da conta",
+      any(not m["contou"] for m in _det["maiores"]), _det["maiores"])
+check("o dia do aluguel e um dos que ficou de fora",
+      any(m["total"] >= 900 and not m["contou"] for m in _det["maiores"]))
+check("soma o que foi guardado em meta, separado", _det["guardado"] == 500, _det["guardado"])
+check("e o que foi no credito, separado", _det["no_credito"] == 1200, _det["no_credito"])
+check("a media do detalhe e a mesma que o simulador usa",
+      abs(_det["media"] - A.media_gasto_diario(uid_rit2)[0]) < 0.01)
+
+_h_rit2 = c_rit2.post("/simular", data={"csrf_token": "t", "valor": "150,00"}).get_data(as_text=True)
+check("a tela abre o bloco 'De onde vem'", "De onde vem esses" in _h_rit2)
+check("mostra os dias com data legivel", "/" in _h_rit2 and "lan\u00e7amento" in _h_rit2)
+check("explica o que foi tratado como evento", "tratei como evento" in _h_rit2)
+check("e aponta pra cadastrar a conta que se repete", "/compromissos" in _h_rit2)
+check("diz que o dinheiro guardado ficou de fora", "guardou em metas" in _h_rit2)
+check("e que o credito tambem", "compras no cr" in _h_rit2)
+check("convida a reclamar se o numero nao parecer o dele",
+      "n\u00e3o parece o seu" in _h_rit2)
+
+# Quem gasta muito de verdade nao pode ver dia nenhum riscado: seria mentira
+# confortavel. O numero alto dele e o numero dele.
+c_alto2 = novo_cliente("alto2@teste.com", nome="A2")
+uid_alto2 = uid_de("alto2@teste.com")
+with get_db() as db:
+    for _i in range(40):
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,'saida',200,'x','Mercado',
+                      'ofx',95,?,0)""",
+                   (uid_alto2, (date.today() - timedelta(days=_i)).isoformat()))
+_det_alto = A.detalhe_do_ritmo(uid_alto2)
+check("quem gasta alto e constante nao tem dia riscado",
+      all(m["contou"] for m in _det_alto["maiores"]), _det_alto["maiores"])
+check("e nao ve explicacao de evento que nao houve", _det_alto["cortou"] is False)
+_h_alto2 = c_alto2.post("/simular", data={"csrf_token": "t", "valor": "50,00"}).get_data(as_text=True)
+check("a tela dele nao fala em evento", "tratei como evento" not in _h_alto2)
+
+# Sem gasto nenhum o bloco nao aparece, em vez de mostrar lista vazia.
+c_zero2 = novo_cliente("zero2@teste.com", nome="Z2")
+_det_zero = A.detalhe_do_ritmo(uid_de("zero2@teste.com"))
+check("sem gasto, nao ha lista pra mostrar", _det_zero["maiores"] == [])
+_h_zero2 = c_zero2.post("/simular", data={"csrf_token": "t", "valor": "50,00"}).get_data(as_text=True)
+check("e a tela nao mostra bloco vazio", "De onde vem esses" not in _h_zero2)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

@@ -1634,6 +1634,41 @@ html.valores-ocultos .eye-toggle .eye-off { display: inline-flex; }
 .conta-linha .tira { color: var(--danger); }
 /* A explicação do que entra na média mora DENTRO da linha, senão a borda de cima
    faz ela parecer nota da linha seguinte. */
+/* "De onde vem esse número" — o bloco que abre e mostra dia por dia. */
+.de-onde-vem {
+    margin-top: 16px;
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 14px;
+}
+.de-onde-vem summary {
+    cursor: pointer;
+    font-weight: 800;
+    font-size: 0.92rem;
+    color: var(--primary-deep);
+}
+.dias-do-ritmo { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.dias-do-ritmo li {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: baseline;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.88rem;
+}
+.dias-do-ritmo li:last-child { border-bottom: 0; }
+.dias-do-ritmo strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dia-itens { color: var(--muted); font-size: 0.8rem; }
+/* O dia que ficou de fora precisa PARECER de fora, não só dizer que ficou. */
+.dias-do-ritmo .dia-fora { opacity: 0.55; }
+.dias-do-ritmo .dia-fora strong { text-decoration: line-through; }
+.dias-do-ritmo em {
+    grid-column: 1 / -1;
+    font-size: 0.74rem;
+    font-style: normal;
+    color: var(--muted);
+}
 .conta-nota {
     display: block;
     margin-top: 3px;
