@@ -2894,6 +2894,85 @@ for _nome in ("dashboard.html", "home.html", "ir.html", "dividas.html", "saude.h
 check("e cartao de numero continua lado a lado", not _numeros_empilhando, _numeros_empilhando)
 
 
+secao("86. Ajuste de saldo nao e gasto")
+# 'Ajuste' e um movimento SINTETICO: existe pra fazer o saldo do app bater com o
+# do banco. Entrada ja excluia ajuste; saida nao. Resultado: o Resumo mostrava
+# R$ 1.675 de saida no mes e a tela de Meses mostrava R$ 1.600, mesmo mes.
+c_aj = novo_cliente("ajuste@teste.com", nome="Aj")
+uid_aj = uid_de("ajuste@teste.com")
+_ini_aj, _fim_aj = A.month_bounds(date.today())
+
+def _mov_aj(tipo, valor, cat, quando, cred=0, fonte="ofx"):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      confidence,data_transacao,no_credito) VALUES (?,?,?,'x',?,?,95,?,?)""",
+                   (uid_aj, tipo, valor, cat, fonte, quando.isoformat(), cred))
+
+_mov_aj("entrada", 3000, "Salario", _ini_aj)
+for _i in range(10):
+    _mov_aj("saida", 40, "Mercado", _ini_aj + timedelta(days=_i))
+_mov_aj("saida", 900, "Moradia", _ini_aj + timedelta(days=1))
+_mov_aj("saida", 75, "Outros", _ini_aj + timedelta(days=6), fonte="ajuste")
+
+_st_aj = A.calc_transaction_totals(uid_aj)
+check("o ajuste CONTA no saldo — e pra isso que ele existe",
+      _st_aj["balance"] == 3000 - 400 - 900 - 75, _st_aj["balance"])
+check("mas NAO conta nas saidas do mes", _st_aj["month_expenses"] == 1300,
+      _st_aj["month_expenses"])
+
+# A mesma verdade em duas telas tem que dar o mesmo numero.
+_h_aj = {m["mes"]: m for m in A.historico_mensal(uid_aj, 12)}
+_mes_aj = A.month_bounds(date.today(), A.virada_do_usuario(uid_aj))[1].strftime("%Y-%m")
+check("Resumo e Meses concordam no que saiu",
+      _h_aj[_mes_aj]["saiu"] == _st_aj["month_expenses"],
+      (_h_aj[_mes_aj]["saiu"], _st_aj["month_expenses"]))
+check("e no que entrou", _h_aj[_mes_aj]["entrou"] == _st_aj["month_income"])
+
+# O grafico de categorias tem que fechar com "saidas do mes" (fora o cartao).
+_soma_graf = sum(float(r["total"] or 0) for r in _st_aj["monthly_by_category"])
+check("o grafico de categorias fecha com as saidas do mes",
+      abs(_soma_graf - float(_st_aj["fatura_credito_mes"] or 0) - _st_aj["month_expenses"]) < 0.01,
+      (_soma_graf, _st_aj["month_expenses"]))
+
+# E o ajuste nao pode aparecer como gasto do dia nem da semana.
+_mov_aj("saida", 120, "Outros", date.today(), fonte="ajuste")
+_ins_aj = A.insight_semanal(uid_aj)
+# Soma direto do banco o que a semana DEVERIA ter, sem ajuste. Calcular a mao
+# aqui so cria um segundo lugar pra errar.
+with get_db() as db:
+    _esperado_sem = float(db.execute(
+        """SELECT COALESCE(SUM(valor),0) AS t FROM transacoes
+            WHERE user_id=? AND tipo='saida' AND no_credito=0 AND fonte!='ajuste'
+              AND date(COALESCE(NULLIF(data_transacao,''),created_at))
+                  BETWEEN date(?) AND date(?)""",
+        (uid_aj, (date.today() - timedelta(days=6)).isoformat(),
+         date.today().isoformat())).fetchone()["t"])
+    _esperado_com = float(db.execute(
+        """SELECT COALESCE(SUM(valor),0) AS t FROM transacoes
+            WHERE user_id=? AND tipo='saida' AND no_credito=0
+              AND date(COALESCE(NULLIF(data_transacao,''),created_at))
+                  BETWEEN date(?) AND date(?)""",
+        (uid_aj, (date.today() - timedelta(days=6)).isoformat(),
+         date.today().isoformat())).fetchone()["t"])
+check("o ajuste nao entra no gasto da semana",
+      _ins_aj["atual"] == _esperado_sem, (_ins_aj["atual"], _esperado_sem))
+check("e sem esse cuidado a semana viria R$ 120 maior",
+      _esperado_com - _esperado_sem == 120, (_esperado_com, _esperado_sem))
+_h_dia = c_aj.get("/").get_data(as_text=True)
+check("nem no 'voce gastou X hoje'", "R$ 120,00" not in _h_dia)
+
+# Ajuste tambem nao e sugestao de categoria pra pessoa responder.
+_sug = A.pending_suggestions(uid_aj)
+check("nem vira pergunta de 'o que e isso?'",
+      all("ajuste" not in (str(x.get("display", "")) or "").lower() for x in _sug), _sug)
+
+# E o ritmo diario ja ignorava — tem que continuar ignorando.
+_m_aj, _ = A.media_gasto_diario(uid_aj)
+_det_aj = A.detalhe_do_ritmo(uid_aj)
+check("o ritmo diario segue sem o ajuste",
+      all(m["total"] not in (75.0, 120.0) for m in _det_aj["maiores"]), _det_aj["maiores"])
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
