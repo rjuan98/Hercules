@@ -4319,6 +4319,37 @@ check("o aviso nasce escondido, pra quem nao e iPhone nao ver",
       and "hidden" in _tpl107.split('id="aviso-standalone"')[1][:120])
 
 
+
+secao("108. Falha antes da janela tambem deixa rastro")
+# Eles tentaram pelo icone E pelo Safari, e falhou nos dois — o que descarta o
+# webview do iOS. Sobra a etapa ANTERIOR a janela: se a autenticacao ou o token
+# falham, a pessoa levava um aviso, era mandada pras configuracoes, e o motivo
+# morria ali. E justamente a etapa em que o problema e certamente do nosso lado.
+check("existe um jeito unico de registrar falha da Pluggy",
+      hasattr(A, "anotar_falha_pluggy"))
+
+_log108 = pathlib.Path(os.environ.get("ERROS_LOG") or "erros.log")
+_antes108 = _log108.read_text(encoding="utf-8") if _log108.exists() else ""
+_cod108 = A.anotar_falha_pluggy(999, "antes da janela: HTTP 403", "teste")
+check("devolve um codigo de 6 caracteres", len(_cod108) == 6, _cod108)
+_depois108 = _log108.read_text(encoding="utf-8") if _log108.exists() else ""
+check("e grava o motivo no log", _cod108 in _depois108 and "HTTP 403" in _depois108)
+check("com o usuario, pra achar de quem foi", "user=999" in _depois108)
+check("sem apagar o que ja estava la", len(_depois108) > len(_antes108))
+
+_app108 = _io_layout.open("app.py", encoding="utf-8").read()
+check("a rota que abre a janela usa o registro quando falha antes",
+      "antes da janela" in _app108)
+check("e o codigo aparece pra pessoa poder passar adiante",
+      "anotei com o c\u00f3digo" in _app108)
+check("dizendo que o problema e do lado do servidor, nao do aparelho dela",
+      "n\u00e3o do seu aparelho" in _app108)
+check("e apontando o diagnostico", "Diagn\u00f3stico da conex\u00e3o" in _app108)
+check("o widget usa o MESMO registro, em vez de uma copia",
+      _app108.count("uuid.uuid4().hex[:6].upper()") == 2,
+      _app108.count("uuid.uuid4().hex[:6].upper()"))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

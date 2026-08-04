@@ -5504,10 +5504,33 @@ def _pluggy_erro_detalhe(e: Exception) -> str:
     return f"{type(e).__name__}: {e}"[:200]
 
 
+def anotar_falha_pluggy(user_id, motivo: str, extra: str = "") -> str:
+    """Guarda por que a conexão com o banco não foi, e devolve um código curto.
+
+    Vale pra QUALQUER etapa. Antes só o widget registrava; a falha anterior à
+    janela — a única em que o problema é certamente do nosso lado — sumia sem
+    deixar nada.
+    """
+    codigo = uuid.uuid4().hex[:6].upper()
+    linha = ("[" + agora_br().isoformat(timespec="seconds") + "] PLUGGY " + codigo
+             + " user=" + str(user_id)
+             + " motivo=" + repr(str(motivo)[:400])
+             + " extra=" + repr(str(extra)[:400]) + chr(10))
+    try:
+        if ERROS_LOG.exists() and ERROS_LOG.stat().st_size > ERROS_MAX_BYTES:
+            ERROS_LOG.write_text("", encoding="utf-8")
+        with ERROS_LOG.open("a", encoding="utf-8") as f:
+            f.write(linha)
+    except OSError:
+        pass
+    return codigo
+
+
 @app.route("/pluggy/conectar")
 @login_required
 def pluggy_conectar():
     """Abre o widget Pluggy Connect (amarrado à NOSSA aplicação) pra conectar o banco."""
+    user = current_user()
     if not pluggy_configured():
         flash("A conexão automática ainda não está ligada neste servidor.")
         return redirect(url_for("settings"))
@@ -5515,7 +5538,12 @@ def pluggy_conectar():
         api_key = pluggy_auth()
         token = pluggy_connect_token(api_key)
     except Exception as e:
-        flash("Não consegui abrir a conexão com a Pluggy: " + _pluggy_erro_detalhe(e))
+        detalhe = _pluggy_erro_detalhe(e)
+        codigo = anotar_falha_pluggy(user["id"], "antes da janela: " + detalhe)
+        flash("Não consegui nem abrir a conexão com a Pluggy (" + detalhe + "). "
+              "Isso é aqui do meu lado, não do seu aparelho — anotei com o código "
+              + codigo + ". Em Configurações, o Diagnóstico da conexão mostra "
+              "exatamente onde travou.")
         return redirect(url_for("settings"))
     # Se os bancos aparecem direto, mandar a pessoa criar conta no Meu Pluggy é
     # inventar um degrau bem no lugar onde ela desiste. Só pergunta uma vez por
@@ -5558,16 +5586,8 @@ def pluggy_falhou():
     motivo = sanitize_text(request.form.get("motivo"), limite=400) or "sem detalhe"
     bloqueios = sanitize_text(request.form.get("bloqueios"), limite=400) or ""
     navegador = sanitize_text(request.headers.get("User-Agent", ""), limite=200)
-    codigo = uuid.uuid4().hex[:6].upper()
-    linha = (f"[{agora_br().isoformat(timespec='seconds')}] PLUGGY {codigo} "
-             f"user={user['id']} motivo={motivo!r} bloqueios={bloqueios!r} ua={navegador!r}\n")
-    try:
-        if ERROS_LOG.exists() and ERROS_LOG.stat().st_size > ERROS_MAX_BYTES:
-            ERROS_LOG.write_text("", encoding="utf-8")
-        with ERROS_LOG.open("a", encoding="utf-8") as f:
-            f.write(linha)
-    except OSError:
-        pass
+    codigo = anotar_falha_pluggy(user["id"], motivo,
+                                 "bloqueios=" + bloqueios + " ua=" + navegador)
     return {"codigo": codigo}, 200
 
 
