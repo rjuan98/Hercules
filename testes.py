@@ -4362,6 +4362,46 @@ check("o widget usa o MESMO registro, em vez de uma copia",
       _app108.count("uuid.uuid4().hex[:6].upper()"))
 
 
+
+secao("109. Data de vencimento com ano absurdo")
+# Dois amigos cacadores de bug: na aba de Contas, preenchendo e editando o
+# vencimento, aparecia "um numero gigantesco". O campo de data nao tinha limite,
+# entao o navegador aceitava ano de seis digitos e mostrava na tela. O servidor
+# recusava depois — mas a pessoa ja tinha visto o app quebrado, e num app de
+# dinheiro isso basta pra ela nao voltar.
+for _d in ("999999-12-31", "9999-12-31", "1899-01-01", "2101-01-01", "", "abc"):
+    check("ano absurdo recusado: " + repr(_d), A.data_absurda(_d), _d)
+for _d in ("2026-08-04", "1900-01-01", "2100-12-31"):
+    check("data normal passa: " + _d, not A.data_absurda(_d))
+
+for _t in ("compromissos.html", "metas.html", "nova_transacao.html", "nova_nota.html",
+           "transacoes.html", "dividas.html", "listar.html"):
+    _h = _io_layout.open("templates/" + _t, encoding="utf-8").read()
+    if 'type="date"' in _h:
+        check(_t + ": todo campo de data tem limite",
+              _h.count('type="date"') == _h.count('max="2100-12-31"'),
+              (_h.count('type="date"'), _h.count('max="2100-12-31"')))
+
+# Navegador nao e barreira: o servidor tem que recusar sozinho.
+c_v = novo_cliente("venc@teste.com", nome="V")
+c_v.post("/compromissos", data={"csrf_token": "t", "descricao": "Aluguel",
+         "valor": "900,00", "vencimento": "9999-12-31", "tipo": "saida"})
+with get_db() as db:
+    _n = db.execute("SELECT COUNT(*) c FROM compromissos WHERE user_id=?",
+                    (uid_de("venc@teste.com"),)).fetchone()["c"]
+check("o servidor tambem recusa, nao so o navegador", _n == 0, _n)
+
+c_v.post("/compromissos", data={"csrf_token": "t", "descricao": "Aluguel",
+         "valor": "900,00", "vencimento": date.today().isoformat(), "tipo": "saida"})
+with get_db() as db:
+    _n2 = db.execute("SELECT COUNT(*) c FROM compromissos WHERE user_id=?",
+                     (uid_de("venc@teste.com"),)).fetchone()["c"]
+check("mas conta com data normal entra igual", _n2 == 1, _n2)
+
+check("a Ajuda tem botao de voltar",
+      "arrow-left" in _io_layout.open("templates/ajuda.html", encoding="utf-8").read())
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

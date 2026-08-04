@@ -97,7 +97,7 @@
         </div>
         <div class="form-group">
             <label for="prazo">Quero completar até <span class="helper-text">(opcional)</span></label>
-            <input id="prazo" type="date" name="prazo">
+            <input id="prazo" type="date" name="prazo" min="1900-01-01" max="2100-12-31">
         </div>
         <div class="form-group" style="grid-column:1 / -1;">
             <button class="button button-primary" type="submit" style="width:100%;">Criar meta</button>
@@ -166,7 +166,7 @@
                     </div>
                     <div class="form-group">
                         <label>Prazo</label>
-                        <input type="date" name="prazo" value="{{ goal['prazo'] or '' }}">
+                        <input type="date" name="prazo" value="{{ goal['prazo'] or '' }}" min="1900-01-01" max="2100-12-31">
                     </div>
                     <div class="form-group" style="grid-column:1 / -1;">
                         <button type="submit" class="button button-primary">Salvar alterações</button>

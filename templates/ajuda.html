@@ -28,6 +28,13 @@
         <a href="{{ url_for('privacidade') }}" style="color:var(--primary-deep); font-weight:800;">Ver a política de privacidade</a>
     </div>
 
+    <div class="page-actions" style="justify-content:flex-start; margin-bottom:14px;">
+        <a href="{{ url_for('home') if session.get('user_id') else url_for('login') }}"
+           class="button button-outline">
+            <i data-lucide="arrow-left"></i> Voltar
+        </a>
+    </div>
+
     <ol class="ajuda-passos">
         <li>
             <strong>Abra Configurações → Conectar banco</strong>

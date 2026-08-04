@@ -43,11 +43,11 @@
         </div>
         <div class="form-group">
             <label for="data_inicio">Data inicial</label>
-            <input id="data_inicio" type="date" name="data_inicio" value="{{ data_inicio }}">
+            <input id="data_inicio" type="date" name="data_inicio" value="{{ data_inicio }}" min="1900-01-01" max="2100-12-31">
         </div>
         <div class="form-group">
             <label for="data_fim">Data final</label>
-            <input id="data_fim" type="date" name="data_fim" value="{{ data_fim }}">
+            <input id="data_fim" type="date" name="data_fim" value="{{ data_fim }}" min="1900-01-01" max="2100-12-31">
         </div>
         <div class="form-group" style="grid-column:1 / -1;">
             <button type="submit" class="button button-primary">Filtrar</button>

@@ -1851,6 +1851,16 @@ def dentro_do_arrependimento(user) -> bool:
     return (hoje_br() - inicio).days <= DIAS_ARREPENDIMENTO
 
 
+def data_absurda(texto: str) -> bool:
+    """Ano fora do que uma conta pode ter. O navegador aceita o que a pessoa
+    digitar, e ano de seis dígitos vira "um número gigantesco" na tela."""
+    try:
+        ano = date.fromisoformat(str(texto)[:10]).year
+    except (TypeError, ValueError):
+        return True
+    return not 1900 <= ano <= 2100
+
+
 def valor_absurdo(v: float) -> bool:
     """Bate no teto = quase certamente dedo escorregando. Melhor recusar e dizer,
     do que aceitar calado e envenenar saldo, média e gráfico da pessoa.
@@ -4204,6 +4214,8 @@ def dividas():
         vencimento = request.form.get("vencimento") or None
         if vencimento:
             try:
+                if data_absurda(vencimento):
+                    raise ValueError("ano fora da faixa")
                 date.fromisoformat(vencimento)
             except ValueError:
                 vencimento = None
@@ -4872,6 +4884,8 @@ def compromissos():
             flash("Preencha descrição, valor e vencimento.")
             return redirect(url_for("compromissos"))
         try:
+            if data_absurda(vencimento):
+                raise ValueError("ano fora da faixa")
             date.fromisoformat(vencimento)
         except ValueError:
             flash("Data de vencimento inválida.")

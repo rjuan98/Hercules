@@ -33,7 +33,7 @@
         </div>
         <div class="form-group">
             <label for="data_transacao">Data</label>
-            <input id="data_transacao" type="date" name="data_transacao" value="{{ (tx['data_transacao'] or date.today().isoformat()) if editando else date.today().isoformat() }}">
+            <input id="data_transacao" type="date" name="data_transacao" value="{{ (tx['data_transacao'] or date.today().isoformat()) if editando else date.today().isoformat() }}" min="1900-01-01" max="2100-12-31">
         </div>
 
         <div class="form-group" style="grid-column:1 / -1;">

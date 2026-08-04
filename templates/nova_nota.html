@@ -25,7 +25,7 @@
         </div>
         <div class="form-group">
             <label for="data_emissao">Data de emissão</label>
-            <input id="data_emissao" type="date" name="data_emissao" value="{{ note['data_emissao'] if note and note['data_emissao'] else '' }}">
+            <input id="data_emissao" type="date" name="data_emissao" value="{{ note['data_emissao'] if note and note['data_emissao'] else '' }}" min="1900-01-01" max="2100-12-31">
         </div>
         <div class="form-group">
             <label for="categoria">Categoria</label>
