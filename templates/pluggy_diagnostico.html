@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block title %}Diagnóstico da conexão · Hércules{% endblock %}
+{% block page_title %}Diagnóstico da conexão{% endblock %}
+{% block page_subtitle %}Onde a corrente arrebenta, elo por elo.{% endblock %}
+
+{% block content %}
+{% set quebrou = passos | selectattr('ok', 'equalto', false) | list %}
+<section class="page-card" style="max-width:720px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            {% if quebrou %}
+            <strong>Achei onde trava: {{ quebrou[0].nome }}.</strong><br>
+            Os elos abaixo do que falhou não têm como funcionar enquanto esse não passar.
+            {% else %}
+            <strong>Todos os elos passaram.</strong><br>
+            Se ainda assim não conectar, o problema está no navegador de quem tenta — e a
+            tela de conexão vai dizer qual, com um código.
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<section class="page-card" style="max-width:720px; margin:18px auto 0;">
+    <ul class="dias-do-ritmo">
+        {% for p in passos %}
+        <li{% if p.ok is false %} class="dia-fora"{% endif %}>
+            <span>
+                {% if p.ok is true %}<i class="icone-texto" data-lucide="check"></i>
+                {% elif p.ok is false %}<i class="icone-texto" data-lucide="x"></i>
+                {% else %}<i class="icone-texto" data-lucide="minus"></i>{% endif %}
+                {{ p.nome }}
+            </span>
+            <span class="dia-itens">{{ p.detalhe }}</span>
+            <strong>{% if p.ok is true %}ok{% elif p.ok is false %}falhou{% else %}—{% endif %}</strong>
+            {% if p.dica and p.ok is not true %}<em>{{ p.dica }}</em>{% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+
+{% if bancos %}
+<section class="page-card" style="max-width:720px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:4px;">
+        {{ bancos|length }} banco{{ '' if bancos|length == 1 else 's' }} na janela
+    </h2>
+    <p class="topbar-subtitle" style="margin-bottom:12px;">
+        Se o banco de quem está tentando está nesta lista, ele <strong>não precisa</strong>
+        criar conta em lugar nenhum antes — é escolher e entrar.
+    </p>
+    <ul class="dias-do-ritmo">
+        {% for b in bancos[:40] %}
+        <li>
+            <span>{{ b.name }}</span>
+            <span class="dia-itens">{{ b.type or '' }}</span>
+            <strong>{{ b.health.status if b.health else '—' }}</strong>
+        </li>
+        {% endfor %}
+    </ul>
+    {% if bancos|length > 40 %}
+    <p class="helper-text" style="margin-top:10px;">… e mais {{ bancos|length - 40 }}.</p>
+    {% endif %}
+</section>
+{% elif tem_meu_pluggy %}
+<section class="page-card" style="max-width:720px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:8px;">O degrau</h2>
+    <p class="subtitle">
+        Esta conta só oferece o <strong>Meu Pluggy</strong>: quem quiser conectar precisa
+        criar um cadastro fora do Hércules, ligar o banco lá, e só então voltar. É o passo
+        onde as pessoas desistem — e não tem como o código contornar isso.
+    </p>
+    <p class="subtitle" style="margin-top:12px;">
+        Conexão direta com banco é a parte paga da Pluggy. Ou o plano muda, ou o degrau
+        continua. Melhor saber agora do que descobrir com dez pessoas desistindo.
+    </p>
+</section>
+{% endif %}
+
+<p class="helper-text" style="max-width:720px; margin:18px auto 0; text-align:center;">
+    <a href="{{ url_for('settings') }}">Voltar às configurações</a>
+</p>
+{% endblock %}

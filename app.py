@@ -5571,32 +5571,91 @@ def pluggy_falhou():
     return {"codigo": codigo}, 200
 
 
-@app.route("/pluggy/conectores")
+@app.route("/pluggy/diagnostico")
 @login_required
-def pluggy_lista_conectores():
-    """Mostra quais bancos esta conta Pluggy consegue conectar de verdade.
+def pluggy_diagnostico():
+    """Confere elo por elo o caminho até o banco aparecer na tela.
 
-    Serve pra decidir uma coisa só: a tela precisa mesmo mandar a pessoa criar
-    conta no Meu Pluggy antes, ou os bancos aparecem direto? Um passo a mais
-    numa conexão é onde a maioria desiste.
+    São seis, e cada um falha de um jeito diferente: chave errada no servidor,
+    autenticação recusada, token não emitido, conta sem conector, item que as
+    chaves não enxergam, e o script bloqueado no navegador. "Não conectou" pode
+    ser qualquer um deles — e sem separar, vira adivinhação.
     """
-    if not pluggy_configured():
-        flash("A conexão automática ainda não está ligada neste servidor.")
-        return redirect(url_for("settings"))
+    user = current_user()
+    passos = []
+
+    def anota(nome, ok, detalhe="", dica=""):
+        passos.append({"nome": nome, "ok": ok, "detalhe": detalhe, "dica": dica})
+        return ok
+
+    # 1. As chaves existem neste servidor?
+    if not anota("Chaves no servidor", bool(PLUGGY_CLIENT_ID and PLUGGY_CLIENT_SECRET),
+                 f"Client ID {'presente' if PLUGGY_CLIENT_ID else 'FALTANDO'}, "
+                 f"Secret {'presente' if PLUGGY_CLIENT_SECRET else 'FALTANDO'}",
+                 "Ponha PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no arquivo WSGI e dê Reload."):
+        return render_template("pluggy_diagnostico.html", user=user, passos=passos,
+                               bancos=[], tem_meu_pluggy=False)
+
+    # 2. A Pluggy aceita essas chaves?
     try:
-        conectores = pluggy_conectores(pluggy_auth())
+        api_key = pluggy_auth()
+        anota("Autenticação na Pluggy", True, "As chaves foram aceitas.")
     except Exception as e:
-        flash("Não consegui perguntar à Pluggy: " + _pluggy_erro_detalhe(e))
-        return redirect(url_for("settings"))
+        anota("Autenticação na Pluggy", False, _pluggy_erro_detalhe(e),
+              "Chave errada, expirada, ou de outro ambiente. Confira no painel da Pluggy.")
+        return render_template("pluggy_diagnostico.html", user=user, passos=passos,
+                               bancos=[], tem_meu_pluggy=False)
 
-    def _e_meu_pluggy(c):
-        return "pluggy" in (c.get("name") or "").lower()
+    # 3. O token que abre a janela é emitido?
+    try:
+        pluggy_connect_token(api_key)
+        anota("Token da janela de conexão", True, "Emitido.")
+    except Exception as e:
+        anota("Token da janela de conexão", False, _pluggy_erro_detalhe(e),
+              "A conta autentica mas não emite token — costuma ser limite do plano.")
 
-    bancos = sorted((c for c in conectores if not _e_meu_pluggy(c)),
-                    key=lambda c: (c.get("name") or "").lower())
-    return render_template("pluggy_conectores.html", user=current_user(),
-                           bancos=bancos, total=len(conectores),
-                           tem_meu_pluggy=any(_e_meu_pluggy(c) for c in conectores))
+    # 4. O que a conta oferece? É aqui que se decide se existe caminho sem
+    #    cadastro extra, que foi o degrau onde os primos pararam.
+    bancos, tem_meu_pluggy = [], False
+    try:
+        conectores = pluggy_conectores(api_key)
+        tem_meu_pluggy = any("pluggy" in (c.get("name") or "").lower() for c in conectores)
+        bancos = sorted((c for c in conectores if "pluggy" not in (c.get("name") or "").lower()),
+                        key=lambda c: (c.get("name") or "").lower())
+        if bancos:
+            anota("Bancos disponíveis", True,
+                  f"{len(bancos)} banco(s) aparecem direto na janela, sem cadastro extra.")
+        else:
+            anota("Bancos disponíveis", False,
+                  "Nenhum banco direto — só o Meu Pluggy, que pede cadastro fora do app."
+                  if tem_meu_pluggy else "Nenhum conector disponível nesta conta.",
+                  "É limite do plano, não do código. Quem conectar vai ter que criar "
+                  "conta no Meu Pluggy antes, e é aí que a maioria desiste.")
+    except Exception as e:
+        anota("Bancos disponíveis", False, _pluggy_erro_detalhe(e))
+
+    # 5. Se já houve conexão, as chaves ainda enxergam aquele item?
+    item_ids = pluggy_user_item_ids(user)
+    if not item_ids:
+        anota("Seu banco conectado", None, "Você ainda não conectou nenhum banco.",
+              "Normal se você nunca passou pela janela.")
+    else:
+        try:
+            contas = pluggy_accounts(api_key, item_ids)
+            if contas:
+                nomes = ", ".join((c.get("name") or c.get("type") or "conta") for c in contas[:4])
+                anota("Seu banco conectado", True, f"{len(contas)} conta(s): {nomes}")
+            else:
+                anota("Seu banco conectado", False,
+                      "O item existe mas não devolve contas.",
+                      "Costuma ser acesso expirado: refaça a conexão.")
+        except Exception as e:
+            anota("Seu banco conectado", False, _pluggy_erro_detalhe(e),
+                  "As chaves atuais não enxergam este item. Se o Client ID mudou, "
+                  "o item antigo ficou órfão — refaça a conexão.")
+
+    return render_template("pluggy_diagnostico.html", user=user, passos=passos,
+                           bancos=bancos, tem_meu_pluggy=tem_meu_pluggy)
 
 
 @app.route("/pluggy/testar", methods=["POST"])
