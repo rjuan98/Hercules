@@ -4298,6 +4298,27 @@ check("e nenhuma variavel de vidro ficou duplicada dentro do mesmo bloco",
       _bloco_escuro.count("--vidro:") == 1, _bloco_escuro.count("--vidro:"))
 
 
+
+secao("107. iPhone com o app na tela de inicio")
+# Dois primos usam iPhone. No iOS, app aberto pelo icone roda num webview
+# isolado do Safari — e a conexao com o banco precisa VOLTAR pra ca depois de
+# passar pelo site do banco. Dali, nao volta. Falha calada, que e a pior.
+_tpl107 = _io_layout.open("templates/pluggy_conectar.html", encoding="utf-8").read()
+check("detecta iPhone", "iPad|iPhone|iPod" in _tpl107)
+check("e iPad novo, que se apresenta como Mac",
+      "MacIntel" in _tpl107 and "maxTouchPoints" in _tpl107)
+check("detecta o app aberto pelo icone da tela de inicio",
+      "navigator.standalone" in _tpl107 and "display-mode: standalone" in _tpl107)
+check("avisa ANTES de tentar, em vez de deixar falhar calado",
+      "aviso-standalone" in _tpl107 and "Abra pelo Safari" in _tpl107)
+check("explica que a conexao fica na conta, nao no aparelho",
+      "n\u00e3o no aparelho" in _tpl107)
+check("e manda esse contexto junto quando falha", "tela-de-inicio" in _tpl107)
+check("o aviso nasce escondido, pra quem nao e iPhone nao ver",
+      'id="aviso-standalone"' in _tpl107
+      and "hidden" in _tpl107.split('id="aviso-standalone"')[1][:120])
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

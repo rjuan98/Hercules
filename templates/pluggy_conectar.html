@@ -37,6 +37,24 @@
     </p>
     {% endif %}
 
+    {# iPhone com o app na tela de inicio abre num webview separado, com
+       armazenamento particionado e sem os cookies do Safari. O widget precisa
+       disso pra manter a sessao entre a janela do banco e a volta — e falha
+       calado. Avisar ANTES custa um paragrafo; descobrir depois custa a pessoa. #}
+    <div id="aviso-standalone" class="auth-note" hidden
+         style="margin-top:14px; border-left:4px solid var(--warning);">
+        <p class="note-title" style="margin:0 0 6px;">
+            <i class="icone-texto" data-lucide="smartphone"></i> Abra pelo Safari, só desta vez
+        </p>
+        <p class="helper-text" style="margin:0;">
+            Você está usando o Hércules pelo ícone da tela de início. No iPhone, essa
+            janela fica isolada do Safari — e a conexão com o banco precisa voltar pra
+            cá depois de passar pelo site do banco, o que não funciona daqui.<br><br>
+            <strong>Abra o Safari, entre no Hércules por lá e conecte.</strong> Depois é
+            só voltar pro ícone: a conexão fica salva na sua conta, não no aparelho.
+        </p>
+    </div>
+
     <p id="pluggy-status" class="helper-text"></p>
 
     {# Quando falha, a pessoa precisa sair daqui com alguma coisa na mão. Antes
@@ -90,6 +108,16 @@ window.addEventListener('DOMContentLoaded', function () {
     // O navegador avisa quando a política de segurança bloqueia alguma coisa.
     // Sem escutar isso, um recurso barrado vira "não conectou" e ninguém
     // descobre o motivo — foi assim que o logo dos conectores sumiu sem aviso.
+    // iOS + tela de inicio = webview isolado. Detectado aqui e mandado junto no
+    // relato de falha, pra nao virar mais um "nao conectou" sem contexto.
+    var iOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var standalone = window.navigator.standalone === true
+        || window.matchMedia('(display-mode: standalone)').matches;
+    if (iOS && standalone) {
+        document.getElementById('aviso-standalone').hidden = false;
+    }
+
     var bloqueios = [];
     document.addEventListener('securitypolicyviolation', function (e) {
         var alvo = (e.blockedURI || '?') + ' (' + (e.violatedDirective || '?') + ')';
@@ -119,7 +147,8 @@ window.addEventListener('DOMContentLoaded', function () {
         var body = new URLSearchParams();
         body.append('csrf_token', csrf);
         body.append('motivo', motivo || 'sem detalhe');
-        body.append('bloqueios', bloqueios.join(' | '));
+        body.append('bloqueios', bloqueios.join(' | ')
+            + (iOS ? ' | iOS' : '') + (standalone ? ' | tela-de-inicio' : ''));
         fetch(falhouUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
