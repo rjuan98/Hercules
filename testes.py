@@ -3847,6 +3847,69 @@ check("Configuracoes leva pra baixar os dados",
 check("e pros planos", "/planos" in c_md.get("/settings").get_data(as_text=True))
 
 
+secao("101. O dossie responde, em vez de dar trabalho")
+# Quem recebe isto e o contador — e ele e o caminho pros clientes dele. Antes o
+# arquivo era so um CSV cru e os anexos vinham nomeados com o id do banco, que
+# nao diz nada pra quem abre.
+import zipfile as _z101
+import io as _io101
+
+c_do = novo_cliente("dossie@teste.com", nome="Doceira", perfil="mei")
+uid_do = uid_de("dossie@teste.com")
+_ANO = date.today().year - 1
+
+with get_db() as db:
+    for _i, (_dia, _v, _cat) in enumerate([
+            (f"{_ANO}-01-14", 380.0, "Serviços"), (f"{_ANO}-02-11", 240.0, "Varejo"),
+            (f"{_ANO}-02-25", 1450.0, "Serviços"), (f"{_ANO}-12-20", 880.0, "Varejo")], start=1):
+        db.execute("""INSERT INTO notas (user_id,descricao,valor,categoria,numero_nota,
+                      status,tipo,data_emissao) VALUES (?,?,?,?,?,'Autorizada','entrada',?)""",
+                   (uid_do, f"venda {_i}", _v, _cat, f"{_i:04d}", _dia))
+    db.execute("""INSERT INTO notas (user_id,descricao,valor,categoria,status,tipo,data_emissao)
+                  VALUES (?,'compra de insumos',420.0,'Alimentação','Autorizada','saida',?)""",
+               (uid_do, f"{_ANO}-03-03"))
+    for _m in range(1, 12):
+        db.execute("""INSERT INTO compromissos (user_id,descricao,valor,vencimento,tipo,status)
+                      VALUES (?,'DAS-MEI',75.90,?,'saida','pago')""",
+                   (uid_do, f"{_ANO}-{_m:02d}-20"))
+
+_r_do = c_do.get(f"/mei/dossie?year={_ANO}")
+check("o dossie e gerado", _r_do.status_code == 200, _r_do.status_code)
+_zd = _z101.ZipFile(_io101.BytesIO(_r_do.data))
+check("traz resumo, planilha e leia-me",
+      {f"RESUMO_{_ANO}.txt", f"notas_{_ANO}.csv", "LEIA-ME.txt"} <= set(_zd.namelist()),
+      _zd.namelist())
+
+_res = _zd.read(f"RESUMO_{_ANO}.txt").decode("utf-8")
+# Receita bruta = so as notas de ENTRADA. Somar despesa junto seria o erro que
+# faz o contador desconfiar do arquivo inteiro.
+check("a receita bruta soma so as notas de entrada", "R$ 2.950,00" in _res, _res[:400])
+check("nao mistura a nota de despesa na receita", "3.370" not in _res)
+# A DASN-SIMEI pede a receita separada; sem isso o contador refaz a conta na mao.
+check("separa comercio/industria de servicos",
+      "Comércio / indústria" in _res and "Serviços" in _res)
+check("com os valores certos de cada um",
+      "R$ 1.120,00" in _res and "R$ 1.830,00" in _res, _res[:400])
+check("mostra o mes a mes", "Janeiro" in _res and "Dezembro" in _res)
+check("mostra quanto do limite do MEI foi usado",
+      "Limite do MEI" in _res and "81.000,00" in _res)
+check("e quantas guias de DAS foram pagas", "11 de 12" in _res, _res)
+check("diz que e resumo pra conferencia, nao apuracao oficial",
+      "não a apuração oficial" in _res)
+
+_csv_do = _zd.read(f"notas_{_ANO}.csv").decode("utf-8")
+check("a planilha comeca pela data, pra ordenar sozinha",
+      _csv_do.startswith("data_emissao,"), _csv_do[:60])
+check("e tem a coluna que liga cada linha ao anexo", "arquivo_anexo" in _csv_do)
+
+# Ano sem nota nenhuma nao pode gerar arquivo quebrado.
+_r_vazio = c_do.get(f"/mei/dossie?year={_ANO - 5}")
+check("ano sem nota ainda gera dossie", _r_vazio.status_code == 200)
+_zv = _z101.ZipFile(_io101.BytesIO(_r_vazio.data))
+check("e diz que nao houve nota, em vez de mostrar tabela vazia",
+      "nenhuma nota de entrada" in _zv.read(f"RESUMO_{_ANO - 5}.txt").decode("utf-8"))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

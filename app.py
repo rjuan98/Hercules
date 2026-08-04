@@ -3720,14 +3720,93 @@ def dossie_mei():
             (user["id"], year),
         ).fetchall()
 
+    # Receita bruta = notas de ENTRADA. Uma nota de despesa não fatura nada, e
+    # somar as duas é o erro que faria o contador desconfiar do arquivo inteiro.
+    entradas = [n for n in notes if (n["tipo"] or "entrada") == "entrada"]
+    saidas = [n for n in notes if (n["tipo"] or "entrada") != "entrada"]
+    receita = sum(float(n["valor"] or 0) for n in entradas)
+
+    # A DASN-SIMEI pede a receita separada entre comércio/indústria e serviços.
+    # Sem essa quebra, o contador refaz a conta na mão — que é justamente o
+    # trabalho que este arquivo existe pra poupar.
+    CATS_SERVICO = {"Serviços", "Servicos"}
+    receita_servico = sum(float(n["valor"] or 0) for n in entradas
+                          if (n["categoria"] or "") in CATS_SERVICO)
+    receita_comercio = receita - receita_servico
+
+    por_mes: dict[str, float] = {}
+    for n in entradas:
+        dia = (n["data_emissao"] or n["data_upload"] or "")[:7]
+        if len(dia) == 7:
+            por_mes[dia] = por_mes.get(dia, 0.0) + float(n["valor"] or 0)
+
+    das = mei_das_status(user["id"], int(year))
+    limite_pct = (receita / MEI_LIMITE_ANUAL * 100) if MEI_LIMITE_ANUAL else 0
+
+    def _brl(v):
+        return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        # 1. O resumo. É o primeiro arquivo do zip de propósito: quem abre tem
+        #    que ver a resposta antes de ver a tabela.
+        resumo = [
+            f"DOSSIÊ MEI {year} — {user['nome'] or ''}".strip(),
+            "=" * 58,
+            "",
+            "RECEITA BRUTA DO ANO",
+            f"  Total ............................ {_brl(receita)}",
+            f"  Comércio / indústria ............. {_brl(receita_comercio)}",
+            f"  Serviços ......................... {_brl(receita_servico)}",
+            "",
+            f"  Limite do MEI .................... {_brl(MEI_LIMITE_ANUAL)}",
+            f"  Usado ............................ {limite_pct:.1f}%",
+            "",
+            "MÊS A MÊS",
+        ]
+        for mes in sorted(por_mes):
+            nome_mes = MONTH_NAMES.get(mes[5:7], mes[5:7])
+            resumo.append(f"  {nome_mes:<12} {_brl(por_mes[mes]):>16}")
+        if not por_mes:
+            resumo.append("  (nenhuma nota de entrada registrada neste ano)")
+        resumo += [
+            "",
+            "DAS",
+            f"  Guias marcadas como pagas ........ {das.get('pagos', 0)} de 12",
+            "",
+            "NOTAS",
+            f"  De entrada (faturamento) ......... {len(entradas)}",
+            f"  De despesa ....................... {len(saidas)}",
+            f"  Com arquivo anexado .............. {sum(1 for n in notes if n['arquivo'])}",
+            "",
+            "=" * 58,
+            "Gerado pelo Hércules em " + hoje_br().strftime("%d/%m/%Y") + ".",
+            "",
+            "Os valores vêm das notas guardadas pela pessoa. É um resumo para",
+            "conferência, não a apuração oficial — quem fecha o ano é o contador.",
+        ]
+        zf.writestr(f"RESUMO_{year}.txt", "\n".join(resumo))
+
+        # 2. A tabela, com o nome do arquivo anexado em cada linha, pra dar pra
+        #    ir da planilha até a foto sem procurar.
         csv_buffer = io.StringIO()
         writer = csv.writer(csv_buffer)
-        writer.writerow(["descricao", "valor", "tipo", "categoria", "cliente", "cnpj_emitente",
-                          "numero_nota", "status", "data_emissao", "data_upload"])
-        for note in notes:
+        writer.writerow(["data_emissao", "descricao", "valor", "tipo", "categoria", "cliente",
+                         "cnpj_emitente", "numero_nota", "status", "arquivo_anexo",
+                         "data_upload"])
+        anexos = {}
+        for i, note in enumerate(notes, start=1):
+            nome_anexo = ""
+            if note["arquivo"]:
+                data = (note["data_emissao"] or note["data_upload"] or "")[:10] or "sem-data"
+                sufixo = Path(str(note["arquivo"])).suffix or ".jpg"
+                numero = sanitize_text(note["numero_nota"] or "") or f"{i:03d}"
+                # Nome que ORDENA por data e diz de que nota é. Antes era o id do
+                # banco, que não significa nada pra quem recebe o arquivo.
+                nome_anexo = f"{data}_nota-{numero}{sufixo}".replace("/", "-")
+                anexos[nome_anexo] = note["arquivo"]
             writer.writerow([
+                note["data_emissao"] or "",
                 note["descricao"],
                 f"{float(note['valor']):.2f}",
                 note["tipo"],
@@ -3736,16 +3815,26 @@ def dossie_mei():
                 note["cnpj_emitente"] or "",
                 note["numero_nota"] or "",
                 note["status"] or "",
-                note["data_emissao"] or "",
+                nome_anexo,
                 note["data_upload"] or "",
             ])
         zf.writestr(f"notas_{year}.csv", csv_buffer.getvalue())
 
-        for note in notes:
-            if note["arquivo"]:
-                file_path = UPLOAD_DIR / note["arquivo"]
-                if file_path.exists():
-                    zf.write(file_path, arcname=f"anexos/{note['id']}_{note['arquivo']}")
+        for nome_anexo, arquivo in anexos.items():
+            caminho = UPLOAD_DIR / str(arquivo)
+            if caminho.exists():
+                zf.write(caminho, arcname=f"notas/{nome_anexo}")
+
+        zf.writestr("LEIA-ME.txt",
+                    f"Dossiê MEI {year}\n"
+                    "=" * 30 + "\n\n"
+                    f"RESUMO_{year}.txt   o ano fechado: receita bruta, a separação entre\n"
+                    "                    comércio e serviços que a DASN-SIMEI pede, e o mês a mês.\n\n"
+                    f"notas_{year}.csv    todas as notas em tabela. Abre no Excel e no Google\n"
+                    "                    Planilhas. A coluna arquivo_anexo diz qual foto é de\n"
+                    "                    qual linha.\n\n"
+                    "notas/              as fotos, nomeadas por data e número da nota, então\n"
+                    "                    ficam em ordem cronológica sozinhas.\n")
 
     buffer.seek(0)
     filename = f"dossie_mei_{year}.zip"
