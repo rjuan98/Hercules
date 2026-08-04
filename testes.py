@@ -3560,6 +3560,177 @@ check("o detector faz UMA consulta, nao uma por lancamento",
       _contador93["n"] == 1, _contador93["n"])
 
 
+secao("95. O app nao pode ser trampolim pra outro site")
+# 7 rotas faziam redirect(request.referrer or ...). O Referer vem de quem faz a
+# requisicao, entao um link pro dominio do Hercules cuspia a pessoa em outro
+# site — com o dominio confiavel aparecendo antes, que e o truque de um phishing
+# bom.
+c_rd = novo_cliente("redirect@teste.com", nome="Rd")
+
+for _hostil in ["https://site-malicioso.com/phishing", "//evil.com", "javascript:alert(1)",
+                "data:text/html,<script>alert(1)</script>", "HtTpS://EVIL.com",
+                "https://evil.com@localhost/x", "\\\\evil.com"]:
+    _r = c_rd.post("/duplicata", data={"csrf_token": "t", "id_manual": "1"},
+                   headers={"Referer": _hostil}, follow_redirects=False)
+    _destino = _r.headers.get("Location", "")
+    _escapou = (_destino.startswith("//") or _destino.startswith("javascript:")
+                or _destino.startswith("data:") or _destino.startswith("\\\\")
+                or (_destino.startswith("http") and "localhost" not in _destino))
+    check(f"Referer {_hostil[:30]:<32} nao leva pra fora", not _escapou, _destino[:50])
+
+check("caminho relativo do proprio app continua funcionando",
+      c_rd.post("/duplicata", data={"csrf_token": "t", "id_manual": "1"},
+                headers={"Referer": "/meses"},
+                follow_redirects=False).headers.get("Location") == "/meses")
+check("endereco completo do MESMO host tambem volta certo",
+      c_rd.post("/duplicata", data={"csrf_token": "t", "id_manual": "1"},
+                headers={"Referer": "http://localhost/transacoes", "Host": "localhost"},
+                follow_redirects=False).headers.get("Location") == "http://localhost/transacoes")
+check("sem Referer, cai no destino padrao",
+      c_rd.post("/duplicata", data={"csrf_token": "t", "id_manual": "1"},
+                follow_redirects=False).headers.get("Location", "").endswith("/"))
+check("nenhuma rota redireciona direto pro referrer",
+      "request.referrer or url_for" not in _io_layout.open("app.py", encoding="utf-8").read())
+
+
+secao("96. Valor que nao e numero nao pode entrar no banco")
+# float("1e400") e infinito e float("nan") e NaN — os dois saem de um OFX
+# malformado sem esforco. O infinito ENTRAVA: o saldo virava "R$ -inf" na tela,
+# pra sempre. O NaN derrubava a importacao inteira com IntegrityError.
+check("valor_absurdo pega infinito", A.valor_absurdo(float("inf")))
+check("e pega NaN — 'nan >= X' e False, entao ele passava batido",
+      A.valor_absurdo(float("nan")))
+check("mas nao estraga valor normal",
+      not A.valor_absurdo(500.0) and not A.valor_absurdo(0.0) and not A.valor_absurdo(-99.9))
+
+for _veneno in ["1e400", "-1e400", "nan", "-nan", "inf", "-inf", "Infinity", "1" + "0" * 400]:
+    _itens = A.parse_ofx(
+        f"<STMTTRN><TRNAMT>{_veneno}</TRNAMT><DTPOSTED>20260101</DTPOSTED></STMTTRN>")
+    check(f"OFX com {_veneno[:10]:<11} e descartado", _itens == [], _itens)
+
+c_vn = novo_cliente("veneno@teste.com", nome="Vn")
+uid_vn = uid_de("veneno@teste.com")
+A.import_ofx_transactions(uid_vn, A.parse_ofx(
+    "<STMTTRN><TRNAMT>-1e400</TRNAMT><DTPOSTED>20260101</DTPOSTED><MEMO>VENENO</MEMO></STMTTRN>"
+    "<STMTTRN><TRNAMT>nan</TRNAMT><DTPOSTED>20260101</DTPOSTED><MEMO>VENENO2</MEMO></STMTTRN>"
+    "<STMTTRN><TRNAMT>-500</TRNAMT><DTPOSTED>20260101</DTPOSTED><MEMO>MERCADO</MEMO></STMTTRN>"))
+_st_vn = A.calc_transaction_totals(uid_vn)
+check("a linha boa do arquivo entra", _st_vn["balance"] == -500.0, _st_vn["balance"])
+check("o saldo continua sendo um numero de verdade",
+      _st_vn["balance"] == _st_vn["balance"] and abs(_st_vn["balance"]) != float("inf"))
+
+# Rede de seguranca no importador: vale pra qualquer origem, ate uma que nao
+# existe ainda.
+_n_antes_vn = None
+with get_db() as db:
+    _n_antes_vn = db.execute("SELECT COUNT(*) c FROM transacoes WHERE user_id=?",
+                             (uid_vn,)).fetchone()["c"]
+A.import_ofx_transactions(uid_vn, [
+    {"valor": float("inf"), "tipo": "saida", "data": "2026-08-01", "descricao": "D1",
+     "fitid": "X1", "no_credito": False},
+    {"valor": float("nan"), "tipo": "saida", "data": "2026-08-01", "descricao": "D2",
+     "fitid": "X2", "no_credito": False},
+    {"valor": None, "tipo": "saida", "data": "2026-08-01", "descricao": "D3",
+     "fitid": "X3", "no_credito": False},
+])
+with get_db() as db:
+    _n_depois_vn = db.execute("SELECT COUNT(*) c FROM transacoes WHERE user_id=?",
+                              (uid_vn,)).fetchone()["c"]
+check("o importador barra infinito, NaN e None vindos de qualquer lugar",
+      _n_depois_vn == _n_antes_vn, (_n_antes_vn, _n_depois_vn))
+check("e nao derruba o import inteiro por causa de uma linha ruim",
+      A.import_ofx_transactions(uid_vn, [
+          {"valor": float("inf"), "tipo": "saida", "data": "2026-08-01", "descricao": "ruim",
+           "fitid": "Y1", "no_credito": False},
+          {"valor": 42.0, "tipo": "saida", "data": "2026-08-01", "descricao": "boa",
+           "fitid": "Y2", "no_credito": False}])["importadas"] == 1)
+
+
+secao("97. Backup que nao restaura nao e backup")
+# O proprio backup.py imprime "python backup.py --restaurar <nome> saida.db",
+# mas restaurar() abria Path(<nome>) direto — e as copias moram noutra pasta.
+# Seguindo a instrucao do app, dava FileNotFoundError. No dia em que o banco
+# quebrasse, ele descobriria isso tarde demais.
+import backup as _B97
+import sqlite3 as _sq97
+
+_dir97 = tempfile.mkdtemp()
+_B97.BACKUP_DIR = pathlib.Path(_dir97)
+_copia = _B97.fazer_backup()
+check("o backup e feito", _copia.exists())
+
+_destino97 = os.path.join(_dir97, "restaurado.db")
+_saida97 = _B97.restaurar(_copia.name, _destino97)          # SO O NOME
+check("restaura passando so o nome, como o comando manda", _saida97.exists())
+
+_conf97 = _sq97.connect(_saida97)
+_conf97.row_factory = _sq97.Row
+_cols97 = {r["name"] for r in _conf97.execute("PRAGMA table_info(transacoes)")}
+_integ97 = _conf97.execute("PRAGMA integrity_check").fetchone()[0]
+_conf97.close()
+check("a copia restaurada esta integra", _integ97 == "ok", _integ97)
+check("e traz as colunas novas desta sessao",
+      {"interno", "dup_ok"} <= _cols97, sorted(_cols97))
+
+check("caminho inteiro tambem continua funcionando",
+      _B97.restaurar(str(_copia), os.path.join(_dir97, "r2.db")).exists())
+
+try:
+    _B97.restaurar("nao-existe.db.gz", os.path.join(_dir97, "x.db"))
+    check("copia inexistente avisa em vez de estourar", False, "nao levantou nada")
+except FileNotFoundError as _e97:
+    _msg97 = str(_e97)
+    check("copia inexistente avisa qual e o problema", "Não achei a cópia" in _msg97, _msg97[:60])
+    check("e lista as copias que existem", "Cópias que existem" in _msg97, _msg97[:120])
+except Exception as _e97:
+    check("copia inexistente avisa em vez de estourar", False, type(_e97).__name__)
+
+
+secao("98. Banco antigo, de antes das colunas novas, ainda abre")
+# Se restaurar uma copia antiga quebrar o app, o backup deixa de ser rede de
+# seguranca — que e a unica coisa que ele precisa ser.
+_dir98 = tempfile.mkdtemp()
+_db98 = os.path.join(_dir98, "antigo.db")
+_c98 = _sq97.connect(_db98)
+_c98.executescript("""
+CREATE TABLE usuarios (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL, senha TEXT NOT NULL, perfil TEXT NOT NULL DEFAULT 'pf',
+  home_focus TEXT NOT NULL DEFAULT 'saldo', notification_mode TEXT NOT NULL DEFAULT 'equilibrado',
+  meta_mensal REAL NOT NULL DEFAULT 0.0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE transacoes (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+  nota_id INTEGER, tipo TEXT NOT NULL CHECK(tipo IN ('entrada','saida')), valor REAL NOT NULL,
+  descricao TEXT, estabelecimento TEXT, categoria TEXT, data_transacao TEXT,
+  fonte TEXT NOT NULL DEFAULT 'manual', confidence INTEGER NOT NULL DEFAULT 100,
+  needs_review INTEGER NOT NULL DEFAULT 0, extra_json TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES usuarios (id) ON DELETE CASCADE);
+""")
+_c98.execute("INSERT INTO usuarios (nome,email,senha) VALUES ('Velho','v@t.com','x')")
+for _i in range(5):
+    _c98.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                    data_transacao) VALUES (1,'saida',?,?,'Mercado','ofx',?)""",
+                 (50 + _i, f"antigo {_i}", date.today().isoformat()))
+_c98.commit()
+_c98.close()
+
+import database as _DB98
+_path_original98 = _DB98.DB_PATH
+_DB98.DB_PATH = pathlib.Path(_db98)
+try:
+    _DB98.init_db()
+    with _DB98.get_db() as _d98:
+        _cols_tx = {r["name"] for r in _d98.execute("PRAGMA table_info(transacoes)")}
+        _cols_us = {r["name"] for r in _d98.execute("PRAGMA table_info(usuarios)")}
+        _n98 = _d98.execute("SELECT COUNT(*) c FROM transacoes").fetchone()["c"]
+        _marcados98 = _d98.execute("SELECT COUNT(*) c FROM transacoes WHERE interno=1").fetchone()["c"]
+    check("abrir um banco antigo cria as colunas que faltavam",
+          {"interno", "dup_ok"} <= _cols_tx and "dia_virada" in _cols_us)
+    check("e nao perde nenhum lancamento antigo", _n98 == 5, _n98)
+    check("nem marca nada como interno por acidente", _marcados98 == 0, _marcados98)
+finally:
+    _DB98.DB_PATH = _path_original98
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

@@ -34,6 +34,7 @@ from flask import (
 from markupsafe import Markup
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
+from urllib.parse import urlparse
 from werkzeug.routing import IntegerConverter
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -387,9 +388,12 @@ def parse_ofx(content: str) -> list[dict[str, Any]]:
         amount_raw = _ofx_field(block, "TRNAMT").replace(",", ".")
         try:
             amount = float(amount_raw)
-        except ValueError:
+        except (ValueError, OverflowError):
             continue
-        if amount == 0:
+        # "1e400" vira infinito e "nan" vira NaN — os dois saem de um arquivo
+        # malformado sem esforço nenhum. Um infinito guardado faz o saldo virar
+        # "R$ -inf" na tela e não tem como desfazer sem mexer no banco.
+        if amount == 0 or valor_absurdo(amount):
             continue
         dt_raw = _ofx_field(block, "DTPOSTED")[:8]
         try:
@@ -750,6 +754,16 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
                 if seen:
                     stats["ja_importadas"] += 1
                     continue
+            # Última barreira, valendo pra qualquer origem — inclusive uma que
+            # ainda não existe. Valor ruim aqui não vira erro: vira linha pulada,
+            # porque derrubar o import inteiro por causa de uma linha perderia
+            # todas as outras.
+            try:
+                if valor_absurdo(float(item.get("valor"))):
+                    stats["antigas"] += 0
+                    continue
+            except (TypeError, ValueError):
+                continue
             no_credito = 1 if (item.get("no_credito") or forcar_credito) else 0
 
             # Reconciliação: esse valor, nesse dia, já está registrado?
@@ -974,7 +988,16 @@ def pluggy_fetch_items(api_key: str, contas: list[dict], since: str) -> list[dic
                            {"accountId": conta_id, "dateFrom": since})
         for t in data.get("results", []):
             amount = t.get("amount")
-            if amount is None or amount == 0:
+            if amount is None:
+                continue
+            try:
+                amount = float(amount)
+            except (TypeError, ValueError):
+                continue
+            # Mesmo cuidado do OFX: valor que não é número de verdade envenena
+            # todo somatório do app, e não dá pra confiar que a outra ponta
+            # sempre manda coisa sã.
+            if amount == 0 or valor_absurdo(amount):
                 continue
             desc = t.get("description") or t.get("descriptionRaw") or "Movimentação"
             if is_credit:
@@ -1608,8 +1631,17 @@ VALOR_MAX = 1_000_000_000.0
 
 def valor_absurdo(v: float) -> bool:
     """Bate no teto = quase certamente dedo escorregando. Melhor recusar e dizer,
-    do que aceitar calado e envenenar saldo, média e gráfico da pessoa."""
-    return abs(v) >= VALOR_MAX
+    do que aceitar calado e envenenar saldo, média e gráfico da pessoa.
+
+    NaN entra aqui explicitamente porque `nan >= X` é False — ele passava pela
+    única guarda que existia e ia direto pro banco.
+    """
+    try:
+        if v != v:                      # NaN não é igual a si mesmo
+            return True
+        return abs(v) >= VALOR_MAX      # infinito cai aqui
+    except (TypeError, ValueError):
+        return True
 
 
 def parse_money(value: Any) -> float:
@@ -2225,6 +2257,28 @@ def rotina_diaria():
     return None
 
 
+def voltar_para(padrao: str) -> str:
+    """Para onde mandar a pessoa de volta, aceitando só endereço DESTE app.
+
+    `request.referrer` vem do cabeçalho Referer, e quem faz a requisição escolhe
+    o que põe ali. Confiar nele transformava o Hércules em trampolim: um link
+    pro domínio do app cuspia a pessoa em outro site, com o domínio confiável
+    aparecendo antes — que é exatamente o truque de um phishing bom.
+    """
+    ref = request.referrer or ""
+    if ref:
+        try:
+            alvo = urlparse(ref)
+        except ValueError:
+            alvo = None
+        # Sem host = caminho relativo, já é daqui. Com host, tem que ser o nosso.
+        if alvo and alvo.scheme in ("", "http", "https") and (
+                not alvo.netloc or alvo.netloc == request.host):
+            if not ref.startswith("//"):
+                return ref
+    return padrao
+
+
 @app.before_request
 def csrf_protect():
     if request.method == "POST":
@@ -2237,7 +2291,7 @@ def csrf_protect():
             # e quem cai aqui geralmente so deixou a pagina aberta tempo demais.
             flash("Essa página ficou aberta tempo demais e expirou por segurança. "
                   "Atualize e tente de novo — nada do que você já salvou foi perdido.")
-            return redirect(request.referrer or url_for("home" if "user_id" in session else "login"))
+            return redirect(voltar_para(url_for("home" if "user_id" in session else "login")))
 
 
 ERROS_LOG = Path(os.environ.get("ERROS_LOG") or BASE_DIR / "erros.log")
@@ -3920,7 +3974,7 @@ def marcar_dica(key):
                 "INSERT OR IGNORE INTO dicas_vistas (user_id, dica) VALUES (?, ?)",
                 (user["id"], key),
             )
-    return redirect(request.referrer or url_for("home"))
+    return redirect(voltar_para(url_for("home")))
 
 
 @app.route("/meses")
@@ -4048,7 +4102,7 @@ def resolver_duplicata():
                           (id_manual, user["id"])).fetchone()
         if not dono:
             flash("Não achei esse lançamento.")
-            return redirect(request.referrer or url_for("home"))
+            return redirect(voltar_para(url_for("home")))
         if resposta == "juntar":
             # Some o da mão: o do banco tem o valor e a data de verdade.
             db.execute("DELETE FROM transacoes WHERE id = ? AND user_id = ?",
@@ -4058,7 +4112,7 @@ def resolver_duplicata():
             db.execute("UPDATE transacoes SET dup_ok = 1 WHERE id = ? AND user_id = ?",
                        (id_manual, user["id"]))
             flash("Certo, são coisas diferentes. Não pergunto de novo.")
-    return redirect(request.referrer or url_for("home"))
+    return redirect(voltar_para(url_for("home")))
 
 
 @app.route("/simular", methods=["GET", "POST"])
@@ -4101,7 +4155,7 @@ def marcar_recado_visto():
         with get_db() as db:
             db.execute("INSERT OR IGNORE INTO dicas_vistas (user_id, dica) VALUES (?, ?)",
                        (user["id"], chave))
-    return redirect(request.referrer or url_for("home"))
+    return redirect(voltar_para(url_for("home")))
 
 
 @app.route("/saldo-inicial", methods=["POST"])
@@ -4225,7 +4279,7 @@ def revisar_categorias():
     else:
         flash("Revisei tudo, mas não achei categoria automática pro que sobrou em 'Outros'. "
               "Esses você pode me ensinar na tela inicial 😉")
-    return redirect(request.referrer or url_for("categorias"))
+    return redirect(voltar_para(url_for("categorias")))
 
 
 @app.route("/regras", methods=["POST"])
@@ -5568,7 +5622,7 @@ def service_worker():
 @app.errorhandler(413)
 def too_large(_):
     flash("Arquivo muito grande. Envie até 16 MB.")
-    return redirect(request.referrer or url_for("home"))
+    return redirect(voltar_para(url_for("home")))
 
 
 @app.errorhandler(404)

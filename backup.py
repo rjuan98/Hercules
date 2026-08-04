@@ -179,8 +179,28 @@ def restaurar(arquivo, destino) -> Path:
     """Decifra e descompacta uma cópia, devolvendo um .db pronto pra usar.
 
     Existe pra que a restauração seja um comando, não uma pesquisa no dia em que
-    o banco quebrar. É o único momento em que o backup vale alguma coisa."""
-    bruto = Path(arquivo).read_bytes()
+    o banco quebrar. É o único momento em que o backup vale alguma coisa.
+
+    Aceita o NOME da cópia ("hercules-2026-08-03.db.gz") ou o caminho inteiro.
+    Só o nome porque é isso que o próprio comando manda copiar depois do backup —
+    e ele quebrava com FileNotFoundError, já que as cópias moram em outra pasta.
+    Descobrir isso no dia em que o banco quebrou seria descobrir tarde demais.
+    """
+    caminho = Path(arquivo)
+    if not caminho.exists():
+        na_pasta = BACKUP_DIR / caminho.name
+        if na_pasta.exists():
+            caminho = na_pasta
+        else:
+            disponiveis = [c.name for c in listar_backups()]
+            partes = [f"Não achei a cópia '{arquivo}'."]
+            if disponiveis:
+                partes.append(f"Cópias que existem em {BACKUP_DIR}:")
+                partes.extend("  " + nome for nome in disponiveis[:10])
+            else:
+                partes.append(f"Não há nenhuma cópia em {BACKUP_DIR}.")
+            raise FileNotFoundError("\n".join(partes))
+    bruto = caminho.read_bytes()
     conteudo = gzip.decompress(decifrar(bruto))
     destino = Path(destino)
     destino.write_bytes(conteudo)
