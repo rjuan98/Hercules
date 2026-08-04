@@ -14,8 +14,10 @@
         </div>
     </div>
 
-    {# A janela pede login numa conta do Meu Pluggy. Abrir sem ter a conta criada
-       coloca a pessoa numa tela pedindo senha que ela não tem — e ela desiste ali. #}
+    {# O passo a passo do Meu Pluggy só existe quando NÃO há banco direto. Onde
+       há, ele é um degrau inventado — e degrau inventado numa conexão é onde a
+       pessoa desiste. #}
+    {% if not bancos_diretos %}
     <ol class="ajuda-passos" style="margin-bottom:4px;">
         <li>
             <strong>Você já tem conta no Meu Pluggy?</strong>
@@ -27,6 +29,13 @@
             <p>Você precisa ter conectado o banco no Meu Pluggy e visto seu saldo aparecer.</p>
         </li>
     </ol>
+    {% else %}
+    <p class="subtitle" style="margin-bottom:4px;">
+        Toque no botão, escolha <strong>o seu banco</strong> na lista e entre com os dados
+        dele. O acesso é <strong>somente leitura</strong>: dá pra ver seus gastos, não dá pra
+        mover dinheiro.
+    </p>
+    {% endif %}
 
     <p id="pluggy-status" class="helper-text"></p>
 
@@ -42,24 +51,24 @@
 
     <div class="page-actions" style="justify-content:flex-start; margin-top:16px;">
         <button type="button" id="pluggy-abrir" class="button button-primary">
-            <i data-lucide="check"></i> Já fiz as duas — abrir conexão
+            <i data-lucide="check"></i>
+            {% if bancos_diretos %}Conectar meu banco{% else %}Já fiz as duas — abrir conexão{% endif %}
         </button>
+        {% if not bancos_diretos %}
         <a href="{{ url_for('ajuda') }}" class="button button-outline">
             <i data-lucide="circle-help"></i> Ainda não — me ensina
         </a>
+        {% endif %}
         <a href="{{ url_for('settings') }}" class="button button-outline">Voltar</a>
     </div>
 
+    {% if not bancos_diretos %}
     <div class="auth-note" style="margin-top:16px;">
         <i class="icone-texto" data-lucide="alert-triangle"></i> <strong>Na janela que abrir, procure “Meu Pluggy”</strong> — não o nome do seu banco.
-        É o erro mais comum, e escolher o banco direto não funciona na versão gratuita.
+        É o erro mais comum, e escolher o banco direto não funciona nesta conta.
     </div>
+    {% endif %}
 
-    <p class="helper-text" style="margin-top:14px;">
-        Não conseguiu? <strong>Você não precisa disso pra usar o app.</strong> Dá pra
-        <a href="{{ url_for('importar_ofx') }}">importar o extrato</a> do seu banco: funciona em
-        qualquer celular, não depende de cadastro nenhum e leva menos de um minuto.
-    </p>
 </section>
 {% endblock %}
 

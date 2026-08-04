@@ -158,9 +158,16 @@
             seu banco, linha por linha.
         </p>
     </div>
-    <a href="{{ url_for('conferir') }}" class="button button-outline">
-        <i data-lucide="search-check"></i> Conferir meus números
-    </a>
+    <div class="page-actions" style="justify-content:flex-start;">
+        <a href="{{ url_for('conferir') }}" class="button button-outline">
+            <i data-lucide="search-check"></i> Conferir meus números
+        </a>
+        {% if pluggy_ativo %}
+        <a href="{{ url_for('pluggy_lista_conectores') }}" class="button button-outline">
+            <i data-lucide="landmark"></i> O que dá pra conectar
+        </a>
+        {% endif %}
+    </div>
 </section>
 
 <section class="page-card" style="margin-top:18px;">

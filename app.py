@@ -879,6 +879,23 @@ def pluggy_connect_token(api_key: str) -> str:
     return resp.json()["accessToken"]
 
 
+def pluggy_conectores(api_key: str) -> list[dict]:
+    """Os conectores que ESTA conta Pluggy consegue oferecer.
+
+    É a diferença entre "o app está mandando a pessoa por um caminho que não
+    precisava" e "não tem outro caminho". Sem perguntar, vira suposição — e
+    suposição sobre a conta de outra pessoa já custou caro nesta semana.
+    """
+    resp = http_requests.get(
+        f"{PLUGGY_API}/connectors",
+        params={"countries": "BR", "sandbox": "false"},
+        headers={"X-API-KEY": api_key},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json().get("results", [])
+
+
 def pluggy_auth() -> str:
     """Troca clientId/secret por um apiKey temporário (vale ~2h). Levanta exceção em erro."""
     resp = http_requests.post(
@@ -5495,11 +5512,21 @@ def pluggy_conectar():
         flash("A conexão automática ainda não está ligada neste servidor.")
         return redirect(url_for("settings"))
     try:
-        token = pluggy_connect_token(pluggy_auth())
+        api_key = pluggy_auth()
+        token = pluggy_connect_token(api_key)
     except Exception as e:
         flash("Não consegui abrir a conexão com a Pluggy: " + _pluggy_erro_detalhe(e))
         return redirect(url_for("settings"))
-    return render_template("pluggy_conectar.html", connect_token=token)
+    # Se os bancos aparecem direto, mandar a pessoa criar conta no Meu Pluggy é
+    # inventar um degrau bem no lugar onde ela desiste. Só pergunta uma vez por
+    # visita a esta tela, que é rara.
+    try:
+        conectores = pluggy_conectores(api_key)
+        bancos_diretos = [c for c in conectores if "pluggy" not in (c.get("name") or "").lower()]
+    except Exception:
+        bancos_diretos = []          # na dúvida, mostra o passo a passo completo
+    return render_template("pluggy_conectar.html", connect_token=token,
+                           bancos_diretos=len(bancos_diretos))
 
 
 @app.route("/pluggy/item", methods=["POST"])
@@ -5542,6 +5569,34 @@ def pluggy_falhou():
     except OSError:
         pass
     return {"codigo": codigo}, 200
+
+
+@app.route("/pluggy/conectores")
+@login_required
+def pluggy_lista_conectores():
+    """Mostra quais bancos esta conta Pluggy consegue conectar de verdade.
+
+    Serve pra decidir uma coisa só: a tela precisa mesmo mandar a pessoa criar
+    conta no Meu Pluggy antes, ou os bancos aparecem direto? Um passo a mais
+    numa conexão é onde a maioria desiste.
+    """
+    if not pluggy_configured():
+        flash("A conexão automática ainda não está ligada neste servidor.")
+        return redirect(url_for("settings"))
+    try:
+        conectores = pluggy_conectores(pluggy_auth())
+    except Exception as e:
+        flash("Não consegui perguntar à Pluggy: " + _pluggy_erro_detalhe(e))
+        return redirect(url_for("settings"))
+
+    def _e_meu_pluggy(c):
+        return "pluggy" in (c.get("name") or "").lower()
+
+    bancos = sorted((c for c in conectores if not _e_meu_pluggy(c)),
+                    key=lambda c: (c.get("name") or "").lower())
+    return render_template("pluggy_conectores.html", user=current_user(),
+                           bancos=bancos, total=len(conectores),
+                           tem_meu_pluggy=any(_e_meu_pluggy(c) for c in conectores))
 
 
 @app.route("/pluggy/testar", methods=["POST"])

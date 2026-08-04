@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}O que dá pra conectar · Hércules{% endblock %}
+{% block page_title %}O que dá pra conectar{% endblock %}
+{% block page_subtitle %}Os bancos que a sua conta Pluggy consegue oferecer hoje.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:720px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            {% if bancos %}
+            <strong>{{ bancos|length }} banco{{ '' if bancos|length == 1 else 's' }} aparecem direto.</strong><br>
+            Quem conecta não precisa criar conta em lugar nenhum antes — é escolher o banco
+            na janela e pronto.
+            {% else %}
+            <strong>Nenhum banco direto nesta conta.</strong><br>
+            Só dá pra conectar passando pelo Meu Pluggy, que é um cadastro à parte. É o
+            degrau onde as pessoas desistem.
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<section class="page-card" style="max-width:720px; margin:18px auto 0;">
+    <div class="metric-grid cols-3">
+        <article class="glass-card metric-card">
+            <p class="metric-label">Conectores no total</p>
+            <p class="metric-value" style="font-size:1.6rem;">{{ total }}</p>
+        </article>
+        <article class="glass-card metric-card">
+            <p class="metric-label">Bancos diretos</p>
+            <p class="metric-value" style="font-size:1.6rem;">{{ bancos|length }}</p>
+            <p class="metric-footnote">Sem cadastro extra.</p>
+        </article>
+        <article class="glass-card metric-card">
+            <p class="metric-label">Meu Pluggy</p>
+            <p class="metric-value" style="font-size:1.6rem;">{{ 'sim' if tem_meu_pluggy else 'não' }}</p>
+            <p class="metric-footnote">O caminho com cadastro à parte.</p>
+        </article>
+    </div>
+</section>
+
+{% if bancos %}
+<section class="page-card" style="max-width:720px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:4px;">Bancos que aparecem na janela</h2>
+    <p class="topbar-subtitle" style="margin-bottom:12px;">
+        Se o banco do seu primo está nesta lista, ele não precisava ter criado conta no
+        Meu Pluggy — e é isso que fez ele desistir.
+    </p>
+    <ul class="dias-do-ritmo">
+        {% for b in bancos %}
+        <li>
+            <span>{{ b.name }}</span>
+            <span class="dia-itens">{{ b.type or '' }}</span>
+            <strong>{{ 'aberto' if b.health and b.health.status == 'ONLINE' else (b.health.status if b.health else '—') }}</strong>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% else %}
+<section class="page-card" style="max-width:720px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:8px;">O que isso significa</h2>
+    <p class="subtitle">
+        A conexão direta com banco é a parte paga da Pluggy. Nesta conta só existe o
+        caminho do Meu Pluggy, que pede um cadastro fora do Hércules antes — e foi
+        exatamente aí que os testes pararam.
+    </p>
+    <p class="subtitle" style="margin-top:12px;">
+        Não tem jeito técnico de contornar: ou o plano muda, ou a conexão continua tendo
+        esse degrau. Melhor saber disso agora do que descobrir com dez pessoas desistindo.
+    </p>
+</section>
+{% endif %}
+
+<p class="helper-text" style="max-width:720px; margin:18px auto 0; text-align:center;">
+    <a href="{{ url_for('settings') }}">Voltar às configurações</a>
+</p>
+{% endblock %}

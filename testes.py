@@ -4127,8 +4127,19 @@ check("escuta o navegador barrando recurso pela politica de seguranca",
       "securitypolicyviolation" in _tpl_pluggy)
 check("trata o caso do conector nao carregar",
       "PluggyConnect === 'undefined'" in _tpl_pluggy and "bloqueador de an" in _tpl_pluggy)
-check("e oferece o caminho que nao depende de cadastro nenhum",
-      "importar o extrato" in _tpl_pluggy)
+# Os primos foram categoricos: "extrato e coisa de 2006". Oferecer isso como
+# consolo logo depois da conexao falhar nao consola — irrita. Mas a funcao
+# continua inteira pra quem quiser: o que saiu foi a sugestao no lugar errado.
+check("a tela de conexao NAO empurra o extrato como consolo",
+      "importar o extrato" not in _tpl_pluggy)
+check("mas importar extrato continua existindo",
+      any(r.rule == "/importar-ofx" for r in A.app.url_map.iter_rules())
+      or hasattr(A, "importar_ofx"))
+check("e continua alcancavel pela interface",
+      any("importar_ofx" in _io_layout.open(f"templates/{t}", encoding="utf-8").read()
+          for t in ("home.html", "transacoes.html")))
+check("o parser de OFX segue no lugar",
+      len(A.parse_ofx("<STMTTRN><TRNAMT>-10</TRNAMT><DTPOSTED>20260101</DTPOSTED></STMTTRN>")) == 1)
 
 # A CSP precisa deixar o logo dos conectores aparecer: e por ele que a pessoa
 # acha o "Meu Pluggy" no meio da lista.
