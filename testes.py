@@ -4226,6 +4226,78 @@ for _tela in ("/", "/dashboard", "/meses", "/simular", "/conferir", "/settings",
     check(f"{_tela} continua abrindo", c_tema.get(_tela).status_code == 200)
 
 
+secao("106. As barras e os botoes tambem sao o tema")
+# "O modo noturno ficou bugado na barra superior e inferior — ainda esta na cor
+# do modo claro." Estava: as duas usavam rgba fixo do linho. E meu teste nao
+# pegou porque eu conferi na tela de LOGIN, que nao tem barra nem menu de baixo.
+_css106 = _io_layout.open("static/styles.css", encoding="utf-8").read()
+
+# A cor do linho CONTINUA no arquivo, como valor da variavel no tema claro —
+# o que nao pode e a regra da barra apontar direto pra ela.
+def _regra106(sel):
+    alvo = chr(10) + sel + ' {'
+    i = _css106.find(alvo)
+    return _css106[i:_css106.find("}", i)] if i >= 0 else ""
+
+
+_linhas_css = _css106.split(chr(10))
+_LINHO = ("rgba(246, 232, 206", "rgba(251, 241, 221")
+_soltas = [_l.strip() for _l in _linhas_css
+           if any(_c in _l for _c in _LINHO) and "--vidro" not in _l]
+
+check("a barra de cima usa a variavel, nao a cor fixa",
+      "var(--vidro)" in _regra106(".topbar"), _regra106(".topbar")[:90])
+check("o menu de baixo tambem",
+      "var(--vidro" in _regra106(".mobile-nav"), _regra106(".mobile-nav")[:90])
+# A cor do linho CONTINUA no arquivo, como valor da variavel no tema claro.
+# O que nao pode e alguma regra apontar direto pra ela de novo.
+check("a cor do linho so aparece como valor de variavel", not _soltas, _soltas)
+check("existe uma variavel pro fundo de vidro", "--vidro:" in _css106)
+
+import re as _re106
+_bloco_claro = _re106.search(r":root \{(.*?)\n\}", _css106, _re106.S).group(1)
+_bloco_escuro = _re106.search(r':root\[data-tema="escuro"\] \{(.*?)\n\}', _css106, _re106.S).group(1)
+check("o vidro tem valor claro e valor escuro, e sao diferentes",
+      "--vidro:" in _bloco_claro and "--vidro:" in _bloco_escuro
+      and _re106.search(r"--vidro:\s*([^;]+);", _bloco_claro).group(1)
+          != _re106.search(r"--vidro:\s*([^;]+);", _bloco_escuro).group(1))
+
+# Contraste do botao: no escuro o barro CLAREIA, entao letra creme em cima some.
+def _lum106(hexa):
+    h = hexa.lstrip("#")
+    def _c(v):
+        v = int(v, 16) / 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * _c(h[0:2]) + 0.7152 * _c(h[2:4]) + 0.0722 * _c(h[4:6])
+
+def _razao106(a, b):
+    l1, l2 = sorted([_lum106(a), _lum106(b)], reverse=True)
+    return (l1 + 0.05) / (l2 + 0.05)
+
+_var = lambda bloco, nome: _re106.search(rf"{nome}:\s*(#[0-9A-Fa-f]{{6}});", bloco).group(1)
+
+check("no escuro, o botao de destaque usa letra escura",
+      ':root[data-tema="escuro"] .button-primary' in _css106
+      and "color: var(--bg);" in _css106.split(':root[data-tema="escuro"] .button-primary')[1][:220])
+check("e isso vale tambem pra quem so tem o aparelho no escuro",
+      ':root:not([data-tema="claro"]) .button-primary' in _css106)
+
+for _nome, _chave in [("primario", "--primary"), ("secundario", "--secondary"),
+                      ("perigo", "--danger")]:
+    _r = _razao106(_var(_bloco_escuro, "--bg"), _var(_bloco_escuro, _chave))
+    check(f"no escuro, o botao {_nome} da pra ler (>= 4.5)", _r >= 4.5, round(_r, 2))
+    # Com letra creme dava menos de 3 — reprovava ate pra texto grande.
+    _r_antes = _razao106("#FDF6E7", _var(_bloco_escuro, _chave))
+    check(f"e a letra creme, que era o caso antes, de fato reprovava no {_nome}",
+          _r_antes < 3, round(_r_antes, 2))
+
+# O CSS nao pode ter ficado quebrado no meio das trocas.
+check("as chaves do CSS continuam balanceadas",
+      _css106.count("{") == _css106.count("}"), (_css106.count("{"), _css106.count("}")))
+check("e nenhuma variavel de vidro ficou duplicada dentro do mesmo bloco",
+      _bloco_escuro.count("--vidro:") == 1, _bloco_escuro.count("--vidro:"))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

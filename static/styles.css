@@ -29,6 +29,10 @@
     --radius-lg: 22px;
     --radius-md: 18px;
     --radius-sm: 14px;
+    /* Fundo de vidro (barra de cima, menu de baixo, card flutuante). Precisa ser
+       variável: cor fixa translúcida vira faixa clara atravessando a tela escura. */
+    --vidro: rgba(246, 232, 206, 0.88);
+    --vidro-2: rgba(251, 241, 221, 0.94);
 }
 
 /* ---- Modo escuro ----
@@ -67,6 +71,8 @@
         --warning-soft: #382B12;
         --shadow-lg: 0 22px 48px rgba(0, 0, 0, 0.5);
         --shadow-md: 0 12px 26px rgba(0, 0, 0, 0.4);
+        --vidro: rgba(23, 18, 13, 0.88);
+        --vidro-2: rgba(30, 24, 17, 0.94);
     }
 }
 
@@ -95,6 +101,25 @@
     --warning-soft: #382B12;
     --shadow-lg: 0 22px 48px rgba(0, 0, 0, 0.5);
     --shadow-md: 0 12px 26px rgba(0, 0, 0, 0.4);
+    --vidro: rgba(23, 18, 13, 0.88);
+    --vidro-2: rgba(30, 24, 17, 0.94);
+}
+
+/* No escuro, o barro CLAREIA pra ficar legível como texto — mas aí ele vira um
+   fundo claro, e o texto creme de cima some. Botão de destaque no tema escuro
+   pede letra ESCURA: creme sobre #E08A52 dá contraste 2.46, que reprova até pra
+   texto grande; letra escura no mesmo fundo dá 7.0. */
+:root[data-tema="escuro"] .button-primary,
+:root[data-tema="escuro"] .button-secondary,
+:root[data-tema="escuro"] .button-danger {
+    color: var(--bg);
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-tema="claro"]) .button-primary,
+    :root:not([data-tema="claro"]) .button-secondary,
+    :root:not([data-tema="claro"]) .button-danger {
+        color: var(--bg);
+    }
 }
 
 /* O Herc é desenhado pra fundo claro: no escuro ele vira um borrão. Um fundo
@@ -278,7 +303,7 @@ button { cursor: pointer; }
     z-index: 20;
     padding: 20px 28px;
     border-bottom: 1.5px solid var(--border);
-    background: rgba(246, 232, 206, 0.88);
+    background: var(--vidro);
     backdrop-filter: blur(14px);
 }
 
@@ -798,7 +823,7 @@ input[type="checkbox"]:focus-visible {
     align-items: center;
     gap: 8px;
     padding: 10px 16px 13px;
-    background: rgba(251, 241, 221, 0.94);
+    background: var(--vidro-2);
     border-top: 1.5px solid var(--border);
     backdrop-filter: blur(14px);
 }
@@ -1204,7 +1229,7 @@ body {
     width: 22px;
     height: 22px;
     border-radius: 999px;
-    background: rgba(253, 246, 231, 0.9);
+    background: var(--vidro-2);
 }
 .sync-herc.girando { animation: herc-gira 0.9s linear infinite; }
 @keyframes herc-gira { to { transform: rotate(360deg); } }
