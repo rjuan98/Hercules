@@ -164,6 +164,24 @@
 </section>
 
 <section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:10px;">
+        <h2 class="topbar-title" style="font-size:1.2rem;">Seus dados são seus</h2>
+        <p class="topbar-subtitle">
+            Tudo o que o Hércules sabe sobre você, num arquivo que abre no Excel.
+            De graça, sempre — com ou sem assinatura.
+        </p>
+    </div>
+    <div class="page-actions" style="justify-content:flex-start;">
+        <a href="{{ url_for('meus_dados') }}" class="button button-outline">
+            <i data-lucide="download"></i> Baixar meus dados
+        </a>
+        <a href="{{ url_for('planos') }}" class="button button-outline">
+            <i data-lucide="receipt"></i> Ver os planos
+        </a>
+    </div>
+</section>
+
+<section class="page-card" style="margin-top:18px;">
     <div class="topbar-copy" style="margin-bottom:14px;">
         <h2 class="topbar-title" style="font-size:1.25rem;">Conectar banco (Open Finance) <i class="icone-texto" data-lucide="link"></i></h2>
         <p class="topbar-subtitle">O jeito automático de verdade: com sua autorização, o banco entrega os gastos direto pro Herc — sem subir arquivo. Usa o Open Finance oficial via Pluggy.</p>

@@ -363,6 +363,13 @@ def init_db():
     # "Ja perguntei se isso era duplicata e a pessoa disse que nao." Sem guardar a
     # resposta, o app perguntaria a mesma coisa toda vez que ela abrisse a tela.
     _add_column_if_missing(conn, "transacoes", "dup_ok", "INTEGER NOT NULL DEFAULT 0")
+    # Plano da pessoa. 'livre' é o padrão e cobre o app inteiro enquanto a
+    # cobrança estiver desligada — ninguém perde nada por não ter plano.
+    _add_column_if_missing(conn, "usuarios", "plano", "TEXT NOT NULL DEFAULT 'livre'")
+    _add_column_if_missing(conn, "usuarios", "plano_desde", "TEXT")
+    # Quando a assinatura foi cancelada. O acesso continua até o fim do período
+    # já pago: cancelar não é punição.
+    _add_column_if_missing(conn, "usuarios", "plano_cancelado_em", "TEXT")
     _add_column_if_missing(conn, "categorias", "limite_mensal", "REAL NOT NULL DEFAULT 0.0")
     _add_column_if_missing(conn, "categorias", "created_at", "TIMESTAMP")
     # Cópias antigas do banco tinham categoria_id e nenhum timestamp nas regras

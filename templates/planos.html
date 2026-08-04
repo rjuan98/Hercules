@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block title %}Planos · Hércules{% endblock %}
+{% block page_title %}Planos{% endblock %}
+{% block page_subtitle %}O que é de graça, o que custa, e por quê.{% endblock %}
+
+{% block content %}
+<section class="page-card" style="max-width:720px; margin:0 auto;">
+    <div class="hercules-greeting" style="margin-bottom:0;">
+        <img src="{{ url_for('static', filename='herc.svg', v='2') }}" alt="Herc" class="hercules-avatar">
+        <div class="hercules-bubble">
+            <strong>Nunca vou cobrar pelo que evita um dano.</strong><br>
+            Saber quanto você tem, ser avisado antes de estourar o limite do MEI, lembrar do
+            DAS — isso é de graça e vai continuar sendo. Cobrar pelo aviso que evita uma multa
+            seria lucrar com o seu aperto.
+        </div>
+    </div>
+</section>
+
+{% if not cobranca_ativa %}
+<section class="page-card" style="max-width:720px; margin:18px auto 0; border-left:4px solid var(--primary-deep);">
+    <p class="note-title" style="margin:0 0 6px;">
+        <i class="icone-texto" data-lucide="hourglass"></i> Ainda não estou cobrando nada
+    </p>
+    <p class="helper-text" style="margin:0;">
+        O Hércules está em teste. <strong>Tudo desta página está liberado pra você agora</strong>,
+        inclusive o que um dia será pago. Esta tela existe pra você saber desde já onde a linha
+        vai ser traçada — e reclamar se ela estiver no lugar errado.
+    </p>
+</section>
+{% endif %}
+
+<section class="metric-grid cols-2 cards-largos" style="max-width:720px; margin:18px auto 0;">
+    <article class="page-card">
+        <p class="metric-label">Livre</p>
+        <p class="metric-value" style="font-size:1.8rem;">R$ 0</p>
+        <p class="metric-footnote" style="margin-bottom:14px;">Pra sempre, sem pegadinha.</p>
+        <ul class="lista-simples">
+            <li>Seu saldo e seus gastos, com o banco conectado ou pelo extrato</li>
+            <li><strong>“Será que cabe?”</strong> antes de gastar</li>
+            <li>Mês a mês, recado da semana, metas</li>
+            <li>Guardar suas notas por foto, quantas quiser</li>
+            <li><strong>Aviso antes de estourar o limite do MEI</strong></li>
+            <li><strong>Lembrete do DAS</strong> antes de vencer</li>
+            <li>Faturamento do ano e Prévia do IR na tela</li>
+            <li><a href="{{ url_for('meus_dados') }}">Baixar todos os seus dados</a> quando quiser</li>
+        </ul>
+    </article>
+
+    <article class="page-card" style="border:2px solid var(--primary-deep);">
+        <p class="metric-label">MEI</p>
+        <p class="metric-value" style="font-size:1.8rem;">
+            R$ {{ '%.0f'|format(plano_mei_preco) }}<span style="font-size:0.9rem; font-weight:700; color:var(--muted);">/mês</span>
+        </p>
+        <p class="metric-footnote" style="margin-bottom:14px;">Tudo do Livre, mais o que poupa trabalho.</p>
+        <ul class="lista-simples">
+            <li><strong>Dossiê do contador</strong>: o ano inteiro num arquivo só — planilha das
+                notas mais as fotos, organizadas por data</li>
+            <li><strong>Exportação do IR</strong> filtrada por categoria e período</li>
+            <li>Prioridade quando você me escrever</li>
+        </ul>
+        <p class="helper-text" style="margin-top:14px;">
+            É isso que substitui a tarde de procurar papel e o e-mail de ida e volta com o
+            contador. Se pra você isso não vale trinta reais, fique no Livre — ele continua
+            inteiro.
+        </p>
+
+        {% if cobranca_ativa %}
+        <div class="page-actions" style="justify-content:flex-start; margin-top:16px;">
+            {% if plano == 'mei' %}
+            <span class="badge">Seu plano atual</span>
+            {% else %}
+            <a href="{{ url_for('assinar') }}" class="button button-primary">
+                <i data-lucide="arrow-right"></i> Assinar
+            </a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </article>
+</section>
+
+{% if cobranca_ativa and plano == 'mei' %}
+<section class="page-card" style="max-width:720px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:8px;">Sua assinatura</h2>
+    {% if cancelado_em %}
+    <p class="subtitle">
+        Cancelada em {{ cancelado_em|format_date }}. Você continua com tudo até o fim do período
+        já pago — cancelar não tira nada de você antes da hora.
+    </p>
+    {% else %}
+    <p class="subtitle" style="margin-bottom:12px;">
+        Ativa desde {{ plano_desde|format_date }}.
+        {% if pode_desistir %}
+        <br><strong>Você está nos primeiros {{ dias_arrependimento }} dias</strong>: se cancelar
+        agora, devolvo o valor inteiro, sem precisar explicar por quê.
+        {% endif %}
+    </p>
+    <form method="POST" action="{{ url_for('cancelar_assinatura') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="button button-outline">Cancelar assinatura</button>
+    </form>
+    <p class="helper-text" style="margin-top:10px;">
+        Um clique, aqui mesmo, sem falar com ninguém. Seus dados continuam seus e
+        <a href="{{ url_for('meus_dados') }}">baixáveis</a> depois de cancelar.
+    </p>
+    {% endif %}
+</section>
+{% endif %}
+
+<section class="page-card" style="max-width:720px; margin:18px auto 0;">
+    <h2 class="topbar-title" style="font-size:1.15rem; margin-bottom:10px;">A régua, escrita</h2>
+    <ul class="lista-simples">
+        <li><strong>Evita um dano → de graça.</strong> Aviso de limite, lembrete de DAS, saldo,
+            gastos. Sempre.</li>
+        <li><strong>Poupa trabalho → pode custar.</strong> Organizar o ano pro contador é horas
+            da sua vida; é justo cobrar por isso.</li>
+        <li><strong>Seus dados nunca são reféns.</strong> Baixar tudo é de graça, com ou sem
+            assinatura, hoje e depois de cancelar.</li>
+        <li><strong>Cancelar é um clique</strong>, e nos primeiros
+            {{ dias_arrependimento }} dias o dinheiro volta inteiro.</li>
+    </ul>
+</section>
+{% endblock %}

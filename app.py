@@ -1629,6 +1629,54 @@ def mes_do_usuario(user_id: int, dt: date | None = None):
 VALOR_MAX = 1_000_000_000.0
 
 
+# ------------------------
+# Planos. Escrito e DESLIGADO: enquanto COBRANCA_ATIVA for falso, o app inteiro
+# é livre e nenhuma tela pede dinheiro. Existe pra estar pronto no dia da
+# decisão, não pra cobrar antes dela.
+# ------------------------
+COBRANCA_ATIVA = (os.environ.get("COBRANCA_ATIVA") or "").strip().lower() in ("1", "true", "sim")
+
+PLANO_MEI_PRECO = 30.00
+
+# Dias de arrependimento. Art. 49 do Código de Defesa do Consumidor: compra
+# feita fora do estabelecimento tem 7 dias pra desistir, com devolução integral.
+DIAS_ARREPENDIMENTO = 7
+
+
+def plano_do_usuario(user) -> str:
+    try:
+        return (user["plano"] if "plano" in user.keys() else None) or "livre"
+    except (TypeError, KeyError, IndexError):
+        return "livre"
+
+
+def tem_acesso_pago(user) -> bool:
+    """A pessoa pode usar o que é pago?
+
+    Enquanto a cobrança está desligada, TODO mundo pode — senão o app estaria
+    tirando função de quem já usa, pra vender de volta depois. Ligada, vale o
+    plano de cada um.
+    """
+    if not COBRANCA_ATIVA:
+        return True
+    return plano_do_usuario(user) == "mei"
+
+
+def dentro_do_arrependimento(user) -> bool:
+    """Ainda dá pra desistir e receber tudo de volta, sem precisar de motivo."""
+    try:
+        desde = user["plano_desde"] if "plano_desde" in user.keys() else None
+    except (TypeError, KeyError, IndexError):
+        desde = None
+    if not desde:
+        return False
+    try:
+        inicio = date.fromisoformat(str(desde)[:10])
+    except (TypeError, ValueError):
+        return False
+    return (hoje_br() - inicio).days <= DIAS_ARREPENDIMENTO
+
+
 def valor_absurdo(v: float) -> bool:
     """Bate no teto = quase certamente dedo escorregando. Melhor recusar e dizer,
     do que aceitar calado e envenenar saldo, média e gráfico da pessoa.
@@ -2277,6 +2325,14 @@ def voltar_para(padrao: str) -> str:
             if not ref.startswith("//"):
                 return ref
     return padrao
+
+
+@app.context_processor
+def _planos_no_template():
+    """As telas precisam saber se a cobrança existe pra não falar de dinheiro
+    quando ela está desligada."""
+    return {"cobranca_ativa": COBRANCA_ATIVA, "plano_mei_preco": PLANO_MEI_PRECO,
+            "dias_arrependimento": DIAS_ARREPENDIMENTO}
 
 
 @app.before_request
@@ -3524,10 +3580,137 @@ def ativar_das():
     return redirect(url_for("painel_mei"))
 
 
+@app.route("/planos")
+@login_required
+def planos():
+    """O que é de graça, o que custa, e por quê — escrito antes de cobrar nada.
+
+    Com a cobrança desligada, a tela mostra a régua e diz que está tudo liberado.
+    Serve pra quem testa poder discordar de onde a linha foi traçada ANTES de ela
+    valer dinheiro, que é a única hora em que discordar adianta.
+    """
+    user = current_user()
+    return render_template(
+        "planos.html", user=user,
+        plano=plano_do_usuario(user),
+        plano_desde=(user["plano_desde"] if "plano_desde" in user.keys() else None),
+        cancelado_em=(user["plano_cancelado_em"] if "plano_cancelado_em" in user.keys() else None),
+        pode_desistir=dentro_do_arrependimento(user),
+    )
+
+
+@app.route("/assinar", methods=["GET", "POST"])
+@login_required
+def assinar():
+    """Onde a assinatura vai começar.
+
+    Está escrito e DESLIGADO. Enquanto COBRANCA_ATIVA for falso, esta rota não
+    faz nada além de devolver pra tela de planos — não existe nenhuma linha de
+    código aqui capaz de cobrar de alguém por acidente, e é assim que tem que
+    ficar até a decisão de preço estar tomada.
+
+    Quando ligar, o pagamento vai por checkout hospedado do processador: a
+    pessoa sai daqui, paga lá e volta. Número de cartão nunca deve passar por
+    este servidor — guardar isso é assumir um risco que não cabe no tamanho
+    deste app.
+    """
+    if not COBRANCA_ATIVA:
+        flash("A assinatura ainda não está no ar — por enquanto está tudo liberado. 🦁")
+        return redirect(url_for("planos"))
+    # Aqui entra o checkout do processador quando houver decisão de preço e conta.
+    flash("Assinatura ainda não configurada.")
+    return redirect(url_for("planos"))
+
+
+@app.route("/assinatura/cancelar", methods=["POST"])
+@login_required
+def cancelar_assinatura():
+    """Cancelar é um clique, aqui mesmo, sem falar com ninguém.
+
+    Não é só decência: o Decreto 11.034/2022 exige que cancelar seja tão fácil
+    quanto assinar. E o acesso continua até o fim do período já pago — cancelar
+    não pode virar punição.
+    """
+    user = current_user()
+    with get_db() as db:
+        db.execute("UPDATE usuarios SET plano_cancelado_em = ? WHERE id = ?",
+                   (hoje_br().isoformat(), user["id"]))
+    if dentro_do_arrependimento(user):
+        flash(f"Assinatura cancelada. Como faz menos de {DIAS_ARREPENDIMENTO} dias, "
+              "devolvo o valor inteiro — não precisa fazer mais nada.")
+    else:
+        flash("Assinatura cancelada. Você continua com tudo até o fim do período já pago.")
+    return redirect(voltar_para(url_for("planos")))
+
+
+@app.route("/meus-dados")
+@login_required
+def meus_dados():
+    """Tudo que o Hércules sabe sobre você, num arquivo, de graça e pra sempre.
+
+    Vem antes de qualquer coisa paga existir, de propósito. Um app de dinheiro
+    que prende o dado da pessoa atrás de assinatura transforma o histórico dela
+    em refém — e o histórico é dela, não meu. A LGPD chama isso de
+    portabilidade (art. 18, V); aqui é só o mínimo decente.
+
+    O que é pago é o TRABALHO de organizar isso pro contador, não o acesso.
+    """
+    user = current_user()
+    tabelas = {
+        "transacoes": """SELECT tipo, valor, descricao, estabelecimento, categoria,
+                                data_transacao, fonte, no_credito, interno, created_at
+                           FROM transacoes WHERE user_id = ?
+                          ORDER BY date(COALESCE(NULLIF(data_transacao, ''), created_at))""",
+        "notas": """SELECT descricao, valor, tipo, categoria, cliente, cnpj_emitente,
+                           numero_nota, status, data_emissao, arquivo, data_upload
+                      FROM notas WHERE user_id = ? ORDER BY COALESCE(data_emissao, data_upload)""",
+        "metas": """SELECT nome, meta_valor, valor_atual, ativo, created_at
+                      FROM metas WHERE user_id = ? ORDER BY created_at""",
+        "compromissos": """SELECT descricao, valor, vencimento, tipo, status, recorrente,
+                                  frequencia, created_at
+                             FROM compromissos WHERE user_id = ? ORDER BY date(vencimento)""",
+        "categorias": "SELECT nome, created_at FROM categorias WHERE user_id = ? ORDER BY nome",
+        "regras": """SELECT padrao_texto, categoria_nome, created_at
+                       FROM regras_categorizacao WHERE user_id = ? ORDER BY created_at""",
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        with get_db() as db:
+            for nome, sql in tabelas.items():
+                try:
+                    linhas = db.execute(sql, (user["id"],)).fetchall()
+                except sqlite3.Error:
+                    continue          # tabela que ainda não existe neste banco
+                texto = io.StringIO()
+                escritor = csv.writer(texto)
+                if linhas:
+                    escritor.writerow(linhas[0].keys())
+                    for linha in linhas:
+                        escritor.writerow([linha[c] for c in linha.keys()])
+                else:
+                    escritor.writerow(["(sem registros)"])
+                zf.writestr(f"{nome}.csv", texto.getvalue())
+        zf.writestr("LEIA-ME.txt",
+                    "Seus dados do Hércules, em CSV — abre no Excel, no Google Planilhas\n"
+                    "ou em qualquer editor de texto.\n\n"
+                    "Isto é seu. Baixar é de graça, sempre, com ou sem assinatura.\n"
+                    "As fotos das notas ficam na tela de Notas, uma a uma.\n")
+    nome_arquivo = f"meus-dados-hercules-{hoje_br().isoformat()}.zip"
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"},
+    )
+
+
 @app.route("/mei/dossie")
 @login_required
 def dossie_mei():
     user = current_user()
+    if not tem_acesso_pago(user):
+        flash("Isso faz parte do plano MEI — o que organiza seu ano pro contador. "
+              "Seus dados continuam seus: dá pra baixar tudo em Meus dados, de graça.")
+        return redirect(url_for("planos"))
     year = request.args.get("year", str(hoje_br().year))
     with get_db() as db:
         notes = db.execute(
@@ -5544,6 +5727,10 @@ def saude_baixar_backup(nome):
 @login_required
 def exportar_ir():
     user = current_user()
+    if not tem_acesso_pago(user):
+        flash("Isso faz parte do plano MEI — o que organiza seu ano pro contador. "
+              "Seus dados continuam seus: dá pra baixar tudo em Meus dados, de graça.")
+        return redirect(url_for("planos"))
     year = request.args.get("year", str(hoje_br().year))
     categoria = sanitize_text(request.args.get("categoria"))
     tipo = sanitize_text(request.args.get("tipo"))

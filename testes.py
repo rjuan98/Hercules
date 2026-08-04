@@ -3731,6 +3731,122 @@ finally:
     _DB98.DB_PATH = _path_original98
 
 
+secao("99. Planos escritos e DESLIGADOS")
+# Ele decidiu: R$ 30 pro MEI, e nada pra quem so usa a parte pessoal — "eu mesmo
+# nao pagaria". Enquanto os testes rolam, tudo isso fica pronto e desligado.
+c_pl = novo_cliente("planos@teste.com", nome="Pl")
+uid_pl = uid_de("planos@teste.com")
+
+check("a cobranca nasce DESLIGADA", A.COBRANCA_ATIVA is False)
+check("com ela desligada, todo mundo tem acesso ao que sera pago",
+      A.tem_acesso_pago({"plano": "livre"}) is True)
+
+_h_pl = c_pl.get("/planos").get_data(as_text=True)
+check("a tela de planos abre", "Planos" in _h_pl)
+check("e diz que ninguem esta sendo cobrado ainda", "Ainda n\u00e3o estou cobrando nada" in _h_pl)
+check("mostra o preco do plano MEI", "R$ 30" in _h_pl)
+check("nao mostra botao de assinar enquanto esta desligada", "Assinar" not in _h_pl)
+check("escreve a regua: evita dano e de graca", "evita um dano" in _h_pl)
+check("e que poupar trabalho pode custar", "Poupa trabalho" in _h_pl)
+
+# O que e livre PRECISA continuar livre — sao as coisas que evitam dano.
+for _texto in ["Aviso antes de estourar o limite do MEI", "Lembrete do DAS",
+               "Ser\u00e1 que cabe?", "Baixar todos os seus dados"]:
+    check(f"fica no Livre: {_texto[:38]}", _texto in _h_pl)
+
+# Com a cobranca desligada, nenhuma funcao pode ser tirada de quem ja usa.
+check("o dossie continua aberto com a cobranca desligada",
+      c_pl.get("/mei/dossie").status_code == 200)
+check("a exportacao do IR tambem", c_pl.get("/exportar-ir").status_code == 200)
+check("e /assinar nao cobra nada, so avisa",
+      c_pl.get("/assinar", follow_redirects=True).status_code == 200)
+with get_db() as db:
+    check("ninguem ganhou plano pago por acidente",
+          db.execute("SELECT COUNT(*) c FROM usuarios WHERE plano != 'livre'").fetchone()["c"] == 0)
+
+
+secao("100. Seus dados nunca sao reféns")
+# Isto vem ANTES de qualquer coisa paga existir. Um app de dinheiro que prende o
+# historico da pessoa atras de assinatura transforma o passado dela em cobranca.
+import zipfile as _zip100
+import io as _io100
+
+c_md = novo_cliente("meusdados@teste.com", nome="Md")
+uid_md = uid_de("meusdados@teste.com")
+with get_db() as db:
+    for _i in range(3):
+        db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                      data_transacao) VALUES (?,'saida',?,?,'Mercado','ofx',?)""",
+                   (uid_md, 50 + _i, f"compra {_i}", date.today().isoformat()))
+    db.execute("INSERT INTO metas (user_id,nome,meta_valor,valor_atual,ativo) VALUES (?,'V',5000,100,1)",
+               (uid_md,))
+    db.execute("INSERT INTO notas (user_id,descricao,valor,categoria,tipo) VALUES (?,'Nota',200,'Servi\u00e7os','entrada')",
+               (uid_md,))
+
+_r_md = c_md.get("/meus-dados")
+check("baixar os proprios dados funciona", _r_md.status_code == 200)
+check("vem como arquivo pra salvar", "attachment" in _r_md.headers.get("Content-Disposition", ""))
+_z = _zip100.ZipFile(_io100.BytesIO(_r_md.data))
+check("traz transacoes, notas, metas e compromissos",
+      {"transacoes.csv", "notas.csv", "metas.csv", "compromissos.csv"} <= set(_z.namelist()),
+      _z.namelist())
+_csv_md = _z.read("transacoes.csv").decode("utf-8")
+check("com os lancamentos de verdade dentro", "compra 0" in _csv_md and "50.0" in _csv_md)
+check("e um LEIA-ME dizendo que e de graca pra sempre",
+      "de gra\u00e7a, sempre" in _z.read("LEIA-ME.txt").decode("utf-8"))
+
+# Mesmo com a cobranca LIGADA, baixar os dados tem que continuar livre.
+A.COBRANCA_ATIVA = True
+try:
+    check("com a cobranca ligada, quem nao paga ainda baixa tudo",
+          c_md.get("/meus-dados").status_code == 200)
+    check("mas o dossie do contador passa a pedir o plano",
+          c_md.get("/mei/dossie", follow_redirects=False).status_code == 302)
+    check("e a exportacao do IR tambem",
+          c_md.get("/exportar-ir", follow_redirects=False).status_code == 302)
+    check("quem tem o plano MEI entra", A.tem_acesso_pago({"plano": "mei"}) is True)
+    check("quem nao tem, nao", A.tem_acesso_pago({"plano": "livre"}) is False)
+
+    # Cancelar tem que ser um clique — o Decreto 11.034/2022 exige isso.
+    with get_db() as db:
+        db.execute("UPDATE usuarios SET plano='mei', plano_desde=? WHERE id=?",
+                   (date.today().isoformat(), uid_md))
+    _h_md = c_md.get("/planos").get_data(as_text=True)
+    check("a tela mostra o botao de cancelar, na propria pagina",
+          "Cancelar assinatura" in _h_md)
+    check("e avisa dos 7 dias de arrependimento", "devolvo o valor inteiro" in _h_md)
+    _r_cancel = c_md.post("/assinatura/cancelar", data={"csrf_token": "t"}, follow_redirects=True)
+    check("cancelar responde na hora", _r_cancel.status_code == 200)
+    with get_db() as db:
+        _u_md = db.execute("SELECT plano, plano_cancelado_em FROM usuarios WHERE id=?",
+                           (uid_md,)).fetchone()
+    check("o cancelamento fica registrado", _u_md["plano_cancelado_em"] is not None)
+    check("mas o acesso NAO e cortado na hora — o periodo pago vale ate o fim",
+          _u_md["plano"] == "mei", _u_md["plano"])
+    check("e da pra baixar os dados depois de cancelar",
+          c_md.get("/meus-dados").status_code == 200)
+
+    # Arrependimento: dentro de 7 dias devolve, fora nao promete o que nao faz.
+    check("dentro dos 7 dias, cabe devolucao",
+          A.dentro_do_arrependimento({"plano_desde": date.today().isoformat()}) is True)
+    check("no setimo dia ainda cabe",
+          A.dentro_do_arrependimento(
+              {"plano_desde": (date.today() - timedelta(days=7)).isoformat()}) is True)
+    check("no oitavo, nao",
+          A.dentro_do_arrependimento(
+              {"plano_desde": (date.today() - timedelta(days=8)).isoformat()}) is False)
+    check("sem data de inicio, nao inventa direito",
+          A.dentro_do_arrependimento({"plano_desde": None}) is False)
+    check("data podre nao quebra", A.dentro_do_arrependimento({"plano_desde": "abacaxi"}) is False)
+finally:
+    A.COBRANCA_ATIVA = False
+
+check("a cobranca voltou pra desligada depois do teste", A.COBRANCA_ATIVA is False)
+check("Configuracoes leva pra baixar os dados",
+      "/meus-dados" in c_md.get("/settings").get_data(as_text=True))
+check("e pros planos", "/planos" in c_md.get("/settings").get_data(as_text=True))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
