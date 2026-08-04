@@ -4114,6 +4114,107 @@ check("ninguem recategoriza lancamento de outra conta", _depois == _alheio["cate
       (_alheio["categoria"], _depois))
 
 
+secao("104. Quando o banco nao conecta, tem que dar pra saber por que")
+# Os primos do Matheus tentaram conectar e voltaram com "simplesmente nao
+# conectou". O app tinha a explicacao na mao e jogava fora: o onError da Pluggy
+# recebe o motivo e o codigo ignorava o parametro.
+_tpl_pluggy = _io_layout.open("templates/pluggy_conectar.html", encoding="utf-8").read()
+
+check("o onError recebe o motivo em vez de ignorar",
+      "onError: function (erro)" in _tpl_pluggy)
+check("e o motivo vira texto legivel", "function descreve(erro)" in _tpl_pluggy)
+check("escuta o navegador barrando recurso pela politica de seguranca",
+      "securitypolicyviolation" in _tpl_pluggy)
+check("trata o caso do conector nao carregar",
+      "PluggyConnect === 'undefined'" in _tpl_pluggy and "bloqueador de an" in _tpl_pluggy)
+check("e oferece o caminho que nao depende de cadastro nenhum",
+      "importar o extrato" in _tpl_pluggy)
+
+# A CSP precisa deixar o logo dos conectores aparecer: e por ele que a pessoa
+# acha o "Meu Pluggy" no meio da lista.
+check("a CSP libera a imagem dos conectores", "img-src" in A._CSP
+      and "https://cdn.pluggy.ai" in A._CSP.split("img-src")[1].split(";")[0], A._CSP)
+check("e continua barrando imagem de qualquer outro lugar",
+      "https:" not in A._CSP.split("img-src")[1].split(";")[0].replace("https://cdn.pluggy.ai", ""))
+
+c_pg = novo_cliente("pluggy@teste.com", nome="Pg")
+_r_falha = c_pg.post("/pluggy/falhou", data={
+    "csrf_token": "t", "motivo": "CONNECTOR_ERROR: senha invalida",
+    "bloqueios": "https://x.com/logo.png (img-src)"})
+check("a falha e registrada e devolve um codigo", _r_falha.status_code == 200
+      and len(_r_falha.get_json().get("codigo", "")) == 6, _r_falha.get_data(as_text=True))
+_codigo_pg = _r_falha.get_json()["codigo"]
+_log = pathlib.Path(os.environ.get("ERROS_LOG") or "erros.log")
+if _log.exists():
+    _conteudo = _log.read_text(encoding="utf-8")
+    check("o motivo fica no log, pra ele achar depois",
+          _codigo_pg in _conteudo and "senha invalida" in _conteudo)
+    check("junto com o que o navegador bloqueou", "img-src" in _conteudo)
+check("precisa estar logado pra registrar falha",
+      A.app.test_client().post("/pluggy/falhou", data={"csrf_token": "t"},
+                               follow_redirects=False).status_code == 302)
+
+
+secao("105. Modo escuro")
+# "Acharam bonito mas muito claro." A paleta e linho e barro — de noite, queima
+# a vista. Mesma identidade, vista com pouca luz.
+_css = _io_layout.open("static/styles.css", encoding="utf-8").read()
+_base = _io_layout.open("templates/base.html", encoding="utf-8").read()
+
+check("existe paleta escura pra escolha explicita", ':root[data-tema="escuro"]' in _css)
+check("e pra quem so tem o aparelho no escuro",
+      "@media (prefers-color-scheme: dark)" in _css)
+check("a escolha da pessoa GANHA do aparelho",
+      ':root:not([data-tema="claro"])' in _css)
+
+# Cor fixa no meio do CSS nao acompanha o tema: vira caixa branca no escuro.
+check("nenhum fundo claro fixo sobrou no CSS",
+      "#FFFDF6" not in _css and "#FBF1DD" not in _css)
+check("mas o botao do Google segue branco, que e exigencia da marca deles",
+      "background: #fff;" in _css and "marca do Google exige" in _css)
+
+# O tema tem que ser aplicado ANTES da primeira pintura, senao pisca branco.
+_cabeca = _base.split("</head>")[0]
+check("o tema e aplicado antes de pintar a tela", "hercules-tema" in _cabeca)
+check("o html nasce com data-tema", 'data-tema="auto"' in _base)
+check("a barra do celular acompanha o tema", "cor-da-barra" in _base)
+check("tem botao pra trocar, no topo", "temaToggle" in _base)
+check("com tres estados: automatico, escuro e claro",
+      "'auto', 'escuro', 'claro'" in _base)
+check("e a escolha fica guardada no aparelho", "localStorage.setItem('hercules-tema'" in _base)
+
+# O Herc e desenhado pra fundo claro: no escuro precisa de fundo proprio.
+check("o Herc ganha fundo no escuro pra nao virar borrao",
+      ':root[data-tema="escuro"] .hercules-avatar' in _css)
+
+# Contraste medido no navegador: texto 13.9, apagado 6.8, link 8.1 — tudo AA+.
+# Aqui fica so a trava de que as cores nao voltem a se encostar.
+def _lum(hexa):
+    def _c(v):
+        v = int(v, 16) / 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    h = hexa.lstrip("#")
+    return 0.2126 * _c(h[0:2]) + 0.7152 * _c(h[2:4]) + 0.0722 * _c(h[4:6])
+
+def _razao(a, b):
+    l1, l2 = sorted([_lum(a), _lum(b)], reverse=True)
+    return (l1 + 0.05) / (l2 + 0.05)
+
+import re as _re105
+_bloco_escuro = _re105.search(r':root\[data-tema="escuro"\]\s*\{(.*?)\}', _css, _re105.S).group(1)
+_cor = lambda n: _re105.search(rf"{n}:\s*(#[0-9A-Fa-f]{{6}});", _bloco_escuro).group(1)
+for _nome, _fg in [("texto", "--text"), ("apagado", "--muted"), ("link", "--primary-deep"),
+                   ("vermelho", "--danger"), ("verde", "--success")]:
+    _r = _razao(_cor(_fg), _cor("--surface"))
+    check(f"no escuro, {_nome} tem contraste de leitura (>= 4.5)", _r >= 4.5, round(_r, 2))
+
+# E as telas continuam abrindo — o tema e so CSS, mas um erro de Jinja no
+# base.html derrubaria tudo de uma vez.
+c_tema = novo_cliente("tema@teste.com", nome="Tema")
+for _tela in ("/", "/dashboard", "/meses", "/simular", "/conferir", "/settings", "/planos"):
+    check(f"{_tela} continua abrindo", c_tema.get(_tela).status_code == 200)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

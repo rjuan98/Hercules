@@ -30,6 +30,16 @@
 
     <p id="pluggy-status" class="helper-text"></p>
 
+    {# Quando falha, a pessoa precisa sair daqui com alguma coisa na mão. Antes
+       ela saía com "não conectou", que não é informação pra ninguém. #}
+    <div id="pluggy-falha" class="auth-note" hidden style="margin-top:14px; border-left:4px solid var(--danger);">
+        <p class="note-title" style="margin:0 0 6px;">
+            <i class="icone-texto" data-lucide="alert-triangle"></i> Não deu certo desta vez
+        </p>
+        <p id="pluggy-motivo" class="helper-text" style="margin:0 0 8px;"></p>
+        <p id="pluggy-codigo" class="helper-text" style="margin:0;"></p>
+    </div>
+
     <div class="page-actions" style="justify-content:flex-start; margin-top:16px;">
         <button type="button" id="pluggy-abrir" class="button button-primary">
             <i data-lucide="check"></i> Já fiz as duas — abrir conexão
@@ -44,6 +54,12 @@
         <i class="icone-texto" data-lucide="alert-triangle"></i> <strong>Na janela que abrir, procure “Meu Pluggy”</strong> — não o nome do seu banco.
         É o erro mais comum, e escolher o banco direto não funciona na versão gratuita.
     </div>
+
+    <p class="helper-text" style="margin-top:14px;">
+        Não conseguiu? <strong>Você não precisa disso pra usar o app.</strong> Dá pra
+        <a href="{{ url_for('importar_ofx') }}">importar o extrato</a> do seu banco: funciona em
+        qualquer celular, não depende de cadastro nenhum e leva menos de um minuto.
+    </p>
 </section>
 {% endblock %}
 
@@ -54,9 +70,58 @@ window.addEventListener('DOMContentLoaded', function () {
     var token = {{ connect_token|tojson }};
     var csrf = {{ csrf_token()|tojson }};
     var salvarUrl = {{ url_for('pluggy_salvar_item')|tojson }};
+    var falhouUrl = {{ url_for('pluggy_falhou')|tojson }};
     var settingsUrl = {{ url_for('settings')|tojson }};
     var status = document.getElementById('pluggy-status');
     var botao = document.getElementById('pluggy-abrir');
+    var caixaFalha = document.getElementById('pluggy-falha');
+    var elMotivo = document.getElementById('pluggy-motivo');
+    var elCodigo = document.getElementById('pluggy-codigo');
+
+    // O navegador avisa quando a política de segurança bloqueia alguma coisa.
+    // Sem escutar isso, um recurso barrado vira "não conectou" e ninguém
+    // descobre o motivo — foi assim que o logo dos conectores sumiu sem aviso.
+    var bloqueios = [];
+    document.addEventListener('securitypolicyviolation', function (e) {
+        var alvo = (e.blockedURI || '?') + ' (' + (e.violatedDirective || '?') + ')';
+        if (bloqueios.indexOf(alvo) === -1) { bloqueios.push(alvo); }
+    });
+
+    function descreve(erro) {
+        if (!erro) { return ''; }
+        if (typeof erro === 'string') { return erro; }
+        var partes = [];
+        if (erro.message) { partes.push(erro.message); }
+        if (erro.code) { partes.push('código ' + erro.code); }
+        if (erro.data && erro.data.message) { partes.push(erro.data.message); }
+        if (!partes.length) {
+            try { partes.push(JSON.stringify(erro).slice(0, 200)); } catch (e) { /* ignora */ }
+        }
+        return partes.join(' · ');
+    }
+
+    function relatar(motivo) {
+        status.textContent = '';
+        caixaFalha.hidden = false;
+        elMotivo.textContent = motivo || 'A janela fechou sem dizer o motivo.';
+        if (bloqueios.length) {
+            elMotivo.textContent += ' — o navegador bloqueou: ' + bloqueios.join(', ');
+        }
+        var body = new URLSearchParams();
+        body.append('csrf_token', csrf);
+        body.append('motivo', motivo || 'sem detalhe');
+        body.append('bloqueios', bloqueios.join(' | '));
+        fetch(falhouUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+        }).then(function (r) { return r.json(); })
+          .then(function (d) {
+              elCodigo.textContent = 'Anotei o que aconteceu aqui do meu lado. Se quiser ajuda, '
+                  + 'passe este código: ' + (d.codigo || '—');
+          })
+          .catch(function () { /* sem rede: a mensagem na tela já basta */ });
+    }
 
     function salvarItem(itemId) {
         status.textContent = 'Conectado! Salvando…';
@@ -68,12 +133,14 @@ window.addEventListener('DOMContentLoaded', function () {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString(),
         }).then(function () { window.location = settingsUrl; })
-          .catch(function () { status.textContent = 'Conectou, mas falhou ao salvar. Volte e tente de novo.'; });
+          .catch(function () { relatar('Conectou no banco, mas falhou ao salvar aqui.'); });
     }
 
     function abrir() {
+        caixaFalha.hidden = true;
         if (typeof PluggyConnect === 'undefined') {
-            status.textContent = 'Não consegui carregar o conector da Pluggy. Recarregue a página.';
+            relatar('O conector da Pluggy não carregou nesta página. Costuma ser rede, '
+                + 'bloqueador de anúncios ou alguma extensão do navegador.');
             return;
         }
         try {
@@ -83,16 +150,24 @@ window.addEventListener('DOMContentLoaded', function () {
                 onSuccess: function (data) {
                     var id = (data && data.item && data.item.id) || (data && data.itemId);
                     if (id) { salvarItem(id); }
-                    else { status.textContent = 'Conexão concluída, mas sem id do item. Tente de novo.'; }
+                    else { relatar('A janela disse que conectou, mas não devolveu o item.'); }
                 },
-                onError: function () {
-                    status.textContent = 'A conexão foi cancelada ou deu erro. Você pode tentar de novo.';
+                // O motivo vem NESTE parâmetro, e ele estava sendo ignorado — era
+                // por isso que "não conectou" nunca virava uma explicação.
+                onError: function (erro) {
+                    relatar(descreve(erro) || 'A conexão foi cancelada ou deu erro.');
+                },
+                onClose: function () {
+                    if (caixaFalha.hidden && status.textContent.indexOf('Salvando') === -1) {
+                        status.textContent = 'Você fechou a janela antes de terminar. '
+                            + 'Pode tentar de novo quando quiser.';
+                    }
                 },
             });
             pc.init();
             status.textContent = 'Conexão aberta — escolha o Meu Pluggy na janela.';
         } catch (e) {
-            status.textContent = 'Erro ao abrir o conector: ' + e.message;
+            relatar('Erro ao abrir o conector: ' + (e && e.message ? e.message : e));
         }
     }
 

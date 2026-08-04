@@ -2414,8 +2414,11 @@ _CSP = "; ".join([
     "script-src 'self' 'unsafe-inline' https://cdn.pluggy.ai",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: blob:",
-    "connect-src 'self' https://api.pluggy.ai",
+    # O widget da Pluggy desenha o logo de cada conector, e é pelo logo que a
+    # pessoa acha o "Meu Pluggy" no meio da lista. Sem isto, ela procura por um
+    # nome numa tela de quadrados vazios.
+    "img-src 'self' data: blob: https://cdn.pluggy.ai",
+    "connect-src 'self' https://api.pluggy.ai https://connect.pluggy.ai",
     "frame-src https://cdn.pluggy.ai https://connect.pluggy.ai",
     "form-action 'self'",
     "base-uri 'self'",          # impede <base> injetado redirecionar formulários
@@ -5512,6 +5515,33 @@ def pluggy_salvar_item():
         db.execute("UPDATE usuarios SET pluggy_item_id = ? WHERE id = ?", (item_id, user["id"]))
     flash("Banco conectado! Agora é só clicar em Sincronizar. 🎉")
     return redirect(url_for("settings"))
+
+
+@app.route("/pluggy/falhou", methods=["POST"])
+@login_required
+def pluggy_falhou():
+    """Registra por que a conexão com o banco não foi.
+
+    Existe porque "simplesmente não conectou" não é diagnosticável. O widget
+    devolve um motivo, o navegador avisa quando a política de segurança bloqueia
+    alguma coisa, e nada disso estava sendo guardado — a pessoa desistia e o
+    motivo morria com ela.
+    """
+    user = current_user()
+    motivo = sanitize_text(request.form.get("motivo"), limite=400) or "sem detalhe"
+    bloqueios = sanitize_text(request.form.get("bloqueios"), limite=400) or ""
+    navegador = sanitize_text(request.headers.get("User-Agent", ""), limite=200)
+    codigo = uuid.uuid4().hex[:6].upper()
+    linha = (f"[{agora_br().isoformat(timespec='seconds')}] PLUGGY {codigo} "
+             f"user={user['id']} motivo={motivo!r} bloqueios={bloqueios!r} ua={navegador!r}\n")
+    try:
+        if ERROS_LOG.exists() and ERROS_LOG.stat().st_size > ERROS_MAX_BYTES:
+            ERROS_LOG.write_text("", encoding="utf-8")
+        with ERROS_LOG.open("a", encoding="utf-8") as f:
+            f.write(linha)
+    except OSError:
+        pass
+    return {"codigo": codigo}, 200
 
 
 @app.route("/pluggy/testar", methods=["POST"])

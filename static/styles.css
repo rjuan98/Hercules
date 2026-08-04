@@ -31,6 +31,92 @@
     --radius-sm: 14px;
 }
 
+/* ---- Modo escuro ----
+   Mesma identidade, vista com pouca luz: o linho vira breu, e o barro CLAREIA
+   pra continuar legível — cor escura em fundo escuro some, e este app é usado
+   de noite, na cama, decidindo se dá pra gastar.
+
+   Duas entradas: o aparelho (prefers-color-scheme) e a escolha da pessoa
+   (data-tema), que ganha do aparelho. Quem quer escuro de dia também tem. */
+:root[data-tema="escuro"],
+:root[data-tema="auto"] {
+    color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-tema="claro"]) {
+        color-scheme: dark;
+        --bg: #17120D;
+        --bg-2: #1E1811;
+        --surface: #221B14;
+        --surface-soft: #2A2119;
+        --border: #3D3226;
+        --border-strong: #F3E7D2;
+        --text: #F3E7D2;
+        --muted: #B3A187;
+        --primary: #E08A52;
+        --primary-2: #C9713C;
+        --primary-deep: #F0A06A;
+        --secondary: #6FB6D6;
+        --secondary-2: #4E9BBE;
+        --success: #8FC177;
+        --success-soft: #24331C;
+        --danger: #E88370;
+        --danger-soft: #3A211C;
+        --warning: #E0AE55;
+        --warning-soft: #382B12;
+        --shadow-lg: 0 22px 48px rgba(0, 0, 0, 0.5);
+        --shadow-md: 0 12px 26px rgba(0, 0, 0, 0.4);
+    }
+}
+
+/* A escolha explícita vale em qualquer aparelho, inclusive quando o sistema
+   está no claro. Repetido de propósito: media query não cobre este caso. */
+:root[data-tema="escuro"] {
+    color-scheme: dark;
+    --bg: #17120D;
+    --bg-2: #1E1811;
+    --surface: #221B14;
+    --surface-soft: #2A2119;
+    --border: #3D3226;
+    --border-strong: #F3E7D2;
+    --text: #F3E7D2;
+    --muted: #B3A187;
+    --primary: #E08A52;
+    --primary-2: #C9713C;
+    --primary-deep: #F0A06A;
+    --secondary: #6FB6D6;
+    --secondary-2: #4E9BBE;
+    --success: #8FC177;
+    --success-soft: #24331C;
+    --danger: #E88370;
+    --danger-soft: #3A211C;
+    --warning: #E0AE55;
+    --warning-soft: #382B12;
+    --shadow-lg: 0 22px 48px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 12px 26px rgba(0, 0, 0, 0.4);
+}
+
+/* O Herc é desenhado pra fundo claro: no escuro ele vira um borrão. Um fundo
+   próprio devolve o contraste sem precisar de um segundo desenho. */
+:root[data-tema="escuro"] { --roxo-selo: #C79BC2; }
+@media (prefers-color-scheme: dark) {
+    :root:not([data-tema="claro"]) { --roxo-selo: #C79BC2; }
+}
+
+:root[data-tema="escuro"] .hercules-avatar,
+:root[data-tema="escuro"] .auth-brand-mark {
+    background: var(--surface-soft);
+    border-radius: 50%;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-tema="claro"]) .hercules-avatar,
+    :root:not([data-tema="claro"]) .auth-brand-mark {
+        background: var(--surface-soft);
+        border-radius: 50%;
+    }
+}
+
 * { box-sizing: border-box; }
 /* O atributo `hidden` já foi atropelado por um display:flex duas vezes neste
    projeto (o modal de confirmação e a barra de instalar). Uma regra só, no topo,
@@ -91,7 +177,7 @@ button { cursor: pointer; }
     height: 100svh;
     padding: 28px 20px 20px;
     border-right: 1.5px solid var(--border);
-    background: #FBF1DD;
+    background: var(--surface-soft);
     display: flex;
     flex-direction: column;
     gap: 22px;
@@ -517,12 +603,12 @@ textarea {
     width: 100%;
     border: 1.5px solid var(--border);
     border-radius: 16px;
-    background: #FFFDF6;
+    background: var(--surface);
     color: var(--text);
     padding: 14px 16px;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-input::placeholder, textarea::placeholder { color: #A99878; }
+input::placeholder, textarea::placeholder { color: var(--muted); }
 input:focus, select:focus, textarea:focus {
     outline: none;
     border-color: var(--primary);
@@ -544,7 +630,7 @@ input[type="checkbox"] {
     margin: 0;
     border: 2px solid var(--border-strong);
     border-radius: 8px;
-    background: #FFFDF6;
+    background: var(--surface);
     cursor: pointer;
     position: relative;
     transition: background 0.15s ease, border-color 0.15s ease;
@@ -561,7 +647,7 @@ input[type="checkbox"]:checked::after {
     top: 3px;
     width: 6px;
     height: 12px;
-    border: solid #FFFDF6;
+    border: solid var(--surface);
     border-width: 0 3px 3px 0;
     transform: rotate(45deg);
 }
@@ -680,6 +766,8 @@ input[type="checkbox"]:focus-visible {
     flex: 1;
     background: var(--border);
 }
+/* Branco fixo de propósito: a marca do Google exige o botão assim, nos dois
+   temas. É a única cor deste arquivo que não deve seguir a paleta. */
 .google-button {
     width: 100%;
     justify-content: center;
@@ -1108,7 +1196,7 @@ body {
 }
 .tx-tag-credito {
     background: rgba(126, 78, 122, 0.14);
-    color: #7E4E7A;
+    color: var(--roxo-selo, #7E4E7A);
     border-color: rgba(126, 78, 122, 0.35);
 }
 /* O Herc girando enquanto fala com o banco */
@@ -1309,7 +1397,7 @@ details.form-advanced .form-grid { margin-top: 14px; }
 .chip-action {
     cursor: pointer;
     border: 1.5px solid var(--border);
-    background: #FFFDF6;
+    background: var(--surface);
     color: var(--text);
     font: inherit;
     font-weight: 700;
