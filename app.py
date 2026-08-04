@@ -361,9 +361,34 @@ _MOVIMENTO_INTERNO = (
 )
 
 
-def e_movimento_interno(descricao: str) -> bool:
-    """É dinheiro seu mudando de lugar, não entrando nem saindo da sua vida."""
-    return any(p in _strip_accents(descricao or "").lower() for p in _MOVIMENTO_INTERNO)
+def e_movimento_interno(descricao: str, nome_da_pessoa: str = "") -> bool:
+    """É dinheiro seu mudando de lugar, não entrando nem saindo da sua vida.
+
+    Além dos nomes de aplicação e resgate, reconhece transferência com o SEU
+    PRÓPRIO nome na descrição — Pix de uma conta sua pra outra sai do extrato
+    como "Transferência enviada — FULANO DE TAL", e é você se pagando.
+
+    Exige nome e sobrenome pra casar: só o primeiro nome pegaria o Pix pra
+    qualquer xará, e sumir com dinheiro que a pessoa mandou de verdade é bem
+    pior do que deixar um passar.
+    """
+    texto = _strip_accents(descricao or "").lower()
+    if any(p in texto for p in _MOVIMENTO_INTERNO):
+        return True
+    partes = [p for p in _strip_accents(nome_da_pessoa or "").lower().split() if len(p) > 2]
+    if len(partes) >= 2 and all(p in texto for p in partes[:3]):
+        return True
+    return False
+
+
+def e_pagamento_de_fatura_na_conta(descricao: str) -> bool:
+    """Pagamento de fatura visto do lado da CONTA, não de dentro do cartão.
+
+    Aqui a palavra "pagamento" sozinha não serve: "Pagamento de aluguel" é gasto
+    de verdade e não pode sumir. Exige "fatura", que no extrato de conta só
+    aparece quando é o cartão sendo quitado.
+    """
+    return "fatura" in _strip_accents(descricao or "").lower()
 
 
 def e_pagamento_de_fatura(descricao: str) -> bool:
@@ -729,6 +754,9 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
     # Linhas ja casadas NESTE import. Sem isso, dois cafes de R$ 5 no mesmo dia
     # colapsariam num so: o segundo acharia a mesma linha que o primeiro.
     ja_casadas: set[int] = set()
+    with get_db() as _db_nome:
+        _dono = _db_nome.execute("SELECT nome FROM usuarios WHERE id = ?", (user_id,)).fetchone()
+    nome_da_pessoa = (_dono["nome"] if _dono else "") or ""
     # As regras aprendidas não mudam durante o import: lê uma vez, não uma por linha.
     # Um extrato de 3 meses são centenas de lançamentos — eram centenas de conexões.
     regras = user_rules(user_id)
@@ -818,7 +846,7 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
                    VALUES (?, ?, ?, ?, ?, ?, ?, 'ofx', 95, ?, ?, ?, ?, ?)""",
                 (user_id, item["tipo"], item["valor"], item["descricao"], item["descricao"],
                  categoria, item["data"], item["fitid"], no_credito, p_num, p_total,
-                 1 if e_movimento_interno(item["descricao"]) else 0),
+                 1 if e_movimento_interno(item["descricao"], nome_da_pessoa) else 0),
             )
             ja_casadas.add(db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"])
             stats["importadas"] += 1
@@ -2850,6 +2878,10 @@ def media_gasto_diario(user_id: int, dias: int = 60) -> tuple[float, int]:
                 WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
                   AND fonte != 'ajuste' AND interno = 0
                   AND COALESCE(NULLIF(categoria, ''), '') != 'Reserva'
+                  -- Pagar a fatura não é gasto do dia: é a conta do cartão
+                  -- chegando. As compras já estão contadas à parte, e diluir a
+                  -- fatura em todos os dias faz o ritmo parecer o dobro.
+                  AND LOWER(COALESCE(descricao, '')) NOT LIKE '%fatura%'
                   AND date(COALESCE(NULLIF(data_transacao, ''), created_at)) >= date(?)
                 GROUP BY dia ORDER BY dia""",
             (user_id, desde.isoformat()),
@@ -2899,6 +2931,7 @@ def detalhe_do_ritmo(user_id: int, dias: int = 60) -> dict[str, Any]:
                  WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
                    AND fonte != 'ajuste' AND interno = 0
                    AND COALESCE(NULLIF(categoria, ''), '') != 'Reserva'
+                   AND LOWER(COALESCE(descricao, '')) NOT LIKE '%fatura%'
                    AND {col} >= date(?)
                  GROUP BY dia ORDER BY total DESC""",
             (user_id, desde.isoformat()),
@@ -2963,6 +2996,12 @@ def simular_gasto(user_id: int, valor: float) -> dict[str, Any]:
     stats = calc_transaction_totals(user_id)
     saldo = float(stats["balance"])
     contas = contas_ate_fim_do_mes(user_id)
+    # A fatura saiu da média porque não é ritmo — mas ela vence, e esquecer disso
+    # deixaria a conta otimista, que é o erro pior dos dois. Volta aqui inteira,
+    # uma vez só, como a conta datada que ela é.
+    fatura_aberta = float(stats.get("fatura_credito_mes") or 0)
+    if fatura_aberta > 0:
+        contas += fatura_aberta
     media, dias_com_dado = media_gasto_diario(user_id)
     dias = days_left_in_month(virada_do_usuario(user_id))
 
@@ -4314,7 +4353,10 @@ def conferir():
         janela = db.execute(
             f"""SELECT
                   COALESCE(SUM(CASE WHEN no_credito=0 AND fonte!='ajuste' AND interno=0
-                       AND COALESCE(NULLIF(categoria,''),'')!='Reserva' THEN valor END),0) conta,
+                       AND COALESCE(NULLIF(categoria,''),'')!='Reserva'
+                       AND LOWER(COALESCE(descricao,'')) NOT LIKE '%fatura%' THEN valor END),0) conta,
+                  COALESCE(SUM(CASE WHEN no_credito=0 AND fonte!='ajuste' AND interno=0
+                       AND LOWER(COALESCE(descricao,'')) LIKE '%fatura%' THEN valor END),0) fatura_paga,
                   COALESCE(SUM(CASE WHEN no_credito=1 THEN valor END),0) cartao,
                   COALESCE(SUM(CASE WHEN fonte='ajuste' THEN valor END),0) ajuste,
                   COALESCE(SUM(CASE WHEN interno=1 THEN valor END),0) trocou_bolso,

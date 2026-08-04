@@ -70,6 +70,12 @@
             <strong class="suave">{{ janela.cartao|money }}</strong>
         </div>
         <div class="conta-linha">
+            <span>Fora: pagamento de fatura
+                <small class="conta-nota">é a conta do cartão chegando, não gasto do dia —
+                entra inteira no “Será que cabe?”, com data</small></span>
+            <strong class="suave">{{ janela.fatura_paga|money }}</strong>
+        </div>
+        <div class="conta-linha">
             <span>Fora: guardado em meta
                 <small class="conta-nota">é seu, não é gasto</small></span>
             <strong class="suave">{{ janela.guardado|money }}</strong>

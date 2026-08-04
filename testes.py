@@ -3910,6 +3910,90 @@ check("e diz que nao houve nota, em vez de mostrar tabela vazia",
       "nenhuma nota de entrada" in _zv.read(f"RESUMO_{_ANO - 5}.txt").decode("utf-8"))
 
 
+secao("102. Pagar a fatura nao e ritmo do dia a dia")
+# Do print da tela /conferir dele: 22 dias somando R$ 2.904,30, divididos por 25,
+# dando R$ 116,17/dia. Dois deles eram "Pagamento de fatura" (R$ 461,48 e
+# R$ 289,78) — 26% do total. Diluidos em todos os dias, empurravam o ritmo de
+# R$ 86 pra R$ 116. E o corte de dias fora da curva nao agia: 23% dos dias
+# passavam do limite e a trava desligava o corte inteiro.
+c_ft = novo_cliente("fatura@teste.com", nome="Rjuan de Andrade Silva")
+uid_ft = uid_de("fatura@teste.com")
+
+_DIAS_REAIS = [
+    ("2026-07-29", 500.00, "Transferência enviada LYVIA VARGAS MONTEIRO"),
+    ("2026-07-13", 461.48, "Pagamento de fatura - Transferência"),
+    ("2026-07-31", 423.08, "Compra no débito ICTUS BAR"),
+    ("2026-08-03", 289.78, "Pagamento de fatura - Compra no débito"),
+    ("2026-07-14", 262.00, "Transferência enviada pelo Pix - LIVEPIX"),
+    ("2026-07-16", 184.30, "Transferência enviada pelo Pix - Ricardo"),
+    ("2026-07-15", 125.98, "Transferência enviada pelo Pix - MAIS MOBI"),
+    ("2026-07-30", 94.60, "Compra no débito HOPS RIO BAR"),
+    ("2026-07-18", 77.10, "Transferência enviada pelo Pix - AYRTON"),
+    ("2026-07-20", 74.00, "Compra no débito - CHOPIN LANCHES"),
+    ("2026-07-23", 69.00, "Transferência enviada Joao Victor Santos"),
+    ("2026-07-10", 57.34, "Transferência enviada pelo Pix - Ricardo"),
+    ("2026-07-24", 52.00, "Transferência enviada LIVEPIX LTDA"),
+    ("2026-08-01", 49.08, "Compra no débito DI MARCIA MEDICAMENTO"),
+    ("2026-07-22", 45.98, "Transferência enviada Francisco Antonio"),
+    ("2026-07-27", 36.00, "Transferência enviada Ricardo Alexandre"),
+    ("2026-07-25", 30.99, "Compra no débito CENTRAL DO BISCOITO"),
+    ("2026-07-17", 23.50, "Compra no débito JulioCesar0e"),
+    ("2026-07-12", 20.08, "Transferência enviada pelo Pix - RJUAN DE ANDRADE"),
+    ("2026-07-11", 20.00, "Transferência enviada pelo Pix - MAIS MOBI"),
+    ("2026-07-19", 8.00, "Compra no débito ELIAS VAZ 72753706790"),
+    ("2026-08-02", 0.01, "Transferência enviada Rjuan de Andrade Silva"),
+]
+A.import_ofx_transactions(uid_ft, [
+    {"valor": _v, "tipo": "saida", "data": _dia, "descricao": _desc,
+     "fitid": f"PLG-ft{_i}", "no_credito": False}
+    for _i, (_dia, _v, _desc) in enumerate(_DIAS_REAIS)])
+
+check("reconhece pagamento de fatura no extrato da conta",
+      A.e_pagamento_de_fatura_na_conta("Pagamento de fatura - Transferência"))
+check("mas NAO confunde com pagamento de outra coisa",
+      not A.e_pagamento_de_fatura_na_conta("Pagamento de aluguel")
+      and not A.e_pagamento_de_fatura_na_conta("Pagamento salário"))
+
+_det_ft = A.detalhe_do_ritmo(uid_ft)
+check("nenhum pagamento de fatura sobra no ritmo",
+      all("fatura" not in (m.get("o_que") or "").lower() for m in _det_ft["maiores"]),
+      _det_ft["maiores"][:3])
+check("os dois dias de fatura sumiram da lista de dias",
+      all(abs(m["total"] - 461.48) > 0.01 and abs(m["total"] - 289.78) > 0.01
+          for m in _det_ft["maiores"]), _det_ft["maiores"][:4])
+
+# Mas a fatura NAO pode simplesmente sumir: ela vence.
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'saida',300,'COMPRA CARTAO',
+                  'Compras','ofx',95,?,1)""", (uid_ft, date.today().isoformat()))
+_sim_ft = A.simular_gasto(uid_ft, 50)
+_st_ft = A.calc_transaction_totals(uid_ft)
+check("a fatura em aberto entra no simulador como conta com data",
+      _sim_ft["contas"] >= float(_st_ft["fatura_credito_mes"] or 0) > 0,
+      (_sim_ft["contas"], _st_ft["fatura_credito_mes"]))
+
+# Pix pro proprio nome: dinheiro trocando de bolso.
+check("Pix com o nome completo da pessoa e movimento interno",
+      A.e_movimento_interno("Transferência enviada Rjuan de Andrade Silva",
+                            "Rjuan de Andrade Silva"))
+check("nome parcial NAO casa — apagar Pix pra um xara seria pior",
+      not A.e_movimento_interno("Transferência enviada pelo Pix - RJUAN DE ANDRADE",
+                                "Rjuan de Andrade Silva"))
+check("so o primeiro nome nunca casa",
+      not A.e_movimento_interno("Pix para Rjuan", "Rjuan de Andrade Silva"))
+check("sem nome cadastrado, so os padroes fixos valem",
+      not A.e_movimento_interno("Transferência enviada Fulano", ""))
+check("e a caixinha continua sendo reconhecida sem nome nenhum",
+      A.e_movimento_interno("Aplicacao RDB", ""))
+
+# A tela tem que MOSTRAR o que saiu, senao some sem explicacao.
+_h_ft = c_ft.get("/conferir").get_data(as_text=True)
+check("a tela de conferir mostra a linha da fatura", "Fora: pagamento de fatura" in _h_ft)
+check("explicando que ela entra inteira no simulador",
+      "entra inteira" in _h_ft and "com data" in _h_ft)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
