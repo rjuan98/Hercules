@@ -230,6 +230,39 @@
 </section>
 
 {% else %}
+{# ---- O lugar que tem duas caras ----
+   O Herc só pergunta depois que a pessoa mostrou, corrigindo, que aquele lugar
+   não tem uma categoria só. E a resposta vale pra ESTA compra: virar regra
+   seria voltar a adivinhar, agora com a categoria errada. ---- #}
+{% for q in perguntas_categoria %}
+<section class="page-card" style="margin-bottom:14px; border-left:4px solid var(--primary-deep);">
+    <p class="note-title" style="margin:0 0 6px;">
+        <i class="icone-texto" data-lucide="help-circle"></i> Essa compra no
+        {{ q.lugar|truncate(24) }} foi de quê?
+    </p>
+    <p class="helper-text" style="margin:0 0 10px;">
+        {{ q.dia|format_date }} · {{ q.descricao|truncate(38) }} ·
+        <strong>{{ q.valor|money }}</strong><br>
+        Chutei <strong>{{ q.chutei }}</strong>, mas você já comprou coisa de mais de um tipo aí.
+    </p>
+    <div class="page-actions" style="justify-content:flex-start;">
+        {% for opcao in q.opcoes %}
+        <form method="POST" action="{{ url_for('categoria_desta') }}" class="suggestion-actions">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="tx_id" value="{{ q.id }}">
+            <input type="hidden" name="categoria" value="{{ opcao }}">
+            <button type="submit" class="button {{ 'button-primary' if opcao == q.chutei else 'button-outline' }}">
+                {{ opcao }}
+            </button>
+        </form>
+        {% endfor %}
+    </div>
+    <p class="helper-text" style="margin-top:10px;">
+        Vale só pra essa compra. Não vou mudar as outras nem criar regra nova.
+    </p>
+</section>
+{% endfor %}
+
 {# ---- Dois lançamentos que parecem o mesmo dinheiro ----
    O app NÃO junta sozinho: casar por aproximação um dia apagaria um gasto de
    verdade. Ele pergunta, e a resposta fica guardada. ---- #}

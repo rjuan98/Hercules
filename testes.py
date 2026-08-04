@@ -3994,6 +3994,126 @@ check("explicando que ela entra inteira no simulador",
       "entra inteira" in _h_ft and "com data" in _h_ft)
 
 
+secao("103. O lugar que tem duas caras")
+# Ideia do Matheus: ele compra doce no Ricardo quase sempre, mas umas 3x por mes
+# compra cigarro la. O extrato escreve a mesma coisa nas duas vezes. Nenhuma
+# regra automatica separa isso — e nenhuma deveria fingir que separa.
+c_amb = novo_cliente("ambiguo@teste.com", nome="Amb")
+uid_amb = uid_de("ambiguo@teste.com")
+_hj = date.today()
+
+def _compra_amb(valor, dias, fitid, desc="Transferencia enviada pelo Pix - Ricardo"):
+    A.import_ofx_transactions(uid_amb, [{"valor": valor, "tipo": "saida", "no_credito": False,
+                                         "data": (_hj - timedelta(days=dias)).isoformat(),
+                                         "descricao": desc, "fitid": fitid}])
+
+def _ultimo_amb():
+    with get_db() as db:
+        return db.execute("SELECT id FROM transacoes WHERE user_id=? ORDER BY id DESC LIMIT 1",
+                          (uid_amb,)).fetchone()["id"]
+
+def _corrige_amb(tid, cat, valor, dias):
+    c_amb.post(f"/transacoes/{tid}/editar", data={
+        "csrf_token": "t", "tipo": "saida", "valor": f"{valor},00",
+        "descricao": "Transferencia enviada pelo Pix - Ricardo", "estabelecimento": "Ricardo",
+        "categoria": cat, "data_transacao": (_hj - timedelta(days=dias)).isoformat()})
+
+for _i, (_v, _d) in enumerate([(18, 25), (22, 22), (15, 20)]):
+    _compra_amb(_v, _d, f"D{_i}")
+c_amb.post("/regras", data={"csrf_token": "t", "padrao_texto": "Ricardo",
+                            "categoria_nome": "Alimentação"})
+
+check("com uma categoria so, o lugar nao e ambiguo", A.regras_ambiguas(uid_amb) == {},
+      A.regras_ambiguas(uid_amb))
+check("e o Herc nao pergunta nada", A.perguntas_de_categoria(uid_amb) == [])
+
+# Ele corrige duas compras pra Outros (cigarro).
+for _i, (_v, _d) in enumerate([(45, 18), (47, 12)]):
+    _compra_amb(_v, _d, f"C{_i}")
+    _corrige_amb(_ultimo_amb(), "Outros", _v, _d)
+
+check("depois de corrigir, o lugar vira ambiguo",
+      A.regras_ambiguas(uid_amb).get("Ricardo") == ["Alimentação", "Outros"],
+      A.regras_ambiguas(uid_amb))
+
+# Chegam compras novas: duas de doce e uma de cigarro.
+_compra_amb(19, 3, "N1")
+_compra_amb(46, 1, "N2")
+_compra_amb(21, 2, "N3")
+_qs = {round(q["valor"]): q for q in A.perguntas_de_categoria(uid_amb)}
+check("pergunta sobre as compras novas do lugar ambiguo", len(_qs) == 3, sorted(_qs))
+# O palpite sai do VALOR: cigarro custa uma coisa, doce custa outra, e ela ja
+# disse qual e qual ao corrigir.
+check("R$ 46 e chutado como cigarro (Outros)", _qs[46]["chutei"] == "Outros", _qs[46])
+check("R$ 19 e chutado como doce (Alimentação)", _qs[19]["chutei"] == "Alimentação", _qs[19])
+check("R$ 21 tambem", _qs[21]["chutei"] == "Alimentação", _qs[21])
+check("e o palpite e sempre o primeiro botao, o toque mais facil",
+      all(q["opcoes"][0] == q["chutei"] for q in _qs.values()))
+check("os dois botoes sao as categorias que ELA usou ali",
+      all(sorted(q["opcoes"]) == ["Alimentação", "Outros"] for q in _qs.values()))
+
+# Compra antiga nao vira pergunta: ninguem lembra o que comprou faz tres semanas.
+check("nao pergunta sobre compra de 20+ dias atras",
+      all(q["valor"] not in (18.0, 22.0, 15.0) for q in A.perguntas_de_categoria(uid_amb)))
+
+# A tela pergunta, e a resposta vale pra UMA compra.
+_h_amb = c_amb.get("/").get_data(as_text=True)
+check("a tela inicial pergunta", "foi de qu" in _h_amb)
+check("dizendo o que chutou", "Chutei" in _h_amb)
+check("e avisando que vale so pra essa compra", "s\u00f3 pra essa compra" in _h_amb)
+
+_id46 = _qs[46]["id"]
+c_amb.post("/categoria-desta", data={"csrf_token": "t", "tx_id": _id46, "categoria": "Outros"})
+with get_db() as db:
+    _r46 = db.execute("SELECT categoria, categoria_manual FROM transacoes WHERE id=?",
+                      (_id46,)).fetchone()
+    _outras = [x["categoria"] for x in db.execute(
+        """SELECT categoria FROM transacoes WHERE user_id=? AND id!=? AND valor IN (19,21)""",
+        (uid_amb, _id46))]
+check("responder muda so aquela compra", _r46["categoria"] == "Outros" and _r46["categoria_manual"] == 1)
+check("e NAO mexe nas outras do mesmo lugar",
+      all(cat == "Alimentação" for cat in _outras), _outras)
+check("nem pergunta de novo a mesma",
+      all(q["id"] != _id46 for q in A.perguntas_de_categoria(uid_amb)))
+
+# Reensinar a regra nao pode apagar o que ela escolheu a dedo.
+c_amb.post("/regras", data={"csrf_token": "t", "padrao_texto": "Ricardo",
+                            "categoria_nome": "Alimentação"})
+with get_db() as db:
+    _manuais = db.execute(
+        """SELECT COUNT(*) c FROM transacoes
+            WHERE user_id=? AND categoria='Outros' AND categoria_manual=1""",
+        (uid_amb,)).fetchone()["c"]
+check("reensinar a regra NAO apaga as correcoes da mao", _manuais == 3, _manuais)
+
+# Quem nunca corrigiu nada nao pode ser incomodado.
+c_paz = novo_cliente("paz@teste.com", nome="Paz")
+uid_paz = uid_de("paz@teste.com")
+A.import_ofx_transactions(uid_paz, [{"valor": 30, "tipo": "saida", "no_credito": False,
+                                     "data": _hj.isoformat(), "descricao": "MERCADO",
+                                     "fitid": "PZ1"}])
+c_paz.post("/regras", data={"csrf_token": "t", "padrao_texto": "MERCADO",
+                            "categoria_nome": "Mercado"})
+check("quem nunca corrigiu nada nao ve pergunta nenhuma",
+      A.perguntas_de_categoria(uid_paz) == [])
+check("e a tela dele fica limpa", "foi de qu" not in c_paz.get("/").get_data(as_text=True))
+
+# Lancamento de outra pessoa nao pode ser recategorizado por aqui.
+c_amb.post("/categoria-desta", data={"csrf_token": "t", "tx_id": _ultimo_amb(),
+                                     "categoria": "Lazer"})
+_alheio = None
+with get_db() as db:
+    _alheio = db.execute("SELECT id, categoria FROM transacoes WHERE user_id=? LIMIT 1",
+                         (uid_paz,)).fetchone()
+c_amb.post("/categoria-desta", data={"csrf_token": "t", "tx_id": _alheio["id"],
+                                     "categoria": "Lazer"})
+with get_db() as db:
+    _depois = db.execute("SELECT categoria FROM transacoes WHERE id=?",
+                         (_alheio["id"],)).fetchone()["categoria"]
+check("ninguem recategoriza lancamento de outra conta", _depois == _alheio["categoria"],
+      (_alheio["categoria"], _depois))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

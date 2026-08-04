@@ -363,6 +363,9 @@ def init_db():
     # "Ja perguntei se isso era duplicata e a pessoa disse que nao." Sem guardar a
     # resposta, o app perguntaria a mesma coisa toda vez que ela abrisse a tela.
     _add_column_if_missing(conn, "transacoes", "dup_ok", "INTEGER NOT NULL DEFAULT 0")
+    # A pessoa escolheu esta categoria na mão. Regra nenhuma pode passar por cima
+    # depois: ela sabe o que comprou, o app está adivinhando.
+    _add_column_if_missing(conn, "transacoes", "categoria_manual", "INTEGER NOT NULL DEFAULT 0")
     # Plano da pessoa. 'livre' é o padrão e cobre o app inteiro enquanto a
     # cobrança estiver desligada — ninguém perde nada por não ter plano.
     _add_column_if_missing(conn, "usuarios", "plano", "TEXT NOT NULL DEFAULT 'livre'")

@@ -1392,6 +1392,129 @@ def pending_suggestions(user_id: int, limit: int = 2):
     return [r for r in rows if r["padrao"] not in known][:limit]
 
 
+def regras_ambiguas(user_id: int) -> dict[str, list[str]]:
+    """Lugares onde a mesma descrição já teve mais de uma categoria escolhida a dedo.
+
+    A "identidade do lugar" é a regra que a própria pessoa ensinou — ela é quem
+    decidiu que "ricardo" é um lugar só. Se dentro dessa regra ela já corrigiu
+    alguma coisa pra outra categoria, o lugar é ambíguo e adivinhar vira chute.
+
+    Devolve {padrão_da_regra: [categorias que ela já usou ali]}.
+    """
+    regras = user_rules(user_id)
+    if not regras:
+        return {}
+    with get_db() as db:
+        manuais = db.execute(
+            """SELECT descricao, estabelecimento, categoria FROM transacoes
+                WHERE user_id = ? AND categoria_manual = 1
+                  AND COALESCE(NULLIF(categoria, ''), '') != ''""",
+            (user_id,),
+        ).fetchall()
+    ambiguas: dict[str, list[str]] = {}
+    for regra in regras:
+        if regra["categoria_nome"] == IGNORE_RULE:
+            continue
+        alvo = _normalizar_regra(regra["padrao_texto"])
+        if not alvo:
+            continue
+        vistas = {regra["categoria_nome"]}
+        for m in manuais:
+            texto = _normalizar_regra(f"{m['descricao'] or ''} {m['estabelecimento'] or ''}")
+            if alvo in texto:
+                vistas.add(m["categoria"])
+        if len(vistas) > 1:
+            ambiguas[regra["padrao_texto"]] = sorted(vistas)
+    return ambiguas
+
+
+# Perguntar sobre compra de três semanas atrás não ajuda ninguém: a pessoa não
+# lembra o que comprou, e a pergunta vira incômodo. Dez dias é o que dá pra
+# responder de cabeça.
+DIAS_PRA_LEMBRAR = 10
+
+
+def _palpite_pelo_valor(user_id: int, padrao: str, valor: float,
+                        categorias: list[str], ignorar_id: int | None = None) -> str | None:
+    """Nas compras que a pessoa JÁ rotulou naquele lugar, qual valor é o mais parecido?
+
+    Cigarro custa uma coisa, doce custa outra. Ela não precisa dizer isso: já
+    disse, ao corrigir. O valor é o único sinal que o extrato dá pra separar duas
+    compras no mesmo lugar, e usar o vizinho mais próximo acerta bem quando os
+    preços não se encostam.
+    """
+    alvo = _normalizar_regra(padrao)
+    with get_db() as db:
+        rotuladas = db.execute(
+            """SELECT valor, categoria, categoria_manual, descricao, estabelecimento
+                 FROM transacoes
+                WHERE user_id = ? AND id != ?
+                  AND COALESCE(NULLIF(categoria, ''), '') != ''
+                  -- A própria compra em dúvida não pode servir de prova: ela já
+                  -- carrega o chute da regra e ficaria a distância zero de si
+                  -- mesma, confirmando o palpite que estamos questionando.
+                  AND (categoria_manual = 1 OR id < ?)""",
+            (user_id, ignorar_id or -1, ignorar_id or 2**62),
+        ).fetchall()
+    # Conta como evidência TUDO que já tem categoria ali, não só o que ela
+    # corrigiu à mão: as compras que a regra acertou também dizem quanto custa
+    # um doce. Olhando só as correções, o vizinho mais próximo de um doce novo
+    # seria um cigarro, porque cigarro é a única coisa corrigida.
+    perto, menor, perto_manual = None, None, False
+    for r in rotuladas:
+        texto = _normalizar_regra(f"{r['descricao'] or ''} {r['estabelecimento'] or ''}")
+        if alvo not in texto or r["categoria"] not in categorias:
+            continue
+        dist = abs(float(r["valor"]) - valor)
+        manual = bool(r["categoria_manual"])
+        # Empate vai pra quem foi escolhido a dedo: ali a pessoa tinha certeza.
+        if menor is None or dist < menor or (dist == menor and manual and not perto_manual):
+            perto, menor, perto_manual = r["categoria"], dist, manual
+    return perto
+
+
+def perguntas_de_categoria(user_id: int, limite: int = 3) -> list[dict[str, Any]]:
+    """Compras de lugar ambíguo que o app chutou e ainda não confirmou.
+
+    Só aparecem depois que a pessoa mostrou, corrigindo, que aquele lugar tem
+    mais de uma cara. Antes disso o Herc não enche o saco de ninguém.
+    """
+    ambiguas = regras_ambiguas(user_id)
+    if not ambiguas:
+        return []
+    col = "date(COALESCE(NULLIF(data_transacao, ''), created_at))"
+    with get_db() as db:
+        recentes = db.execute(
+            f"""SELECT id, valor, descricao, estabelecimento, categoria, {col} AS dia
+                  FROM transacoes
+                 WHERE user_id = ? AND tipo = 'saida' AND categoria_manual = 0
+                   AND no_credito = 0 AND fonte != 'ajuste' AND interno = 0
+                   AND {col} >= date(?)
+                 ORDER BY {col} DESC, id DESC LIMIT 40""",
+            (user_id, (hoje_br() - timedelta(days=DIAS_PRA_LEMBRAR)).isoformat()),
+        ).fetchall()
+    perguntas = []
+    for t in recentes:
+        texto = _normalizar_regra(f"{t['descricao'] or ''} {t['estabelecimento'] or ''}")
+        for padrao, categorias in ambiguas.items():
+            if _normalizar_regra(padrao) not in texto:
+                continue
+            valor = float(t["valor"])
+            palpite = (_palpite_pelo_valor(user_id, padrao, valor, categorias, t["id"])
+                       or t["categoria"])
+            # O palpite vem primeiro, pra resposta certa ser o toque mais fácil.
+            opcoes = [palpite] + [c for c in categorias if c != palpite]
+            perguntas.append({
+                "id": t["id"], "valor": valor, "dia": t["dia"],
+                "descricao": t["descricao"] or t["estabelecimento"] or "Movimentação",
+                "chutei": palpite, "opcoes": opcoes, "lugar": padrao,
+            })
+            break
+        if len(perguntas) >= limite:
+            break
+    return perguntas
+
+
 def reclassify_transactions(user_id: int, pattern: str, categoria: str) -> int:
     """Aplica uma regra nova ao passado. Compara normalizado (o LIKE do banco não
     ignora acento nem símbolo, então 'IFD*IFOOD' escapava)."""
@@ -1401,11 +1524,17 @@ def reclassify_transactions(user_id: int, pattern: str, categoria: str) -> int:
     mudadas = 0
     with get_db() as db:
         rows = db.execute(
-            "SELECT id, descricao, estabelecimento, categoria FROM transacoes WHERE user_id = ?",
+            """SELECT id, descricao, estabelecimento, categoria, categoria_manual
+                 FROM transacoes WHERE user_id = ?""",
             (user_id,),
         ).fetchall()
         for r in rows:
             if r["categoria"] == categoria:
+                continue
+            # Escolha feita na mão não é palpite a ser corrigido: se a pessoa
+            # disse que aquele Ricardo foi cigarro, reensinar "Ricardo = doces"
+            # não pode apagar isso.
+            if r["categoria_manual"]:
                 continue
             texto = _normalizar_regra(f"{r['descricao'] or ''} {r['estabelecimento'] or ''}")
             if alvo in texto:
@@ -2818,6 +2947,7 @@ def home():
     return render_template(
         "home.html",
         duplicatas=possiveis_duplicatas(user["id"]),
+        perguntas_categoria=perguntas_de_categoria(user["id"]),
         recado=recado,
         suggestions=suggestions,
         suggestion_categories=expense_category_names(user["id"]),
@@ -4398,6 +4528,35 @@ def conferir():
     )
 
 
+@app.route("/categoria-desta", methods=["POST"])
+@login_required
+def categoria_desta():
+    """A pessoa disse o que foi ESTA compra — sem virar regra pro futuro.
+
+    É o ponto todo: no lugar ambíguo, a resposta vale pra uma compra só. Virar
+    regra seria voltar a adivinhar, agora com a categoria errada.
+    """
+    user = current_user()
+    try:
+        tx_id = int(request.form.get("tx_id") or 0)
+        if not 0 < tx_id < 2**63:
+            tx_id = 0
+    except (ValueError, TypeError):
+        tx_id = 0
+    categoria = sanitize_text(request.form.get("categoria"))[:40]
+    with get_db() as db:
+        dona = db.execute("SELECT id FROM transacoes WHERE id = ? AND user_id = ?",
+                          (tx_id, user["id"])).fetchone()
+        if not dona or not categoria:
+            flash("Não achei essa movimentação.")
+            return redirect(voltar_para(url_for("home")))
+        db.execute(
+            "UPDATE transacoes SET categoria = ?, categoria_manual = 1 WHERE id = ? AND user_id = ?",
+            (categoria, tx_id, user["id"]))
+    flash(f"Anotado: essa foi {categoria}. Só essa — o resto continua como estava.")
+    return redirect(voltar_para(url_for("home")))
+
+
 @app.route("/duplicata", methods=["POST"])
 @login_required
 def resolver_duplicata():
@@ -5218,7 +5377,8 @@ def editar_transacao(tx_id):
         with get_db() as db:
             db.execute(
                 """UPDATE transacoes SET tipo = ?, valor = ?, descricao = ?, estabelecimento = ?,
-                   categoria = ?, data_transacao = ?, no_credito = ? WHERE id = ? AND user_id = ?""",
+                   categoria = ?, data_transacao = ?, no_credito = ?, categoria_manual = 1
+                 WHERE id = ? AND user_id = ?""",
                 (tipo, valor, descricao, estabelecimento, categoria, data_transacao,
                  no_credito, tx_id, user["id"]),
             )
