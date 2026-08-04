@@ -702,7 +702,9 @@ r_aj = _an.get("/ajuda")
 h_aj = r_aj.get_data(as_text=True)
 check("ajuda abre SEM login (da pra mandar no WhatsApp)", r_aj.status_code == 200)
 check("tem o passo a passo do banco", "ajuda-passos" in h_aj)
-check("avisa pra escolher Meu Pluggy, nao o banco", "e não o seu banco direto" in h_aj)
+check("manda escolher O PROPRIO banco na lista", "seu banco na lista" in h_aj)
+check("e nao pede cadastro em site nenhum antes",
+      "meu.pluggy" not in h_aj and "Meu Pluggy" not in h_aj)
 check("lembra que e' so leitura", "só de leitura" in h_aj)
 check("diz que da pra usar sem conectar", "Não quer conectar" in h_aj)
 check("link da ajuda no menu", "/ajuda" in c1.get("/").get_data(as_text=True))
@@ -1205,9 +1207,16 @@ check("tem saida pra quem ainda nao fez", "me ensina" in _tpl and "url_for('ajud
 _h_mae2 = c_mae.get("/").get_data(as_text=True)
 check("a mae tem o link da ajuda no menu", 'href="/ajuda"' in _h_mae2)
 _h_aj2 = c_mae.get("/ajuda").get_data(as_text=True)
-for _passo in ("meu.pluggy.ai", "Conecte seu banco lá", "Confirme que apareceu",
-               "Volte aqui e conecte", "e não o seu banco direto"):
+# O diagnostico na conta dele mostrou 233 bancos aparecendo direto. O caminho
+# com cadastro extra nao existe mais, e ensinar ele era o que travava as
+# pessoas — criavam uma conta a toa e depois procuravam o nome errado na lista.
+for _passo in ("Conectar banco", "seu banco na lista", "Autorize na tela do seu banco",
+               "Sincronizar"):
     check(f"ajuda cobre: {_passo[:30]}", _passo in _h_aj2)
+check("e nao ensina mais o caminho que nao precisa existir",
+      "meu.pluggy" not in _h_aj2)
+check("quem tentou pelo caminho antigo e liberado a esquecer",
+      "pode esquecer o que fez" in _h_aj2)
 check("a ajuda abre sem login (da pra mandar antes no WhatsApp)",
       _an.get("/ajuda").status_code == 200)
 
@@ -1527,10 +1536,13 @@ check("PF segue com o convite de sempre",
 # O erro que travou ela de verdade veio do Meu Pluggy, nao do Hercules:
 # link de confirmacao aberto em aparelho diferente de onde foi pedido.
 _h_ajuda2 = _an.get("/ajuda").get_data(as_text=True)
-check("ajuda avisa do link que so abre no mesmo aparelho",
-      "mesmo celular e no mesmo navegador" in _h_ajuda2)
-check("e explica o cenario dos dois aparelhos",
-      "outro" in _h_ajuda2 and "telefone" in _h_ajuda2)
+# O tropeco dela era o link de confirmacao do cadastro no Meu Pluggy. Esse
+# cadastro deixou de existir no caminho, entao o aviso tambem — e some com
+# ele o proprio problema.
+check("nao ha mais cadastro fora do app pra tropecar",
+      "meu.pluggy" not in _h_ajuda2)
+check("e quando algo falha, a ajuda aponta o diagnostico",
+      "Diagn\u00f3stico da conex\u00e3o" in _h_ajuda2)
 
 secao("55. Força bruta no login")
 # Sem limite, quem souber o e-mail testa senha pra sempre. E' o ataque mais
