@@ -30,20 +30,20 @@
                 <option value="entrada">A receber</option>
             </select>
         </div>
+        {# Um controle so. Antes eram dois pra mesma decisao — dava pra marcar
+           "mensal" e deixar o "recorrente" vazio, o que nao queria dizer nada.
+           "Uma vez so" e o jeito de dizer que nao se repete. #}
         <div class="form-group">
-            <label for="frequencia">Frequência</label>
+            <label for="frequencia">Com que frequência</label>
             <select id="frequencia" name="frequencia">
-                <option value="mensal">Mensal</option>
-                <option value="semanal">Semanal</option>
-                <option value="anual">Anual</option>
-                <option value="pontual">Pontual</option>
+                <option value="mensal">Todo mês</option>
+                <option value="semanal">Toda semana</option>
+                <option value="anual">Todo ano</option>
+                <option value="pontual">Uma vez só</option>
             </select>
-        </div>
-        <div class="form-group" style="display:flex; align-items:end;">
-            <label style="display:flex; align-items:center; gap:10px; margin:0;">
-                <input type="checkbox" name="recorrente">
-                <span>Recorrente</span>
-            </label>
+            <p class="helper-text" style="font-size:0.82rem; margin-top:6px;">
+                Se repete, eu crio a próxima sozinho quando você marcar essa como paga.
+            </p>
         </div>
         <div class="form-group" style="grid-column:1 / -1;">
             <button class="button button-primary" type="submit" style="width:100%;">Salvar conta</button>

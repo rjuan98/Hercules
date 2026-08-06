@@ -366,6 +366,10 @@ def init_db():
     # A pessoa escolheu esta categoria na mão. Regra nenhuma pode passar por cima
     # depois: ela sabe o que comprou, o app está adivinhando.
     _add_column_if_missing(conn, "transacoes", "categoria_manual", "INTEGER NOT NULL DEFAULT 0")
+    # De qual meta veio este aporte. Sem o vínculo, apagar a movimentação deixava
+    # a meta com o dinheiro pra sempre — dois fatos sobre o mesmo dinheiro, sem
+    # nada obrigando eles a concordar.
+    _add_column_if_missing(conn, "transacoes", "meta_id", "INTEGER")
     # Plano da pessoa. 'livre' é o padrão e cobre o app inteiro enquanto a
     # cobrança estiver desligada — ninguém perde nada por não ter plano.
     _add_column_if_missing(conn, "usuarios", "plano", "TEXT NOT NULL DEFAULT 'livre'")

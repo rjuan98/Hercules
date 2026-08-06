@@ -4402,6 +4402,118 @@ check("a Ajuda tem botao de voltar",
       "arrow-left" in _io_layout.open("templates/ajuda.html", encoding="utf-8").read())
 
 
+
+secao("110. Meta e movimentacao tem que concordar")
+# Achado do amigo cacador de bug: "reserva de emergencia > deposito > n negativa
+# o saldo > editar as ultimas movimentacoes resulta em zero mudancas no valor ja
+# depositado". Guardar fazia duas coisas soltas — somava na meta e criava uma
+# saida — sem nada obrigando as duas a concordar depois.
+c_mt = novo_cliente("metavinc@teste.com", nome="Mt")
+uid_mt = uid_de("metavinc@teste.com")
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'entrada',200,'sal','Salario',
+                  'ofx',95,?,0)""", (uid_mt, date.today().isoformat()))
+    db.execute("INSERT INTO metas (user_id,nome,meta_valor,valor_atual,ativo) VALUES (?,'Reserva',5000,0,1)",
+               (uid_mt,))
+    _gid = db.execute("SELECT id FROM metas WHERE user_id=?", (uid_mt,)).fetchone()["id"]
+
+def _meta_mt():
+    with get_db() as db:
+        return float(db.execute("SELECT valor_atual FROM metas WHERE id=?", (_gid,)).fetchone()["valor_atual"])
+
+def _ultima_mt():
+    with get_db() as db:
+        return db.execute("SELECT id FROM transacoes WHERE user_id=? ORDER BY id DESC LIMIT 1",
+                          (uid_mt,)).fetchone()["id"]
+
+# Guardar mais do que tem nao e bloqueado (o dinheiro pode estar em outra conta),
+# mas nao pode ser calado: o saldo vira negativo e a pessoa precisa saber.
+_r_mt = c_mt.post(f"/metas/{_gid}/aporte", data={"csrf_token": "t", "valor": "10000,00"},
+                  follow_redirects=True)
+check("guardar mais do que tem avisa que o saldo ficou negativo",
+      "mais do que" in _r_mt.get_data(as_text=True))
+check("e diz o que fazer se o dinheiro nao saiu de verdade",
+      "apague essa movimenta" in _r_mt.get_data(as_text=True))
+check("a meta recebeu o aporte", _meta_mt() == 10000.0, _meta_mt())
+
+# O conserto do vinculo faz o remedio do aviso funcionar.
+c_mt.post(f"/transacoes/{_ultima_mt()}/delete", data={"csrf_token": "t"})
+check("apagar a movimentacao devolve o dinheiro pra meta", _meta_mt() == 0.0, _meta_mt())
+
+c_mt.post(f"/metas/{_gid}/aporte", data={"csrf_token": "t", "valor": "150,00"})
+check("novo aporte entra", _meta_mt() == 150.0, _meta_mt())
+c_mt.post(f"/transacoes/{_ultima_mt()}/editar", data={
+    "csrf_token": "t", "tipo": "saida", "valor": "50,00", "descricao": "Guardado na meta",
+    "estabelecimento": "Reserva", "categoria": "Reserva",
+    "data_transacao": date.today().isoformat()})
+check("editar o valor mexe na meta pela diferenca", _meta_mt() == 50.0, _meta_mt())
+
+# A meta nunca pode ficar negativa, mesmo com edicao maluca.
+c_mt.post(f"/transacoes/{_ultima_mt()}/editar", data={
+    "csrf_token": "t", "tipo": "saida", "valor": "999999,00", "descricao": "x",
+    "estabelecimento": "x", "categoria": "Reserva", "data_transacao": date.today().isoformat()})
+c_mt.post(f"/transacoes/{_ultima_mt()}/delete", data={"csrf_token": "t"})
+check("a meta nunca fica negativa", _meta_mt() >= 0, _meta_mt())
+
+# Movimentacao que NAO e aporte nao pode mexer em meta nenhuma.
+c_mt.post(f"/metas/{_gid}/aporte", data={"csrf_token": "t", "valor": "80,00"})
+_antes_mt = _meta_mt()
+with get_db() as db:
+    db.execute("""INSERT INTO transacoes (user_id,tipo,valor,descricao,categoria,fonte,
+                  confidence,data_transacao,no_credito) VALUES (?,'saida',40,'mercado','Mercado',
+                  'manual',100,?,0)""", (uid_mt, date.today().isoformat()))
+c_mt.post(f"/transacoes/{_ultima_mt()}/delete", data={"csrf_token": "t"})
+check("apagar um gasto comum nao mexe em meta", _meta_mt() == _antes_mt, (_antes_mt, _meta_mt()))
+
+
+secao("111. Contas: um controle so, e nao repete sem querer")
+# "tem a frequencia do quando o pagamento vai entrar e embaixo tem um checkbox
+# de frequencia mas se e mensal ja n e frequente?" — dois controles pra uma
+# decisao so, e dava pra marcar mensal com o checkbox vazio.
+_tpl111 = _io_layout.open("templates/compromissos.html", encoding="utf-8").read()
+check("o checkbox redundante saiu", 'name="recorrente"' not in _tpl111)
+check("sobrou a frequencia, em portugues de gente",
+      "Todo mês" in _tpl111 and "Uma vez só" in _tpl111)
+check("e explica o que muda na pratica", "eu crio a pr\u00f3xima sozinho" in _tpl111)
+
+c_ct = novo_cliente("contas111@teste.com", nome="Ct")
+uid_ct = uid_de("contas111@teste.com")
+_venc = date.today().replace(day=15).isoformat()
+
+def _conta(desc="Aluguel", valor="900,00", freq="mensal"):
+    return c_ct.post("/compromissos", data={"csrf_token": "t", "descricao": desc,
+                     "valor": valor, "vencimento": _venc, "tipo": "saida",
+                     "frequencia": freq}, follow_redirects=True)
+
+def _n_ct():
+    with get_db() as db:
+        return db.execute("SELECT COUNT(*) c FROM compromissos WHERE user_id=?",
+                          (uid_ct,)).fetchone()["c"]
+
+_conta()
+check("a primeira conta entra", _n_ct() == 1, _n_ct())
+_r_rep = _conta()
+check("a segunda igual NAO entra de cara", _n_ct() == 1, _n_ct())
+check("e o app diz por que", "j\u00e1 tem" in _r_rep.get_data(as_text=True))
+check("mostrando o valor da que ja existe", "900,00" in _r_rep.get_data(as_text=True))
+_conta()
+check("mas insistindo entra — dois alugueis existem no mundo", _n_ct() == 2, _n_ct())
+_conta("Luz", "120,00")
+check("conta com outro nome nao pede confirmacao", _n_ct() == 3, _n_ct())
+
+with get_db() as db:
+    _f = {r["descricao"]: (r["frequencia"], r["recorrente"]) for r in db.execute(
+        "SELECT descricao, frequencia, recorrente FROM compromissos WHERE user_id=?", (uid_ct,))}
+check("'todo mês' vira recorrente sozinho", _f["Luz"] == ("mensal", 1), _f)
+_conta("Presente", "200,00", "pontual")
+with get_db() as db:
+    _p = db.execute("""SELECT frequencia, recorrente FROM compromissos
+                        WHERE user_id=? AND descricao='Presente'""", (uid_ct,)).fetchone()
+check("'uma vez só' vira nao-recorrente sozinho",
+      (_p["frequencia"], _p["recorrente"]) == ("pontual", 0), dict(_p))
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

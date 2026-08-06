@@ -4372,17 +4372,31 @@ def aporte_meta(goal_id):
     if valor <= 0 or valor_absurdo(valor):
         flash("Informe um valor válido para guardar.")
         return redirect(url_for("metas"))
+    saldo_antes = float(calc_transaction_totals(user["id"])["balance"])
     with get_db() as db:
         db.execute(
             "UPDATE metas SET valor_atual = valor_atual + ? WHERE id = ? AND user_id = ?",
             (valor, goal_id, user["id"]),
         )
+        # meta_id amarra os dois fatos: apagar ou editar esta linha passa a
+        # devolver o dinheiro pra meta, em vez de deixar os dois discordando.
         db.execute(
-            """INSERT INTO transacoes (user_id, tipo, valor, descricao, estabelecimento, categoria, data_transacao, fonte)
-               VALUES (?, 'saida', ?, ?, ?, 'Reserva', ?, 'manual')""",
-            (user["id"], valor, f"Guardado na meta: {goal['nome']}", "Reserva", hoje_br().isoformat()),
+            """INSERT INTO transacoes (user_id, tipo, valor, descricao, estabelecimento,
+                                       categoria, data_transacao, fonte, meta_id)
+               VALUES (?, 'saida', ?, ?, ?, 'Reserva', ?, 'manual', ?)""",
+            (user["id"], valor, f"Guardado na meta: {goal['nome']}", "Reserva",
+             hoje_br().isoformat(), goal_id),
         )
-    flash(f"Você guardou {money(valor)} na meta {goal['nome']}.")
+    if valor > saldo_antes:
+        # Não bloqueio: o dinheiro pode estar em outra conta, e decidir pela
+        # pessoa seria pior. Mas ficar calado enquanto o saldo vira negativo é o
+        # tipo de silêncio que faz ela parar de confiar em todo o resto.
+        flash(f"Guardei {money(valor)} na meta {goal['nome']} — mas isso é mais do que "
+              f"você tinha na conta ({money(saldo_antes)}), então seu saldo ficou "
+              f"negativo. Se o dinheiro não saiu de verdade, apague essa movimentação "
+              f"em Entradas e saídas: a meta volta junto.")
+    else:
+        flash(f"Você guardou {money(valor)} na meta {goal['nome']}.")
     return redirect(url_for("metas", novo=goal_id))
 
 
@@ -4878,8 +4892,11 @@ def compromissos():
         valor = parse_money(request.form.get("valor"))
         vencimento = request.form.get("vencimento")
         tipo = request.form.get("tipo", "saida")
-        recorrente = 1 if request.form.get("recorrente") else 0
         frequencia = request.form.get("frequencia", "mensal")
+        # Deriva da frequência em vez de perguntar duas vezes: "todo mês" já diz
+        # que repete, e "uma vez só" já diz que não. Antes dava pra marcar mensal
+        # com o "recorrente" vazio, o que não queria dizer nada.
+        recorrente = 0 if frequencia == "pontual" else 1
         if not descricao or valor <= 0 or valor_absurdo(valor) or not vencimento:
             flash("Preencha descrição, valor e vencimento.")
             return redirect(url_for("compromissos"))
@@ -4890,6 +4907,26 @@ def compromissos():
         except ValueError:
             flash("Data de vencimento inválida.")
             return redirect(url_for("compromissos"))
+        # Duas contas iguais no mesmo mês dobram o que o simulador reserva — o
+        # "Será que cabe?" passa a mentir por uma conta inteira. Dois aluguéis
+        # existem no mundo, então não bloqueio: aviso uma vez e aceito se ela
+        # insistir. O que não pode é acontecer sem ela perceber.
+        chave_repetida = f"{descricao.strip().lower()}|{vencimento[:7]}"
+        with get_db() as db:
+            ja_tem = db.execute(
+                """SELECT valor FROM compromissos
+                    WHERE user_id = ? AND LOWER(TRIM(descricao)) = LOWER(TRIM(?))
+                      AND status = 'pendente'
+                      AND strftime('%Y-%m', vencimento) = strftime('%Y-%m', ?)
+                    LIMIT 1""",
+                (user["id"], descricao, vencimento)).fetchone()
+        if ja_tem and session.pop("conta_repetida", None) != chave_repetida:
+            session["conta_repetida"] = chave_repetida
+            flash(f"Você já tem “{descricao}” de {money(float(ja_tem['valor']))} vencendo "
+                  f"neste mês. Se for outra conta mesmo, salve de novo que eu cadastro "
+                  f"as duas — só não quero somar duas sem você perceber.")
+            return redirect(url_for("compromissos"))
+        session.pop("conta_repetida", None)
         with get_db() as db:
             cursor = db.execute(
                 """INSERT INTO compromissos (user_id, descricao, valor, vencimento, tipo, status, recorrente, frequencia)
@@ -5409,6 +5446,12 @@ def editar_transacao(tx_id):
             flash("Data inválida.")
             return redirect(url_for("editar_transacao", tx_id=tx_id))
         with get_db() as db:
+            # Se esta linha é um aporte de meta, mudar o valor tem que mudar a
+            # meta junto — pela diferença. Sem isso, a pessoa corrigia um aporte
+            # de R$ 500 pra R$ 50 e a meta continuava com os R$ 500.
+            antiga = db.execute(
+                "SELECT valor, meta_id FROM transacoes WHERE id = ? AND user_id = ?",
+                (tx_id, user["id"])).fetchone()
             db.execute(
                 """UPDATE transacoes SET tipo = ?, valor = ?, descricao = ?, estabelecimento = ?,
                    categoria = ?, data_transacao = ?, no_credito = ?, categoria_manual = 1
@@ -5416,7 +5459,15 @@ def editar_transacao(tx_id):
                 (tipo, valor, descricao, estabelecimento, categoria, data_transacao,
                  no_credito, tx_id, user["id"]),
             )
-        flash("Movimentação atualizada.")
+            if antiga and antiga["meta_id"]:
+                delta = float(valor) - float(antiga["valor"])
+                if delta:
+                    db.execute(
+                        """UPDATE metas SET valor_atual = MAX(0, valor_atual + ?)
+                            WHERE id = ? AND user_id = ?""",
+                        (delta, antiga["meta_id"], user["id"]))
+        flash("Movimentação atualizada."
+              + (" A meta acompanhou a mudança." if antiga and antiga["meta_id"] else ""))
         return redirect(url_for("listar_transacoes", novo=tx_id))
     return render_template(
         "nova_transacao.html",
@@ -5438,6 +5489,15 @@ def delete_transacao(tx_id):
         flash("Movimentação não encontrada.")
         return redirect(url_for("listar_transacoes"))
     with get_db() as db:
+        # Se era aporte de meta, o dinheiro volta. Sem isto a meta ficava com um
+        # valor que nenhuma movimentação sustenta.
+        alvo = db.execute("SELECT valor, meta_id FROM transacoes WHERE id = ? AND user_id = ?",
+                          (tx_id, user["id"])).fetchone()
+        if alvo and alvo["meta_id"]:
+            db.execute(
+                """UPDATE metas SET valor_atual = MAX(0, valor_atual - ?)
+                    WHERE id = ? AND user_id = ?""",
+                (float(alvo["valor"]), alvo["meta_id"], user["id"]))
         db.execute("DELETE FROM transacoes WHERE id = ? AND user_id = ?", (tx_id, user["id"]))
     flash("Movimentação removida.")
     return redirect(url_for("listar_transacoes"))
