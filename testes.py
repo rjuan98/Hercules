@@ -4722,6 +4722,106 @@ check("o endereco do conector esta num lugar so",
       _tpl113.count("cdn.pluggy.ai/pluggy-connect"))
 
 
+
+secao("114. Falha de conexao: de quem foi")
+# O log destas falhas existia havia uma semana e NENHUMA tela lia. Os codigos que
+# os testadores mandavam ficavam gravados num arquivo que ninguem abria. O que
+# resolve nao e' listar erro: e' dizer a camada, porque "nao conectou" pode ser o
+# nosso servidor, o navegador da pessoa, a Pluggy ou o banco.
+
+import tempfile as _tmp114, pathlib as _pl114
+_log_real = A.ERROS_LOG
+A.ERROS_LOG = _pl114.Path(_tmp114.mkdtemp()) / "erros.log"
+
+# As pistas do NAVEGADOR (a diretiva CSP que ele bloqueou) valem sem depender de
+# texto nosso: continuam funcionando se alguem reescrever as mensagens da tela.
+for _motivo, _extra, _esperado in [
+    ("antes da janela: 401 Unauthorized", "", "nosso"),
+    ("falhou ao salvar aqui", "", "nosso"),
+    ("O conector da Pluggy nao carregou.", "bloqueios=script-src ua=iPhone", "navegador"),
+    ("qualquer frase", "bloqueios=img-src ua=Android", "navegador"),
+    ("O conector da Pluggy n\u00e3o carregou.", "bloqueios= ua=iPhone", "navegador"),
+    ("token no clique: recusado", "", "pluggy"),
+    ("a janela n\u00e3o devolveu o item", "", "pluggy"),
+    ("N\u00e3o foi poss\u00edvel prosseguir com o compartilhamento", "", "banco"),
+    ("connection_error", "", "banco"),
+    ("A conex\u00e3o foi cancelada ou deu erro.", "", "desistiu"),
+    ("motivo que ninguem viu ainda", "", "?"),
+]:
+    check("camada de %r e %s" % (_motivo[:26], _esperado),
+          A.camada_da_falha(_motivo, _extra) == _esperado,
+          A.camada_da_falha(_motivo, _extra))
+
+check("toda camada tem o que fazer escrito",
+      all(c in A.O_QUE_FAZER for c, _ in A.CAMADAS_DE_FALHA) and "?" in A.O_QUE_FAZER)
+
+# O gravador e o leitor tem que fechar. Se o formato da linha mudar de um lado,
+# o painel volta a ficar vazio sem ninguem perceber.
+_cods = [A.anotar_falha_pluggy(1, m, e) for m, e in [
+    ("antes da janela: 401", ""),
+    ("N\u00e3o foi poss\u00edvel prosseguir com o compartilhamento", "bloqueios= ua=Android"),
+    ("A conex\u00e3o foi cancelada", "bloqueios= | tela-de-inicio ua=iPhone"),
+]]
+_lidas = A.falhas_de_conexao()
+check("le de volta tudo que gravou", len(_lidas) == 3, len(_lidas))
+check("mais nova primeiro", _lidas[0]["codigo"] == _cods[-1])
+check("com a camada ja resolvida", [f["camada"] for f in _lidas] ==
+      ["desistiu", "banco", "nosso"], [f["camada"] for f in _lidas])
+
+# Traceback no mesmo arquivo nao pode confundir: sao blocos com regua de "=",
+# e a falha de conexao e uma linha so.
+with A.ERROS_LOG.open("a", encoding="utf-8") as _f:
+    _f.write("=" * 70 + chr(10) + "Traceback (most recent call last):" + chr(10))
+check("traceback no meio do arquivo nao vira falha de conexao",
+      len(A.falhas_de_conexao()) == 3, len(A.falhas_de_conexao()))
+
+# O caso de uso real: o testador manda o codigo pelo zap.
+check("acha pelo codigo", (A.buscar_falha(_cods[1]) or {}).get("camada") == "banco")
+check("e nao liga pra maiuscula",
+      (A.buscar_falha(_cods[1].lower()) or {}).get("codigo") == _cods[1])
+check("codigo que nao existe devolve nada", A.buscar_falha("ZZZZZZ") is None)
+check("codigo vazio nao varre o log a toa", A.buscar_falha("") is None)
+check("e nem quebra com lixo", A.buscar_falha("'; DROP TABLE--") is None)
+
+# O aparelho: so o que ajuda a reconhecer, nao o rastro inteiro.
+check("reconhece iPhone pela tela de inicio",
+      "tela de in\u00edcio" in A.falhas_de_conexao()[0]["aparelho"])
+check("nao despeja o user agent inteiro na tela",
+      len(A.falhas_de_conexao()[0]["aparelho"]) < 60)
+
+# Sem log nenhum a tela nao pode quebrar — e o estado do primeiro dia.
+A.ERROS_LOG = _pl114.Path(_tmp114.mkdtemp()) / "nunca-existiu.log"
+check("sem arquivo de log, devolve lista vazia", A.falhas_de_conexao() == [])
+check("e a busca tambem nao quebra", A.buscar_falha("ABC123") is None)
+A.ERROS_LOG = _log_real
+
+# A tela. Importar o modulo nao prova que ela renderiza: erro de Jinja no
+# template so aparece na hora de montar o HTML.
+_admin_antes = A.ADMIN_EMAIL
+A.ADMIN_EMAIL = "saude114@teste.com"
+c114 = novo_cliente("saude114@teste.com", nome="Chefe114")
+_r114 = c114.get("/saude")
+check("a tela de saude abre", _r114.status_code == 200, _r114.status_code)
+_h114 = _r114.get_data(as_text=True)
+check("tem a secao de conexao", "Conex\u00e3o com o banco" in _h114)
+check("com a legenda do que cada camada quer dizer", "Safari/Chrome" in _h114)
+
+_c_nav = A.anotar_falha_pluggy(1, "nao carregou", "bloqueios=script-src ua=iPhone")
+_h114b = c114.get("/saude?codigo=" + _c_nav.lower()).get_data(as_text=True)
+check("busca pelo codigo acha", _c_nav in _h114b)
+check("e diz o que fazer, nao so o erro", "Safari ou Chrome" in _h114b)
+check("codigo errado avisa em vez de ficar mudo",
+      "N\u00e3o achei o c\u00f3digo" in c114.get("/saude?codigo=ZZZZZZ").get_data(as_text=True))
+
+# Privacidade: esta tela mostra POR QUE falhou, nunca o dinheiro de ninguem.
+_secao114 = _h114.split("Conex\u00e3o com o banco")[1].split("</section>")[0]
+check("a secao nao mostra valor de ninguem", "R$" not in _secao114)
+
+check("quem nao e admin nem descobre que existe",
+      novo_cliente("naoadmin114@teste.com", nome="Zé").get("/saude").status_code == 404)
+A.ADMIN_EMAIL = _admin_antes
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

@@ -110,6 +110,81 @@
     </ul>
 </section>
 
+{# ---- Conexão com o banco ----
+   O log destas falhas existia havia uma semana e nenhuma tela lia. Os códigos
+   que os testadores mandavam ficavam gravados num arquivo que ninguém abria.
+   O que resolve não é listar erro: é dizer DE QUEM foi. "Não conectou" pode ser
+   o nosso servidor, o navegador da pessoa, a Pluggy ou o banco — e sem separar,
+   cada conserto parece não ter adiantado nada. #}
+<section class="page-card" style="margin-top:18px;">
+    <h2 class="topbar-title" style="font-size:1.2rem;">Conexão com o banco: o que falhou</h2>
+
+    <form method="get" action="{{ url_for('saude_app') }}" class="form-inline"
+          style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin:12px 0 6px;">
+        <div style="flex:1; min-width:180px;">
+            <label class="form-label" for="codigo">Código que a pessoa te mandou</label>
+            <input class="form-input" type="text" id="codigo" name="codigo"
+                   value="{{ procurado }}" placeholder="ex.: 4F2A1C" maxlength="20"
+                   autocapitalize="characters" autocomplete="off">
+        </div>
+        <button class="button button-primary" type="submit">Procurar</button>
+    </form>
+
+    {% if procurado and not achada %}
+    <p class="helper-text" style="color:var(--warning);">
+        Não achei o código <strong>{{ procurado }}</strong>. Confira as letras, ou pode ser
+        de antes da última limpeza do log.
+    </p>
+    {% elif achada %}
+    <div class="auth-note" style="border-left:4px solid var(--primary); margin-bottom:14px;">
+        <p class="note-title" style="margin:0 0 6px;">
+            {{ achada.codigo }} · <strong>{{ achada.camada }}</strong> · {{ achada.quando }}
+        </p>
+        <p class="helper-text" style="margin:0 0 6px;">{{ o_que_fazer[achada.camada] }}</p>
+        <p class="helper-text" style="margin:0; font-family:monospace;">{{ achada.motivo }}</p>
+        {% if achada.aparelho %}
+        <p class="helper-text" style="margin:6px 0 0;">Aparelho: {{ achada.aparelho }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if conexoes %}
+    <p class="topbar-subtitle" style="margin-bottom:10px;">
+        {% for camada, quantas in por_camada.items() %}
+        <span class="chip" style="margin-right:6px;">{{ camada }}: {{ quantas }}</span>
+        {% endfor %}
+    </p>
+    <ul class="data-list">
+        {% for f in conexoes %}
+        <li class="data-item" style="padding:12px 16px;">
+            <p class="note-title" style="margin:0 0 4px;">
+                <span style="font-family:monospace;">{{ f.codigo }}</span>
+                · <strong>{{ f.camada }}</strong>
+                <span class="helper-text">· {{ f.quando }}</span>
+            </p>
+            <div class="note-meta">
+                <span>{{ f.motivo }}</span>
+            </div>
+            {% if f.aparelho %}
+            <p class="helper-text" style="margin:4px 0 0;">{{ f.aparelho }}</p>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    <p class="helper-text" style="margin-top:12px;">
+        <strong>nosso</strong> = conserto aqui · <strong>navegador</strong> = a pessoa
+        precisa abrir pelo Safari/Chrome · <strong>pluggy</strong> = checar o painel deles
+        · <strong>banco</strong> = do lado do banco, costuma passar
+        · <strong>desistiu</strong> = fechou a janela, não é falha.
+    </p>
+    {% else %}
+    <p class="subtitle" style="margin:0;">
+        Nenhuma tentativa falhou até agora. Se alguém disser que não conectou e não
+        aparecer nada aqui, é porque nem chegou a abrir a janela.
+    </p>
+    {% endif %}
+</section>
+
 {# ---- Erros ---- #}
 <section class="page-card" style="margin-top:18px;">
     <h2 class="topbar-title" style="font-size:1.2rem;">Últimas quebras</h2>

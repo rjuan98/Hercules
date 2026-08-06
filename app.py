@@ -5688,6 +5688,124 @@ def pluggy_falhou():
     return {"codigo": codigo}, 200
 
 
+# De quem foi a falha. A ordem importa: o primeiro padrão que casar ganha, e os
+# mais específicos vêm antes.
+CAMADAS_DE_FALHA = [
+    ("nosso",     ("antes da janela:", "falhou ao salvar aqui",
+                   "não está ligada neste servidor")),
+    # As quatro primeiras pistas vêm do NAVEGADOR (a diretiva que ele bloqueou),
+    # não de texto nosso: continuam valendo se alguém reescrever as mensagens.
+    ("navegador", ("script-src", "img-src", "connect-src", "frame-src",
+                   # "tela-de-inicio" e "navegador de dentro de app" NAO entram
+                   # aqui: sao onde aconteceu, nao o que quebrou — e ja aparecem
+                   # na coluna do aparelho. Como pista, roubavam o "desistiu" de
+                   # quem so fechou a janela num iPhone.
+                   "não carregou", "nao carregou", "erro ao abrir o conector",
+                   "bloqueou", "bloqueado", "securitypolicy")),
+    ("pluggy",    ("token no clique:", "não devolveu o item",
+                   "connect token", "unauthorized", "401", "403")),
+    ("banco",     ("compartilhamento", "consentimento", "instituição",
+                   "login inválido", "credential", "connection_error",
+                   "site_unavailable", "user_input_timeout", "outage")),
+    ("desistiu",  ("cancelada", "fechou a janela", "fechada")),
+]
+
+# O que fazer com cada uma. Sem isto o painel vira lista de erro sem saída.
+O_QUE_FAZER = {
+    "nosso": "É nosso. Abrir /pluggy/diagnostico, que testa elo por elo.",
+    "navegador": "É do aparelho dele. Pedir pra abrir digitando o endereço no "
+                 "Safari ou Chrome, não por link de dentro de outro app.",
+    "pluggy": "É da Pluggy. Checar o painel deles e, se repetir, abrir chamado.",
+    "banco": "É do banco, na tela de consentimento dele. Costuma ser passageiro: "
+             "tentar mais tarde, ou testar outro banco pra confirmar.",
+    "desistiu": "Ninguém falhou: a pessoa fechou a janela no meio.",
+    "?": "Não reconheci o motivo. Vale ler a linha inteira.",
+}
+
+
+def camada_da_falha(motivo: str, extra: str = "") -> str:
+    """Nosso servidor, o navegador do testador, a Pluggy ou o banco?
+
+    Quatro coisas diferentes produzem a MESMA frase pra quem testa: "não
+    conectou". Sem separar, cada conserto parece não ter adiantado — foi o que
+    aconteceu por uma semana inteira aqui.
+    """
+    texto = (str(motivo) + " " + str(extra)).lower()
+    for camada, pistas in CAMADAS_DE_FALHA:
+        if any(pista in texto for pista in pistas):
+            return camada
+    return "?"
+
+
+def _aparelho_curto(extra: str) -> str:
+    """Só o suficiente pra reconhecer o aparelho, não o rastro inteiro.
+
+    O user agent tem 200 caracteres e não cabe na tela. O que interessa é: era
+    iPhone? era navegador de dentro de outro app? estava pela tela de início? —
+    as três coisas que derrubam a conexão sem ser culpa nossa.
+    """
+    marcas = []
+    t = str(extra)
+    if "iOS" in t or "iPhone" in t:
+        marcas.append("iPhone")
+    elif "Android" in t:
+        marcas.append("Android")
+    if "tela-de-inicio" in t:
+        marcas.append("pela tela de início")
+    if "; wv" in t or "FBAN" in t or "Instagram" in t or "WhatsApp" in t:
+        marcas.append("navegador de dentro de app")
+    return " · ".join(marcas)
+
+
+def falhas_de_conexao(limite=40):
+    """As tentativas de conexão que não foram, mais nova primeiro.
+
+    Lê as linhas que `anotar_falha_pluggy` grava. Elas convivem no mesmo arquivo
+    com os tracebacks, que são blocos separados por uma régua de "=" — por isso
+    o filtro aqui é por linha, e não o mesmo corte que `erros_recentes` usa.
+    """
+    if not ERROS_LOG.exists():
+        return []
+    try:
+        bruto = ERROS_LOG.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    achados = []
+    for linha in bruto.splitlines():
+        if " PLUGGY " not in linha:
+            continue
+        m = re.match(r"\[(.*?)\] PLUGGY (\w+) user=(\d+) motivo=(.*?) extra=(.*)$",
+                     linha.strip())
+        if not m:
+            continue
+        quando, codigo, uid, motivo, extra = m.groups()
+        motivo = motivo.strip().strip("'").strip('"')
+        extra = extra.strip().strip("'").strip('"')
+        achados.append({
+            "quando": quando.replace("T", " ")[:16],
+            "codigo": codigo,
+            "user_id": int(uid),
+            "motivo": motivo,
+            "extra": extra,
+            "camada": camada_da_falha(motivo, extra),
+            "aparelho": _aparelho_curto(extra),
+        })
+    achados.reverse()
+    return achados[:limite]
+
+
+def buscar_falha(codigo: str):
+    """Acha uma falha pelo código de 6 letras que o testador manda no zap."""
+    alvo = re.sub(r"[^A-Za-z0-9]", "", str(codigo or "")).upper()
+    if not alvo:
+        return None
+    for f in falhas_de_conexao(limite=1000000):
+        if f["codigo"].upper() == alvo:
+            return f
+    return None
+
+
 @app.route("/pluggy/diagnostico")
 @login_required
 def pluggy_diagnostico():
@@ -6240,11 +6358,22 @@ def saude_app():
                  FROM usuarios ORDER BY COALESCE(last_seen, '') DESC, id DESC LIMIT 25"""
         ).fetchall()
 
+    # A busca pelo código de 6 letras: é assim que a informação chega, pelo zap.
+    procurado = sanitize_text(request.args.get("codigo"), limite=20) or ""
+    achada = buscar_falha(procurado) if procurado else None
+
+    conexoes = falhas_de_conexao()
+    por_camada = {}
+    for f in conexoes:
+        por_camada[f["camada"]] = por_camada.get(f["camada"], 0) + 1
+
     return render_template(
         "saude.html", user=current_user(),
         u=u, pessoas=pessoas, hoje=hoje,
         backups=listar_backups(), ultimo=ultimo_backup(), erros=erros_recentes(),
         cifrado=cifragem_ligada(),
+        conexoes=conexoes, por_camada=por_camada, o_que_fazer=O_QUE_FAZER,
+        procurado=procurado, achada=achada,
     )
 
 
