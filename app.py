@@ -2445,7 +2445,9 @@ _CSP = "; ".join([
     # pessoa acha o "Meu Pluggy" no meio da lista. Sem isto, ela procura por um
     # nome numa tela de quadrados vazios.
     "img-src 'self' data: blob: https://cdn.pluggy.ai",
-    "connect-src 'self' https://api.pluggy.ai https://connect.pluggy.ai",
+    # cdn.pluggy.ai entra aqui pra a pagina poder PERGUNTAR ao CDN por que o
+    # conector nao carregou, em vez de chutar o motivo pra pessoa.
+    "connect-src 'self' https://api.pluggy.ai https://connect.pluggy.ai https://cdn.pluggy.ai",
     "frame-src https://cdn.pluggy.ai https://connect.pluggy.ai",
     "form-action 'self'",
     "base-uri 'self'",          # impede <base> injetado redirecionar formulários

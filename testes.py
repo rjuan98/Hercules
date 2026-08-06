@@ -4138,7 +4138,11 @@ check("e o motivo vira texto legivel", "function descreve(erro)" in _tpl_pluggy)
 check("escuta o navegador barrando recurso pela politica de seguranca",
       "securitypolicyviolation" in _tpl_pluggy)
 check("trata o caso do conector nao carregar",
-      "PluggyConnect === 'undefined'" in _tpl_pluggy and "bloqueador de an" in _tpl_pluggy)
+      "PluggyConnect === 'undefined'" in _tpl_pluggy
+      and "PLUGGY_FALHOU_AO_CARREGAR" in _tpl_pluggy)
+# Antes o app CHUTAVA o motivo ("costuma ser rede, bloqueador...") e mandava a
+# pessoa procurar no lugar errado. Agora pergunta pro proprio CDN.
+check("e pergunta o motivo em vez de chutar", "porQueNaoCarregou" in _tpl_pluggy)
 # Os primos foram categoricos: "extrato e coisa de 2006". Oferecer isso como
 # consolo logo depois da conexao falhar nao consola — irrita. Mas a funcao
 # continua inteira pra quem quiser: o que saiu foi a sugestao no lugar errado.
@@ -4512,6 +4516,43 @@ with get_db() as db:
                         WHERE user_id=? AND descricao='Presente'""", (uid_ct,)).fetchone()
 check("'uma vez só' vira nao-recorrente sozinho",
       (_p["frequencia"], _p["recorrente"]) == ("pontual", 0), dict(_p))
+
+
+
+secao("112. Link aberto de dentro do WhatsApp")
+# O print dos primos tinha a resposta no canto: "WhatsApp" em cima e "Privado"
+# na barra de endereco. Eles abriram o Hercules pela janelinha interna do
+# WhatsApp, que bloqueia script de outro dominio — o conector da Pluggy nunca
+# carrega ali. Os dois falharam pelo mesmo motivo, com codigos diferentes.
+_tpl112 = _io_layout.open("templates/pluggy_conectar.html", encoding="utf-8").read()
+
+check("o <script> avisa na hora que falha, em vez de so no clique",
+      'onerror="window.PLUGGY_FALHOU_AO_CARREGAR' in _tpl112)
+check("existe aviso proprio pra navegador de dentro de outro app",
+      'id="aviso-interno"' in _tpl112 and "Abra no navegador do celular" in _tpl112)
+check("e ele diz o caminho exato: tres pontinhos, abrir no Safari",
+      "tr\u00eas pontinhos" in _tpl112 and "Abrir no Safari" in _tpl112)
+check("reconhece os apps mais comuns", "WhatsApp" in _tpl112 and "Instagram" in _tpl112)
+check("e nao depende so da deteccao: falhou, o aviso aparece",
+      "aviso-interno').hidden = false" in _tpl112.split("function abrir()")[1][:400])
+
+# O app parou de CHUTAR o motivo. Antes dizia "costuma ser rede, bloqueador de
+# anuncios ou extensao" — e mandava a pessoa procurar no lugar errado.
+check("nao chuta mais o motivo", "Costuma ser rede" not in _tpl112)
+check("pergunta pro proprio CDN o que houve", "porQueNaoCarregou" in _tpl112)
+check("separa bloqueio do navegador de endereco fora do ar",
+      "r.status" in _tpl112 and "deixou ele rodar" in _tpl112)
+check("e separa dos dois o caso de rede caida", "nem alcan\u00e7ar" in _tpl112)
+
+# A sonda so funciona se a CSP deixar falar com o CDN — senao o diagnostico
+# seria bloqueado pelo proprio app, que seria ironico.
+check("a CSP deixa a pagina perguntar ao CDN",
+      "https://cdn.pluggy.ai" in A._CSP.split("connect-src")[1].split(";")[0], A._CSP)
+check("e continua barrando conversa com qualquer outro lugar",
+      all(_d.startswith("https://api.pluggy.ai") or _d.startswith("https://connect.pluggy.ai")
+          or _d.startswith("https://cdn.pluggy.ai") or _d == "'self'"
+          for _d in A._CSP.split("connect-src")[1].split(";")[0].split()[1:]),
+      A._CSP.split("connect-src")[1].split(";")[0])
 
 
 print("\n" + "=" * 62)

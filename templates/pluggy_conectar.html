@@ -37,6 +37,23 @@
     </p>
     {% endif %}
 
+    {# Link aberto de dentro do WhatsApp/Instagram roda numa janelinha do proprio
+       app, que bloqueia script de outro dominio. O conector da Pluggy nunca
+       carrega ali, e a pessoa nao tem como saber disso. #}
+    <div id="aviso-interno" class="auth-note" hidden
+         style="margin-top:14px; border-left:4px solid var(--warning);">
+        <p class="note-title" style="margin:0 0 6px;">
+            <i class="icone-texto" data-lucide="external-link"></i> Abra no navegador do celular
+        </p>
+        <p class="helper-text" style="margin:0;">
+            Você chegou aqui por um link de dentro de outro app (WhatsApp, Instagram…), e
+            essa janelinha bloqueia partes da página — a conexão com o banco não funciona
+            dela.<br><br>
+            <strong>Toque nos três pontinhos (ou no ícone de compartilhar) e escolha
+            “Abrir no Safari” ou “Abrir no Chrome”.</strong> De lá funciona.
+        </p>
+    </div>
+
     {# iPhone com o app na tela de inicio abre num webview separado, com
        armazenamento particionado e sem os cookies do Safari. O widget precisa
        disso pra manter a sessao entre a janela do banco e a volta — e falha
@@ -91,7 +108,9 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
+<script>window.PLUGGY_CDN = "https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js";</script>
+<script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"
+        onerror="window.PLUGGY_FALHOU_AO_CARREGAR = true;"></script>
 <script>
 window.addEventListener('DOMContentLoaded', function () {
     var token = {{ connect_token|tojson }};
@@ -116,6 +135,17 @@ window.addEventListener('DOMContentLoaded', function () {
         || window.matchMedia('(display-mode: standalone)').matches;
     if (iOS && standalone) {
         document.getElementById('aviso-standalone').hidden = false;
+    }
+
+    // Navegador de dentro de outro app. Detectar isso com certeza e' impossivel
+    // (cada app monta o seu user agent), entao o sinal forte vem depois: se o
+    // conector nao carregar, o aviso aparece de qualquer jeito.
+    var ua = navigator.userAgent || '';
+    var dentroDeApp = /FBAN|FBAV|Instagram|Line\/|Twitter|WhatsApp|GSA\//i.test(ua)
+        || (iOS && /AppleWebKit/.test(ua) && !/Safari/.test(ua))
+        || (iOS && !standalone && !/CriOS|FxiOS|EdgiOS/.test(ua) && !/Version\//.test(ua));
+    if (dentroDeApp) {
+        document.getElementById('aviso-interno').hidden = false;
     }
 
     var bloqueios = [];
@@ -174,11 +204,34 @@ window.addEventListener('DOMContentLoaded', function () {
           .catch(function () { relatar('Conectou no banco, mas falhou ao salvar aqui.'); });
     }
 
+    // Em vez de chutar o motivo, pergunta pro proprio CDN. Isso separa tres
+    // coisas que pareciam iguais: bloqueio do navegador, endereco fora do ar, e
+    // rede caida — e so a primeira tem conserto do lado da pessoa.
+    function porQueNaoCarregou() {
+        return fetch(window.PLUGGY_CDN, { method: 'GET', cache: 'no-store' })
+            .then(function (r) {
+                if (r.ok) {
+                    return 'o arquivo do conector baixa normalmente, mas o navegador não '
+                        + 'deixou ele rodar — é o caso típico de janelinha dentro de outro '
+                        + 'app (WhatsApp, Instagram) ou de bloqueador';
+                }
+                return 'o endereço do conector respondeu ' + r.status
+                    + ' — isso é do lado da Pluggy, não seu';
+            })
+            .catch(function () {
+                return 'não consegui nem alcançar o endereço do conector — rede, bloqueador '
+                    + 'ou a janelinha de dentro de outro app';
+            });
+    }
+
     function abrir() {
         caixaFalha.hidden = true;
-        if (typeof PluggyConnect === 'undefined') {
-            relatar('O conector da Pluggy não carregou nesta página. Costuma ser rede, '
-                + 'bloqueador de anúncios ou alguma extensão do navegador.');
+        if (typeof PluggyConnect === 'undefined' || window.PLUGGY_FALHOU_AO_CARREGAR) {
+            document.getElementById('aviso-interno').hidden = false;
+            status.textContent = 'Descobrindo o motivo…';
+            porQueNaoCarregou().then(function (motivo) {
+                relatar('O conector da Pluggy não carregou: ' + motivo + '.');
+            });
             return;
         }
         try {
