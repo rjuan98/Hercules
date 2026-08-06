@@ -1689,7 +1689,11 @@ html.valores-ocultos .chart-box canvas { filter: blur(10px); }
     transition: background 0.15s ease, color 0.15s ease;
 }
 .olho-do-valor:hover { background: var(--surface-soft); color: var(--text); }
-.olho-do-valor i { width: 20px; height: 20px; }
+/* `svg` e não `i`: quando a página termina de carregar não existe mais um <i>
+   aqui — o lucide já trocou. O `i` fica pro instante antes disso, senão o ícone
+   pisca em 24px (o padrão do lucide) e depois encolhe. */
+.olho-do-valor i,
+.olho-do-valor svg { width: 20px; height: 20px; }
 
 .olho-do-valor .eye-off { display: none; }
 html.valores-ocultos .olho-do-valor .eye-on { display: none; }
@@ -1851,25 +1855,29 @@ html.valores-ocultos .olho-do-valor .eye-off { display: inline-flex; }
 .conta-total span { color: var(--text); font-weight: 800; }
 
 /* Tema no cabeçalho do menu: é ajuste de uma vez, não coisa de todo dia, então
-   saiu do topo de TODAS as telas. Pequeno e discreto — o `title` diz o estado
-   atual, que o ícone sozinho (lua / sol / monitor) já sugere. */
+   saiu do topo de TODAS as telas. O `title` diz o estado atual, que o ícone
+   sozinho (monitor / lua / sol) já sugere.
+
+   Mesma caixa do ✕ que fica ao lado — 38px, mesma borda, mesmo canto. São dois
+   botõezinhos irmãos no topo do menu; um menor e sem borda parecia peça solta. */
 .sidebar-tema {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
-    flex: none;
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
     padding: 0;
-    border: 0;
-    border-radius: 999px;
-    background: transparent;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
     color: var(--muted);
     cursor: pointer;
     transition: background 0.2s ease, color 0.2s ease;
 }
-.sidebar-tema:hover { background: rgba(201, 111, 59, 0.12); color: var(--text); }
-.sidebar-tema i { width: 19px; height: 19px; }
+.sidebar-tema:hover { background: var(--surface-soft); color: var(--text); }
+.sidebar-tema i,
+.sidebar-tema svg { width: 19px; height: 19px; }
 
 /* ---- Rodapé com os dados de quem responde pelo app ---- */
 .rodape-legal {

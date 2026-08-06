@@ -821,6 +821,19 @@ check("e no cabecalho, acima da lista que rola",
       _h_base.index('class="sidebar-tema"') < _h_base.index('class="sidebar-nav"'))
 check("com a lateral recolhida ele sai (nao cabe no trilho de 92px)",
       ".sidebar-collapsed .sidebar-tema" in _css)
+check("e tem a mesma caixa do X que fica do lado",
+      "width: 38px" in _css.split(".sidebar-tema {")[1].split("}")[0])
+
+# O lucide troca o <i data-lucide> por <svg> assim que a pagina carrega — o
+# comentario da linha 160 do proprio styles.css diz isso. Regra de tamanho
+# escrita com seletor `i` para de pegar naquele instante: foi assim que o icone
+# do tema ficou com 24px (o padrao do lucide) dentro de um botao de 34.
+import re as _re_icone
+_regras_i = _re_icone.findall(r"^.*[ .#][a-z-]+ i \{.*$", _css, _re_icone.M)
+check("nenhuma regra dimensiona icone pelo seletor i sozinho", not _regras_i, _regras_i)
+for _quem, _tam in ((".olho-do-valor", "20px"), (".sidebar-tema", "19px")):
+    check("%s dimensiona o icone por svg" % _quem,
+          ("%s svg { width: %s" % (_quem, _tam)) in _css)
 # A barra so' afina de verdade se os botoes redondos afinarem: sao eles que
 # definem a altura minima.
 check("a barra de cima ficou mais fina", "padding: 10px 20px" in _css)
