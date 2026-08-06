@@ -4676,8 +4676,19 @@ check("e o cache.put fica DENTRO desse if",
       _trecho_estatico.index("if (resp.ok)") < _trecho_estatico.index("cache.put"))
 # O tratamento das paginas ja fazia isso; foi o dos estaticos que ficou pra tras.
 check("as paginas tambem so guardam o que deu certo", "if (resp.ok" in _sw113)
-check("a versao do cache subiu, pra limpar quem ja tem lixo guardado",
-      'const V = "55"' in _sw113)
+# Nao trava o NUMERO — isso reprovaria em todo deploy, e teste que grita sem
+# motivo e teste que a gente aprende a ignorar. O que importa e as tres versoes
+# andarem juntas: CSS que sobe sem o service worker subir junto faz o aparelho
+# continuar servindo o arquivo velho. Ja aconteceu duas vezes esta semana.
+# Le o TEMPLATE com nome proprio: `_h_base` foi redefinido la' pela linha 2148 e
+# hoje guarda o HTML renderizado da home, nao o texto de base.html.
+_txt_base = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "templates", "base.html"), encoding="utf-8").read()
+_v_sw = _re105.search(r'const V = "(\d+)"', _sw113).group(1)
+_v_css = _re105.search(r"styles\.css', v='(\d+)'", _txt_base).group(1)
+check("service worker e CSS na mesma versao", _v_sw == _v_css, (_v_sw, _v_css))
+check("e o app grava a mesma nas falhas", A.VERSAO_APP == _v_sw,
+      (A.VERSAO_APP, _v_sw))
 
 # 2. O token era emitido no RENDER e guardado no HTML. Token expira: quem lesse
 #    a tela, saisse e voltasse clicava num botao que ja nao funcionava — e o
@@ -4819,6 +4830,44 @@ check("a secao nao mostra valor de ninguem", "R$" not in _secao114)
 
 check("quem nao e admin nem descobre que existe",
       novo_cliente("naoadmin114@teste.com", nome="Zé").get("/saude").status_code == 404)
+
+# ---- A versao gravada junto com a falha ----
+# As 11 primeiras falhas so puderam ser datadas porque carregavam uma frase que
+# eu tinha apagado depois. Isso funciona uma vez e por sorte.
+A.ERROS_LOG = _pl114.Path(_tmp114.mkdtemp()) / "com-versao.log"
+_c_novo = A.anotar_falha_pluggy(9, "nao carregou", "bloqueios=script-src ua=Android")
+check("a falha nova grava a versao do app",
+      A.falhas_de_conexao()[0]["versao"] == A.VERSAO_APP,
+      A.falhas_de_conexao()[0]["versao"])
+check("e a versao aparece na linha do log", " v=" in A.ERROS_LOG.read_text(encoding="utf-8"))
+
+# A linha ANTIGA, copiada do log de verdade do servidor dele. Se o leitor nao
+# entender as duas formas, as 11 primeiras somem do painel — que e justamente o
+# historico que interessa pra saber se o conserto pegou.
+_linha_antiga = ("[2026-08-04T11:45:33] PLUGGY 67A524 user=6 motivo='O conector da "
+                 "Pluggy n\u00e3o carregou nesta p\u00e1gina.' extra=\"bloqueios='' "
+                 "ua='Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) "
+                 "Version/26.5.2 Mobile/15E148 Safari/604.1'\"")
+with A.ERROS_LOG.open("a", encoding="utf-8") as _f:
+    _f.write(_linha_antiga + chr(10))
+_todas = A.falhas_de_conexao()
+check("le tambem as linhas de antes, que nao tem versao", len(_todas) == 2, len(_todas))
+_velha = next(f for f in _todas if f["codigo"] == "67A524")
+check("e marca de onde vieram", _velha["versao"] == "antes do registro", _velha["versao"])
+check("classificando igual", _velha["camada"] == "navegador", _velha["camada"])
+check("e reconhecendo o aparelho", _velha["aparelho"] == "iPhone", _velha["aparelho"])
+A.ERROS_LOG = _log_real
+
+# ---- O X da barra de instalar ----
+# Ele existia no HTML desde sempre, mas com a classe .icon-button, que e
+# display:none fora do celular. No computador a barra ficava sem saida: so o
+# botao "Colocar". Quem nao quer o icone tem que poder dizer isso em qualquer tela.
+check("a barra de instalar tem um X", 'id="installFechar"' in _txt_base)
+check("e ele aparece em qualquer tamanho de tela",
+      ".install-acoes .icon-button" in _css and "display: inline-flex" in
+      _css.split(".install-acoes .icon-button")[1].split("}")[0])
+check("clicar no X guarda a recusa, pra nao voltar amanha",
+      "localStorage.setItem('herc_instalar', 'nao')" in _txt_base)
 A.ADMIN_EMAIL = _admin_antes
 
 

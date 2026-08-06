@@ -1368,6 +1368,14 @@ body {
 .install-copy span { font-size: 0.86rem; color: var(--muted); }
 .install-acoes { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .install-acoes .button { padding: 10px 16px; }
+/* O X usa .icon-button, que e' display:none fora do celular — no computador a
+   barra ficava sem saida, so' com o "Colocar". Quem nao quer o icone na tela
+   precisa poder dizer isso em qualquer aparelho. */
+.install-acoes .icon-button {
+    display: inline-flex;
+    width: 38px;
+    height: 38px;
+}
 @media (max-width: 760px) {
     .install-bar { bottom: 84px; }   /* acima da barra de navegação */
     .install-copy span { font-size: 0.82rem; }

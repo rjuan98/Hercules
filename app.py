@@ -5580,6 +5580,13 @@ def _pluggy_erro_detalhe(e: Exception) -> str:
     return f"{type(e).__name__}: {e}"[:200]
 
 
+# Uma versão só, gravada junto com cada falha. As 11 primeiras falhas de conexão
+# só puderam ser datadas porque carregavam uma frase que eu tinha apagado depois
+# — descobrir "isso é de antes ou de depois do conserto?" por arqueologia de
+# texto funciona uma vez e por sorte.
+VERSAO_APP = "56"
+
+
 def anotar_falha_pluggy(user_id, motivo: str, extra: str = "") -> str:
     """Guarda por que a conexão com o banco não foi, e devolve um código curto.
 
@@ -5590,6 +5597,7 @@ def anotar_falha_pluggy(user_id, motivo: str, extra: str = "") -> str:
     codigo = uuid.uuid4().hex[:6].upper()
     linha = ("[" + agora_br().isoformat(timespec="seconds") + "] PLUGGY " + codigo
              + " user=" + str(user_id)
+             + " v=" + VERSAO_APP
              + " motivo=" + repr(str(motivo)[:400])
              + " extra=" + repr(str(extra)[:400]) + chr(10))
     try:
@@ -5775,17 +5783,20 @@ def falhas_de_conexao(limite=40):
     for linha in bruto.splitlines():
         if " PLUGGY " not in linha:
             continue
-        m = re.match(r"\[(.*?)\] PLUGGY (\w+) user=(\d+) motivo=(.*?) extra=(.*)$",
-                     linha.strip())
+        # `v=` so' existe nas linhas novas. As 11 primeiras foram gravadas sem
+        # ela, e continuam tendo que aparecer no painel.
+        m = re.match(r"\[(.*?)\] PLUGGY (\w+) user=(\d+)(?: v=(\S+))?"
+                     r" motivo=(.*?) extra=(.*)$", linha.strip())
         if not m:
             continue
-        quando, codigo, uid, motivo, extra = m.groups()
+        quando, codigo, uid, versao, motivo, extra = m.groups()
         motivo = motivo.strip().strip("'").strip('"')
         extra = extra.strip().strip("'").strip('"')
         achados.append({
             "quando": quando.replace("T", " ")[:16],
             "codigo": codigo,
             "user_id": int(uid),
+            "versao": versao or "antes do registro",
             "motivo": motivo,
             "extra": extra,
             "camada": camada_da_falha(motivo, extra),

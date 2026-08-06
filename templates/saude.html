@@ -139,6 +139,7 @@
     <div class="auth-note" style="border-left:4px solid var(--primary); margin-bottom:14px;">
         <p class="note-title" style="margin:0 0 6px;">
             {{ achada.codigo }} · <strong>{{ achada.camada }}</strong> · {{ achada.quando }}
+            · v{{ achada.versao }}
         </p>
         <p class="helper-text" style="margin:0 0 6px;">{{ o_que_fazer[achada.camada] }}</p>
         <p class="helper-text" style="margin:0; font-family:monospace;">{{ achada.motivo }}</p>
@@ -160,7 +161,7 @@
             <p class="note-title" style="margin:0 0 4px;">
                 <span style="font-family:monospace;">{{ f.codigo }}</span>
                 · <strong>{{ f.camada }}</strong>
-                <span class="helper-text">· {{ f.quando }}</span>
+                <span class="helper-text">· {{ f.quando }} · v{{ f.versao }}</span>
             </p>
             <div class="note-meta">
                 <span>{{ f.motivo }}</span>
