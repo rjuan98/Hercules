@@ -22,7 +22,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='51') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='52') }}">
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='herc.svg', v='2') }}">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest', v='4') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='herc-192.png') }}">
@@ -52,6 +52,13 @@
                         <p class="brand-subtitle">Seu copiloto financeiro</p>
                     </div>
                 </a>
+                {# No cabeçalho, não no fim da lista: os links passam de 1200px e o
+                   menu rola, então qualquer coisa embaixo deles nasce escondida.
+                   Aqui aparece assim que a gaveta abre. #}
+                <button type="button" class="sidebar-tema" id="temaToggle"
+                        aria-label="Trocar entre claro e escuro" title="Claro ou escuro">
+                    <i data-lucide="moon" id="icone-tema"></i>
+                </button>
                 <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Fechar menu">✕</button>
             </div>
 
@@ -133,18 +140,11 @@
                         </div>
                     </div>
                     <div class="topbar-actions">
-                        {# Ao lado do olhinho: os dois são "como eu vejo isso", e
-                           quem procura um acha o outro. #}
-                        <button type="button" class="icon-button" id="temaToggle"
-                                aria-label="Trocar entre claro e escuro" title="Claro ou escuro">
-                            <i data-lucide="moon" id="icone-tema"></i>
-                        </button>
-                        <button type="button" class="icon-button eye-toggle" id="eyeToggle"
-                                aria-label="Ocultar ou mostrar os valores" title="Ocultar valores">
-                            <i data-lucide="eye" class="eye-on"></i>
-                            <i data-lucide="eye-off" class="eye-off"></i>
-                        </button>
-                        <span class="chip user-chip"><i data-lucide="badge-check"></i> {{ session.get('nome', 'Usuário') }}</span>
+                        {# O olho foi pro lado do saldo, que e' onde todo banco poe:
+                           quem quer esconder valor esta olhando pro valor, nao pro
+                           topo da tela. E o tema foi pro menu lateral, porque e'
+                           ajuste de uma vez, nao coisa de todo dia. #}
+                        <span class="chip user-chip"><i data-lucide="badge-check"></i><span>{{ session.get('nome', 'Usuário') }}</span></span>
                         <a href="{{ url_for('logout') }}" class="icon-button topbar-logout" aria-label="Sair" title="Sair"><i data-lucide="log-out"></i></a>
                     </div>
                 </div>
@@ -292,19 +292,24 @@
                 });
             }
 
-            const eyeBtn = document.getElementById('eyeToggle');
-            if (eyeBtn) {
-                const rotulo = () => {
+            // Agora ha um olho por tela, ao lado do valor. Ligar todos e nao um
+            // so' evita que a tela nova de amanha nasca com o botao morto.
+            const olhos = document.querySelectorAll('[data-olho]');
+            if (olhos.length) {
+                const rotular = () => {
                     const oculto = document.documentElement.classList.contains('valores-ocultos');
-                    eyeBtn.title = oculto ? 'Mostrar valores' : 'Ocultar valores';
-                    eyeBtn.setAttribute('aria-pressed', oculto ? 'true' : 'false');
+                    olhos.forEach((b) => {
+                        b.title = oculto ? 'Mostrar valores' : 'Ocultar valores';
+                        b.setAttribute('aria-label', b.title);
+                        b.setAttribute('aria-pressed', oculto ? 'true' : 'false');
+                    });
                 };
-                rotulo();
-                eyeBtn.addEventListener('click', () => {
+                rotular();
+                olhos.forEach((b) => b.addEventListener('click', () => {
                     const oculto = document.documentElement.classList.toggle('valores-ocultos');
                     try { localStorage.setItem('hercValoresOcultos', oculto ? '1' : '0'); } catch (e) {}
-                    rotulo();
-                });
+                    rotular();
+                }));
             }
 
             // ---- Toasts: somem sozinhos ----
@@ -380,12 +385,32 @@
             // ---- Abrir/fechar o menu arrastando (prática dos apps novos) ----
             if (sidebar) {
                 let startX = 0, startY = 0, tracking = false;
+
+                // Se o dedo começou dentro de algo que rola de lado (a tabela de
+                // conferir os números rola), o arrasto é pra rolar aquilo — não
+                // pra abrir o menu. Com o gatilho na borda isso nunca aparecia;
+                // com meia tela, apareceria.
+                const rolaDeLado = (alvo) => {
+                    for (let el = alvo; el && el !== document.body; el = el.parentElement) {
+                        if (el.scrollWidth > el.clientWidth + 4) {
+                            const como = getComputedStyle(el).overflowX;
+                            if (como === 'auto' || como === 'scroll') return true;
+                        }
+                    }
+                    return false;
+                };
+
                 document.addEventListener('touchstart', (e) => {
                     if (e.touches.length !== 1) return;
                     startX = e.touches[0].clientX;
                     startY = e.touches[0].clientY;
-                    // arrasta da borda esquerda pra abrir, ou de qualquer lugar pra fechar
-                    tracking = startX < 28 || sidebar.classList.contains('open');
+                    // Metade esquerda da tela abre; de qualquer lugar fecha.
+                    // Eram 28px de borda: difícil de acertar, e no iPhone briga
+                    // com o gesto de "voltar" do sistema. Meia tela é o que os
+                    // apps de banco usam.
+                    const aberto = sidebar.classList.contains('open');
+                    tracking = (aberto || startX < window.innerWidth * 0.5)
+                        && !rolaDeLado(e.target);
                 }, { passive: true });
                 document.addEventListener('touchend', (e) => {
                     if (!tracking) return;

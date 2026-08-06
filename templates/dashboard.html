@@ -62,7 +62,7 @@
 <section class="metric-grid cols-4">
     <article class="glass-card metric-card">
         <p class="metric-label">Saldo atual</p>
-        <p class="metric-value">{{ stats['balance']|money }}</p>
+        <p class="metric-value">{{ stats['balance']|money }}<button type="button" class="olho-do-valor" data-olho aria-label="Ocultar ou mostrar os valores" title="Ocultar valores"><i data-lucide="eye" class="eye-on"></i><i data-lucide="eye-off" class="eye-off"></i></button></p>
         <p class="metric-footnote">{{ 'No azul' if stats['balance'] >= 0 else 'Atenção: negativo' }}</p>
     </article>
     <article class="glass-card metric-card">

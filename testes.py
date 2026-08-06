@@ -782,7 +782,15 @@ check("money_html escapa entrada estranha", "<b>" not in str(A.money_html("<b>x<
 check("money cru (usado em texto) segue sem tag", "<" not in A.money(10))
 
 h_home = c1.get("/").get_data(as_text=True)
-check("o botao do olhinho aparece", 'id="eyeToggle"' in h_home)
+# O botao mora AO LADO do valor, como nos bancos — nao mais no canto de cima.
+# Como agora e' um por tela, o gancho e' o atributo, nao um id unico.
+check("o botao do olhinho aparece", "data-olho" in h_home)
+check("e fica na mesma linha do saldo",
+      "olho-do-valor" in h_home.split('class="balance-big"')[1].split("</p>")[0])
+check("o JS liga todos os olhos da pagina, nao so um",
+      "querySelectorAll('[data-olho]')" in h_home)
+check("o Resumo tambem tem o seu",
+      "data-olho" in c1.get("/dashboard").get_data(as_text=True))
 check("saldo da home vem embrulhado", 'class="money"' in h_home)
 check("aplica antes de pintar (nao pisca o valor)",
       "hercValoresOcultos" in h_home and "valores-ocultos" in h_home)
@@ -795,7 +803,38 @@ check("oculto: some com o numero", "color: transparent" in _regra)
 check("oculto: largura FIXA (nao entrega a grandeza)",
       "width: 4.4em" in _regra and "overflow: hidden" in _regra)
 check("oculto: borra o grafico junto", "canvas { filter: blur" in _css)
-check("deslogado nao tem olhinho", 'id="eyeToggle"' not in _an.get("/login").get_data(as_text=True))
+# O gancho aqui e a CLASSE do botao: 'data-olho' sozinho apareceria em qualquer
+# pagina, porque o script que liga os olhos mora no layout de todas elas.
+check("deslogado nao tem olhinho",
+      "olho-do-valor" not in _an.get("/login").get_data(as_text=True))
+
+# ---- O que saiu do topo da tela (pedido dele: "ta muito grossa") ----
+_h_base = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "templates", "base.html"), encoding="utf-8").read()
+check("o topo nao carrega mais o olho nem o tema",
+      "eyeToggle" not in _h_base
+      and "topbar" not in _h_base.split('id="temaToggle"')[0][-400:])
+check("o tema virou botao do menu lateral", 'class="sidebar-tema"' in _h_base)
+# Ele fica no CABECALHO do menu. A lista de links passa de 1200px e o menu rola:
+# qualquer coisa embaixo dela nasce abaixo da dobra, o que e pior do que estava.
+check("e no cabecalho, acima da lista que rola",
+      _h_base.index('class="sidebar-tema"') < _h_base.index('class="sidebar-nav"'))
+check("com a lateral recolhida ele sai (nao cabe no trilho de 92px)",
+      ".sidebar-collapsed .sidebar-tema" in _css)
+# A barra so' afina de verdade se os botoes redondos afinarem: sao eles que
+# definem a altura minima.
+check("a barra de cima ficou mais fina", "padding: 10px 20px" in _css)
+check("no celular tambem", "padding: 8px 14px" in _css)
+check("e os botoes redondos encolhem junto, senao nao adianta",
+      ".topbar .icon-button { width: 38px" in _css)
+
+# ---- A gaveta abrindo do meio da tela ----
+check("o menu abre arrastando de metade da tela, nao so' da borda",
+      "window.innerWidth * 0.5" in _h_base and "startX < 28" not in _h_base)
+check("mas nao rouba o arrasto de quem rola de lado",
+      "rolaDeLado" in _h_base and "scrollWidth > el.clientWidth" in _h_base)
+check("olhando o overflow de verdade, nao chutando pela classe",
+      "overflowX" in _h_base)
 
 secao("34. Backup: a cópia tem que abrir e ter os dados")
 import gzip, shutil, sqlite3 as _sq

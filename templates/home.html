@@ -318,7 +318,7 @@
     <div class="note-header" style="align-items:flex-start; gap:14px;">
         <div>
             <p class="metric-label">Saldo atual · olá, {{ (user['nome'] or 'você').split(' ')[0] }}</p>
-            <p class="balance-big">{{ stats['balance']|money }}</p>
+            <p class="balance-big">{{ stats['balance']|money }}<button type="button" class="olho-do-valor" data-olho aria-label="Ocultar ou mostrar os valores" title="Ocultar valores"><i data-lucide="eye" class="eye-on"></i><i data-lucide="eye-off" class="eye-off"></i></button></p>
             <p class="metric-footnote">
                 {% if onboarding %}Assim que entrar movimentação, seu saldo aparece aqui.
                 {% else %}{{ status_emoji }} {% if stats['balance'] >= 0 %}No azul{% else %}Atenção: no vermelho{% endif %}
