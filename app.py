@@ -5633,6 +5633,27 @@ def pluggy_conectar():
                            bancos_diretos=len(bancos_diretos))
 
 
+@app.route("/pluggy/token", methods=["POST"])
+@login_required
+def pluggy_token_fresco():
+    """Um token novo, no momento do clique.
+
+    Token expira. Emitir na hora de renderizar a página e guardar no HTML fazia
+    quem demorasse pra clicar receber um erro sem explicação — e o fluxo antigo
+    mandava a pessoa sair do app pra criar conta em outro site, o que era
+    garantia de token velho quando ela voltasse.
+    """
+    user = current_user()
+    if not pluggy_configured():
+        return {"erro": "A conexão automática não está ligada neste servidor."}, 200
+    try:
+        return {"token": pluggy_connect_token(pluggy_auth())}, 200
+    except Exception as e:
+        detalhe = _pluggy_erro_detalhe(e)
+        codigo = anotar_falha_pluggy(user["id"], "token no clique: " + detalhe)
+        return {"erro": detalhe, "codigo": codigo}, 200
+
+
 @app.route("/pluggy/item", methods=["POST"])
 @login_required
 def pluggy_salvar_item():

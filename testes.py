@@ -4138,8 +4138,8 @@ check("e o motivo vira texto legivel", "function descreve(erro)" in _tpl_pluggy)
 check("escuta o navegador barrando recurso pela politica de seguranca",
       "securitypolicyviolation" in _tpl_pluggy)
 check("trata o caso do conector nao carregar",
-      "PluggyConnect === 'undefined'" in _tpl_pluggy
-      and "PLUGGY_FALHOU_AO_CARREGAR" in _tpl_pluggy)
+      "PLUGGY_FALHOU_AO_CARREGAR" in _tpl_pluggy
+      and "tentarDeNovoOScript" in _tpl_pluggy)
 # Antes o app CHUTAVA o motivo ("costuma ser rede, bloqueador...") e mandava a
 # pessoa procurar no lugar errado. Agora pergunta pro proprio CDN.
 check("e pergunta o motivo em vez de chutar", "porQueNaoCarregou" in _tpl_pluggy)
@@ -4553,6 +4553,68 @@ check("e continua barrando conversa com qualquer outro lugar",
           or _d.startswith("https://cdn.pluggy.ai") or _d == "'self'"
           for _d in A._CSP.split("connect-src")[1].split(";")[0].split()[1:]),
       A._CSP.split("connect-src")[1].split(";")[0])
+
+
+
+secao("113. O caminho ate a janela abrir, revisado inteiro")
+# Auditoria pedida depois do print dos primos. Tres achados novos, nenhum deles
+# no lugar onde eu vinha procurando.
+_tpl113 = _io_layout.open("templates/pluggy_conectar.html", encoding="utf-8").read()
+_sw113 = _io_layout.open("static/sw.js", encoding="utf-8").read()
+
+# 1. O service worker interceptava TODA requisicao, inclusive a do CDN da
+#    Pluggy (877 KB, outro dominio). E o tratamento de falha devolvia undefined,
+#    que o navegador le como erro de rede: um soluco de conexao derrubava o
+#    conector de vez naquele carregamento.
+check("o service worker nao toca em requisicao de outro dominio",
+      "url.origin !== self.location.origin" in _sw113)
+check("e sai antes de qualquer respondWith",
+      _sw113.index("url.origin !== self.location.origin") < _sw113.index("respondWith"))
+check("nunca devolve undefined pro navegador",
+      _sw113.count("new Response(") >= 2, _sw113.count("new Response("))
+check("a resposta de offline explica em portugues", "Sem conex\u00e3o agora" in _sw113)
+
+# 2. O token era emitido no RENDER e guardado no HTML. Token expira: quem lesse
+#    a tela, saisse e voltasse clicava num botao que ja nao funcionava — e o
+#    fluxo antigo MANDAVA a pessoa sair pra criar conta em outro site.
+check("existe rota que emite token no momento do clique",
+      any(r.rule == "/pluggy/token" for r in A.app.url_map.iter_rules()))
+check("e a tela pede token novo antes de abrir a janela",
+      "tokenUrl" in _tpl113 and "abrirComToken" in _tpl113)
+check("com o do HTML como reserva, se a rede falhar na hora",
+      "abrirComToken(token)" in _tpl113)
+
+c113 = novo_cliente("pluggy113@teste.com", nome="P113")
+_r_tok = c113.post("/pluggy/token", data={"csrf_token": "t"})
+check("a rota do token responde 200 mesmo quando da errado",
+      _r_tok.status_code == 200, _r_tok.status_code)
+check("com erro legivel em vez de estourar", "erro" in (_r_tok.get_json() or {}),
+      _r_tok.get_json())
+check("precisa estar logado",
+      A.app.test_client().post("/pluggy/token", data={"csrf_token": "t"},
+                               follow_redirects=False).status_code == 302)
+
+# 3. 877 KB num 5G que oscila falham por acaso, e o navegador nao repete sozinho
+#    um <script> que ja errou.
+check("tenta carregar o conector uma segunda vez antes de desistir",
+      "tentarDeNovoOScript" in _tpl113 and "document.head.appendChild" in _tpl113)
+check("e a segunda tentativa tem prazo, pra nao travar a tela",
+      "setTimeout" in _tpl113.split("tentarDeNovoOScript")[1][:600])
+
+# O texto da janela tem que combinar com o que a pessoa vai ver la dentro.
+check("manda escolher o banco quando ha banco direto",
+      "escolha o seu banco na janela" in _tpl113)
+check("e o Meu Pluggy so quando e o unico caminho",
+      "escolha o Meu Pluggy na janela" in _tpl113)
+
+# Nada de codigo morto duplicando a logica — e assim que os dois divergem.
+check("a funcao antiga de abrir foi removida", "_abrirAntigo" not in _tpl113)
+
+# O endereco do conector e o oficial. Se estivesse errado, falharia pra todo
+# mundo e nenhum outro conserto adiantaria.
+check("o endereco do conector esta num lugar so",
+      _tpl113.count("cdn.pluggy.ai/pluggy-connect") == 2,
+      _tpl113.count("cdn.pluggy.ai/pluggy-connect"))
 
 
 print("\n" + "=" * 62)

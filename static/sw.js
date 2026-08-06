@@ -4,7 +4,7 @@
 /* Uma versao so. Ela ficou em dois lugares e eles desencontraram: o cache subiu
    pra v35 e a lista de pre-cache continuou pedindo o v34, entao o arquivo
    guardado nunca era o que a pagina pedia — e offline a tela ficava sem CSS. */
-const V = "50";
+const V = "51";
 const CACHE = "hercules-v" + V;
 const STATIC_ASSETS = [
   "/static/styles.css?v=" + V,
@@ -36,6 +36,13 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(request.url);
 
+  // Nada de outro domínio passa por aqui. O conector da Pluggy (877 KB, vindo do
+  // cdn.pluggy.ai) atravessava este arquivo sem nenhum motivo — e quando a rede
+  // soluçava no meio, o `.catch` abaixo devolvia undefined, que o navegador lê
+  // como erro de rede. O conector morria de vez naquele carregamento, sendo que
+  // o navegador sozinho teria tentado de novo.
+  if (url.origin !== self.location.origin) return;
+
   // Estáticos: cache primeiro, rede como reserva
   if (url.pathname.startsWith("/static/")) {
     event.respondWith(
@@ -43,7 +50,7 @@ self.addEventListener("fetch", (event) => {
         const copy = resp.clone();
         caches.open(CACHE).then((cache) => cache.put(request, copy));
         return resp;
-      }))
+      }).catch(() => new Response("", { status: 504 })))
     );
     return;
   }
@@ -58,6 +65,12 @@ self.addEventListener("fetch", (event) => {
         }
         return resp;
       })
-      .catch(() => caches.match(request))
+      // caches.match devolve undefined quando nada foi guardado, e
+      // respondWith(undefined) e' erro de rede. Melhor devolver uma resposta de
+      // verdade dizendo que esta offline do que fingir que a rede caiu.
+      .catch(() => caches.match(request).then((cache) => cache || new Response(
+        "Sem conexão agora. Abra de novo quando a internet voltar.",
+        { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+      )))
   );
 });

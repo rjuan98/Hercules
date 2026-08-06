@@ -113,7 +113,8 @@
         onerror="window.PLUGGY_FALHOU_AO_CARREGAR = true;"></script>
 <script>
 window.addEventListener('DOMContentLoaded', function () {
-    var token = {{ connect_token|tojson }};
+    var token = {{ connect_token|tojson }};          // vale como reserva
+    var tokenUrl = {{ url_for('pluggy_token_fresco')|tojson }};
     var csrf = {{ csrf_token()|tojson }};
     var salvarUrl = {{ url_for('pluggy_salvar_item')|tojson }};
     var falhouUrl = {{ url_for('pluggy_falhou')|tojson }};
@@ -224,27 +225,30 @@ window.addEventListener('DOMContentLoaded', function () {
             });
     }
 
-    function abrir() {
-        caixaFalha.hidden = true;
-        if (typeof PluggyConnect === 'undefined' || window.PLUGGY_FALHOU_AO_CARREGAR) {
-            document.getElementById('aviso-interno').hidden = false;
-            status.textContent = 'Descobrindo o motivo…';
-            porQueNaoCarregou().then(function (motivo) {
-                relatar('O conector da Pluggy não carregou: ' + motivo + '.');
-            });
-            return;
-        }
+    // Uma segunda tentativa antes de desistir: 877 KB num 5G que oscila falham
+    // por acaso, e o navegador nao repete sozinho um <script> que ja errou.
+    function tentarDeNovoOScript() {
+        return new Promise(function (resolve) {
+            if (typeof PluggyConnect !== 'undefined') { return resolve(true); }
+            var el = document.createElement('script');
+            el.src = window.PLUGGY_CDN;
+            el.onload = function () { resolve(typeof PluggyConnect !== 'undefined'); };
+            el.onerror = function () { resolve(false); };
+            document.head.appendChild(el);
+            setTimeout(function () { resolve(typeof PluggyConnect !== 'undefined'); }, 12000);
+        });
+    }
+
+    function abrirComToken(t) {
         try {
             var pc = new PluggyConnect({
-                connectToken: token,
+                connectToken: t,
                 includeSandbox: false,
                 onSuccess: function (data) {
                     var id = (data && data.item && data.item.id) || (data && data.itemId);
                     if (id) { salvarItem(id); }
                     else { relatar('A janela disse que conectou, mas não devolveu o item.'); }
                 },
-                // O motivo vem NESTE parâmetro, e ele estava sendo ignorado — era
-                // por isso que "não conectou" nunca virava uma explicação.
                 onError: function (erro) {
                     relatar(descreve(erro) || 'A conexão foi cancelada ou deu erro.');
                 },
@@ -256,10 +260,39 @@ window.addEventListener('DOMContentLoaded', function () {
                 },
             });
             pc.init();
-            status.textContent = 'Conexão aberta — escolha o Meu Pluggy na janela.';
+            status.textContent = {{ 'Conexão aberta — escolha o seu banco na janela.'|tojson
+                                    if bancos_diretos else
+                                    'Conexão aberta — escolha o Meu Pluggy na janela.'|tojson }};
         } catch (e) {
             relatar('Erro ao abrir o conector: ' + (e && e.message ? e.message : e));
         }
+    }
+
+    function abrir() {
+        caixaFalha.hidden = true;
+        status.textContent = 'Abrindo…';
+        tentarDeNovoOScript().then(function (carregou) {
+            if (!carregou) {
+                document.getElementById('aviso-interno').hidden = false;
+                status.textContent = 'Descobrindo o motivo…';
+                return porQueNaoCarregou().then(function (motivo) {
+                    relatar('O conector da Pluggy não carregou: ' + motivo + '.');
+                });
+            }
+            // Token novo AGORA. O que veio no HTML pode ter expirado enquanto a
+            // pessoa lia a tela.
+            return fetch(tokenUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'csrf_token=' + encodeURIComponent(csrf),
+            }).then(function (r) { return r.json(); })
+              .then(function (d) {
+                  if (d.token) { return abrirComToken(d.token); }
+                  relatar('Não consegui abrir a conexão: ' + (d.erro || 'motivo desconhecido')
+                      + (d.codigo ? ' (código ' + d.codigo + ')' : ''));
+              })
+              .catch(function () { abrirComToken(token); });   // sem rede: usa o do HTML
+        });
     }
 
     // NÃO abre sozinho: quem chega aqui sem conta no Meu Pluggy cairia numa tela
