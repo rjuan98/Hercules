@@ -4,7 +4,7 @@
 /* Uma versao so. Ela ficou em dois lugares e eles desencontraram: o cache subiu
    pra v35 e a lista de pre-cache continuou pedindo o v34, entao o arquivo
    guardado nunca era o que a pagina pedia — e offline a tela ficava sem CSS. */
-const V = "53";
+const V = "54";
 const CACHE = "hercules-v" + V;
 const STATIC_ASSETS = [
   "/static/styles.css?v=" + V,

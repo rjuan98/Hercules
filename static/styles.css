@@ -1066,6 +1066,15 @@ body {
     .sidebar-overlay { display: block; pointer-events: none; }
     .sidebar-overlay.show { pointer-events: auto; }
     .sidebar-close { display: inline-flex; align-items: center; justify-content: center; }
+
+    /* Na gaveta a fila do topo tem 241px, e logo + título + dois botões não
+       cabem: o cartão da marca cai pra 149px e "Hércules" sai cortado. Os
+       botões sobem pra uma linha só deles, encostados à direita, e o cartão
+       fica com a largura inteira embaixo. */
+    .sidebar-top { flex-wrap: wrap; }
+    .sidebar-top .sidebar-brand { flex: 1 1 100%; order: 2; }
+    .sidebar-tema { order: 1; margin-left: auto; }
+    .sidebar-close { order: 1; }
     .sidebar-collapse-btn { display: none; }
     .icon-button { display: inline-flex; }
 }

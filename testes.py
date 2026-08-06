@@ -821,8 +821,30 @@ check("e no cabecalho, acima da lista que rola",
       _h_base.index('class="sidebar-tema"') < _h_base.index('class="sidebar-nav"'))
 check("com a lateral recolhida ele sai (nao cabe no trilho de 92px)",
       ".sidebar-collapsed .sidebar-tema" in _css)
-check("e tem a mesma caixa do X que fica do lado",
-      "width: 38px" in _css.split(".sidebar-tema {")[1].split("}")[0])
+
+# Ha mais de uma regra `.sidebar-tema {` (a principal e a do @media do celular),
+# e elas nao estao na ordem obvia dentro do arquivo. Pega todos os blocos e
+# pergunta se ALGUM define a caixa, em vez de apostar em qual vem primeiro.
+import re as _re_tema
+_blocos_tema = _re_tema.findall(r"\.sidebar-tema \{([^}]*)\}", _css)
+check("e tem a mesma caixa do X que fica do lado (38px)",
+      any("width: 38px" in _b for _b in _blocos_tema), len(_blocos_tema))
+
+# Na gaveta do celular a fila do topo tem 241px. Com logo + titulo + DOIS botoes
+# o cartao da marca caiu pra 149px, o titulo passou a precisar de 80px com 55
+# disponiveis, e "Hercules" apareceu cortado na tela do dono do app. A correcao
+# poe os botoes numa linha propria. Se alguem tirar, volta a cortar.
+_ini_mob = _css.index("@media (max-width: 980px)", _css.index(".sidebar-close {"))
+_fim_mob = _css.index("@media", _ini_mob + 10)
+_mob = _css[_ini_mob:_fim_mob]
+check("no celular o topo do menu quebra em duas linhas",
+      ".sidebar-top { flex-wrap: wrap; }" in _mob)
+check("e a marca fica com a largura inteira",
+      "flex: 1 1 100%" in _mob and "order: 2" in _mob)
+check("com os botoes acima dela, encostados a direita",
+      ".sidebar-tema { order: 1; margin-left: auto; }" in _mob)
+check("no computador nada disso vale (la a fila tem folga)",
+      "flex-wrap: wrap" not in _css.split("@media")[0])
 
 # O lucide troca o <i data-lucide> por <svg> assim que a pagina carrega — o
 # comentario da linha 160 do proprio styles.css diz isso. Regra de tamanho
