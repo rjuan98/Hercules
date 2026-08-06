@@ -4,7 +4,7 @@
 /* Uma versao so. Ela ficou em dois lugares e eles desencontraram: o cache subiu
    pra v35 e a lista de pre-cache continuou pedindo o v34, entao o arquivo
    guardado nunca era o que a pagina pedia — e offline a tela ficava sem CSS. */
-const V = "54";
+const V = "55";
 const CACHE = "hercules-v" + V;
 const STATIC_ASSETS = [
   "/static/styles.css?v=" + V,
@@ -47,8 +47,15 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/static/")) {
     event.respondWith(
       caches.match(request).then((cached) => cached || fetch(request).then((resp) => {
-        const copy = resp.clone();
-        caches.open(CACHE).then((cache) => cache.put(request, copy));
+        // Só guarda o que deu certo. Antes guardava qualquer resposta, inclusive
+        // 404 e 502 — e como aqui é cache-first, uma resposta ruim guardada uma
+        // vez era servida PRA SEMPRE naquele aparelho. Arquivo estático dá erro
+        // justamente durante o Reload do servidor: quem abriu a tela naquele
+        // instante ficou com o logo do Google quebrado sem ter o que fazer.
+        if (resp.ok) {
+          const copy = resp.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+        }
         return resp;
       }).catch(() => new Response("", { status: 504 })))
     );

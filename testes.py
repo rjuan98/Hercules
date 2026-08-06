@@ -4279,7 +4279,7 @@ _cabeca = _base.split("</head>")[0]
 check("o tema e aplicado antes de pintar a tela", "hercules-tema" in _cabeca)
 check("o html nasce com data-tema", 'data-tema="auto"' in _base)
 check("a barra do celular acompanha o tema", "cor-da-barra" in _base)
-check("tem botao pra trocar, no topo", "temaToggle" in _base)
+check("tem botao pra trocar, no menu lateral", "temaToggle" in _base)
 check("com tres estados: automatico, escuro e claro",
       "'auto', 'escuro', 'claro'" in _base)
 check("e a escolha fica guardada no aparelho", "localStorage.setItem('hercules-tema'" in _base)
@@ -4308,6 +4308,22 @@ for _nome, _fg in [("texto", "--text"), ("apagado", "--muted"), ("link", "--prim
                    ("vermelho", "--danger"), ("verde", "--success")]:
     _r = _razao(_cor(_fg), _cor("--surface"))
     check(f"no escuro, {_nome} tem contraste de leitura (>= 4.5)", _r >= 4.5, round(_r, 2))
+
+# O botao do Google tem fundo BRANCO FIXO nos dois temas (exigencia da marca).
+# Fundo fixo com letra do tema e' armadilha: no escuro var(--text) e' creme, e
+# creme sobre branco da 1.22:1 — invisivel. Foi assim que chegou no celular de um
+# testador. Quem fixa o fundo tem que fixar a letra junto.
+_bloco_google = _re105.search(r"\.google-button\s*\{(.*?)\}", _css, _re105.S).group(1)
+check("a letra do botao do Google nao segue o tema",
+      "var(--text)" not in _bloco_google, _bloco_google.strip())
+check("nem a borda dele",
+      "var(--border-strong)" not in _bloco_google)
+# O `(?<![-\\w])` e' o que impede de casar dentro de `border-color:` — foi o que
+# aconteceu na primeira versao: media 1.37, que e' a borda cinza, nao a letra.
+_letra_google = _re105.search(r"(?<![-\\w])color:\s*(#[0-9A-Fa-f]{6})",
+                              _bloco_google).group(1)
+_r_google = _razao(_letra_google, "#FFFFFF")
+check("e da pra ler sobre o branco (>= 4.5)", _r_google >= 4.5, round(_r_google, 2))
 
 # E as telas continuam abrindo — o tema e so CSS, mas um erro de Jinja no
 # base.html derrubaria tudo de uma vez.
@@ -4647,6 +4663,21 @@ check("e sai antes de qualquer respondWith",
 check("nunca devolve undefined pro navegador",
       _sw113.count("new Response(") >= 2, _sw113.count("new Response("))
 check("a resposta de offline explica em portugues", "Sem conex\u00e3o agora" in _sw113)
+
+# Estatico e' cache-first: o que entra no cache e' servido ate' a versao virar.
+# Guardar 404 ou 502 ali significa quebrar o arquivo PRA SEMPRE naquele
+# aparelho — e estatico da erro justamente durante o Reload do servidor. O logo
+# do Google ficou quebrado no celular de um testador por causa disso.
+# Ancora no comentario do proprio bloco: '/static/' aparece 8 vezes neste
+# arquivo (a lista de pre-cache tambem usa), e split() quebra em todas.
+_trecho_estatico = _sw113.split('// Est\u00e1ticos:')[1].split('// P\u00e1ginas')[0]
+check("estatico so entra no cache se deu certo", "if (resp.ok)" in _trecho_estatico)
+check("e o cache.put fica DENTRO desse if",
+      _trecho_estatico.index("if (resp.ok)") < _trecho_estatico.index("cache.put"))
+# O tratamento das paginas ja fazia isso; foi o dos estaticos que ficou pra tras.
+check("as paginas tambem so guardam o que deu certo", "if (resp.ok" in _sw113)
+check("a versao do cache subiu, pra limpar quem ja tem lixo guardado",
+      'const V = "55"' in _sw113)
 
 # 2. O token era emitido no RENDER e guardado no HTML. Token expira: quem lesse
 #    a tela, saisse e voltasse clicava num botao que ja nao funcionava — e o

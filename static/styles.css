@@ -794,14 +794,21 @@ input[type="checkbox"]:focus-visible {
     background: var(--border);
 }
 /* Branco fixo de propósito: a marca do Google exige o botão assim, nos dois
-   temas. É a única cor deste arquivo que não deve seguir a paleta. */
+   temas. É a única cor deste arquivo que não deve seguir a paleta — e por isso
+   a LETRA e a BORDA também não podem seguir.
+   Estavam em var(--text) e var(--border-strong), que no tema escuro viram creme:
+   creme sobre branco dá contraste 1.2:1, quando o mínimo legível é 4.5. Não era
+   um botão apagado, era um botão invisível, e foi assim que ele chegou no
+   celular de um testador. O #1F1F1F é o cinza que o próprio Google especifica
+   pro botão claro, e dá 16.5:1. */
 .google-button {
     width: 100%;
     justify-content: center;
     background: #fff;
-    border-color: var(--border-strong);
-    color: var(--text);
+    border-color: #DADCE0;
+    color: #1F1F1F;
 }
+.google-button:hover { background: #F5F5F5; }
 
 .empty-state {
     text-align: center;
