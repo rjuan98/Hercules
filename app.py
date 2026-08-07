@@ -73,11 +73,14 @@ except ImportError:
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 # Open Finance via Pluggy: liga sozinho quando as chaves existirem no ambiente.
-# PLUGGY_ITEM_IDS = ids dos bancos conectados (no Meu Pluggy), separados por vírgula.
 PLUGGY_API = "https://api.pluggy.ai"
 PLUGGY_CLIENT_ID = os.environ.get("PLUGGY_CLIENT_ID")
 PLUGGY_CLIENT_SECRET = os.environ.get("PLUGGY_CLIENT_SECRET")
-PLUGGY_ITEM_IDS = [s.strip() for s in (os.environ.get("PLUGGY_ITEM_IDS") or "").split(",") if s.strip()]
+# PLUGGY_ITEM_IDS foi REMOVIDO de propósito. Era um item de banco global, e item
+# de banco pertence a uma pessoa só. Enquanto existia, qualquer usuário sem banco
+# próprio herdava o item de quem estivesse no env var — e sincronizava o dinheiro
+# do dono do item pra dentro da conta dele. Se estiver setado no servidor, pode
+# apagar: nada mais lê essa variável.
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -862,9 +865,21 @@ def pluggy_configured() -> bool:
 
 
 def pluggy_user_item_ids(user) -> list[str]:
-    """Item(ns) do banco conectados por ESTE usuário (via widget). Cai no env var antigo se vazio."""
+    """Item(ns) do banco que ESTE usuário conectou. Sem fallback, de propósito.
+
+    Antes caía no env var `PLUGGY_ITEM_IDS` quando a pessoa não tinha item
+    próprio. Isso vinha da época em que só existia um usuário — eu. Com
+    testadores, virou duas coisas ruins ao mesmo tempo:
+
+    * quem nunca conectou aparecia como "já tem banco", e o app mostrava
+      "Sincronizar" em vez de oferecer "Conectar meu banco";
+    * e sincronizar traria as movimentações do DONO do item pra conta dela.
+
+    O segundo é vazamento de dado financeiro entre contas. Banco é de quem
+    conectou, e ponto: sem item próprio, não há banco.
+    """
     item = user["pluggy_item_id"] if ("pluggy_item_id" in user.keys() and user["pluggy_item_id"]) else None
-    return [item] if item else PLUGGY_ITEM_IDS
+    return [item] if item else []
 
 
 def pluggy_connect_token(api_key: str) -> str:
@@ -5808,7 +5823,7 @@ def _pluggy_erro_detalhe(e: Exception) -> str:
 # só puderam ser datadas porque carregavam uma frase que eu tinha apagado depois
 # — descobrir "isso é de antes ou de depois do conserto?" por arqueologia de
 # texto funciona uma vez e por sorte.
-VERSAO_APP = "58"
+VERSAO_APP = "59"
 
 
 def anotar_falha_pluggy(user_id, motivo: str, extra: str = "") -> str:

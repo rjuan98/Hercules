@@ -809,6 +809,7 @@ check("deslogado nao tem olhinho",
       "olho-do-valor" not in _an.get("/login").get_data(as_text=True))
 
 # ---- O que saiu do topo da tela (pedido dele: "ta muito grossa") ----
+_codigo_app = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"), encoding="utf-8").read()
 _h_base = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "templates", "base.html"), encoding="utf-8").read()
 check("o topo nao carrega mais o olho nem o tema",
@@ -5007,6 +5008,22 @@ c115b.post("/mei/abertura", data={"csrf_token": "t", "abertura": ""}, follow_red
 with get_db() as db:
     check("e da pra apagar",
           db.execute("SELECT mei_abertura FROM usuarios WHERE id=?", (_u115b,)).fetchone()[0] is None)
+
+# ---- Banco e de quem conectou. Sem heranca, sem fallback global. ----
+# `pluggy_user_item_ids` caia no env var PLUGGY_ITEM_IDS quando a pessoa nao
+# tinha item proprio. Com testadores isso significava: todo mundo sem banco
+# aparecia como "ja conectado" (e o app nunca oferecia o botao de conectar), e
+# sincronizar puxaria o dinheiro do DONO do item pra conta da outra pessoa.
+A.PLUGGY_ITEM_IDS = ["item-de-outra-pessoa"] if hasattr(A, "PLUGGY_ITEM_IDS") else None
+_sem_banco = {"pluggy_item_id": None}
+check("quem nao conectou nao tem banco nenhum",
+      A.pluggy_user_item_ids(_sem_banco) == [], A.pluggy_user_item_ids(_sem_banco))
+check("quem conectou tem so o seu",
+      A.pluggy_user_item_ids({"pluggy_item_id": "meu-item"}) == ["meu-item"])
+check("vazio conta como nao conectado",
+      A.pluggy_user_item_ids({"pluggy_item_id": ""}) == [])
+check("o env var global nao existe mais no codigo",
+      "os.environ.get(" + chr(34) + "PLUGGY_ITEM_IDS" + chr(34) + ")" not in _codigo_app)
 
 check("quem nao e MEI nao entra no painel",
       novo_cliente("pf115@teste.com", nome="PF").get("/mei", follow_redirects=False).status_code == 302)
