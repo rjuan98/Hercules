@@ -1,6 +1,9 @@
 {# Controle do cartão ao longo do mês: fatura crescendo, teto e % da renda comprometida.
    Requer `stats` no contexto. Usado na Início e no Resumo. #}
-{% if stats['fatura_credito_mes'] > 0 %}
+{# A condicao era so a fatura ABERTA. Quem devia a fatura que fechou e parou de
+   comprar no ciclo novo nao via NADA: nem o valor, nem o vencimento. O aviso
+   sumia justamente pra quem se controlou. #}
+{% if stats['fatura_credito_mes'] > 0 or stats['fatura_fechada'] or stats['fatura_paga_no_ciclo'] > 0 %}
 <section class="page-card" style="margin-top:14px;">
     <div class="note-header" style="margin-bottom:4px;">
         <p class="metric-label" style="margin:0;">
@@ -18,11 +21,20 @@
         {% if d == 0 %}hoje — fecha hoje{% elif d == 1 %}amanhã — fecha amanhã{% else %}{{ stats['fatura_fecha_em']|format_date }} — fecha em {{ d }} dias{% endif %}.
     </p>
     {% if stats['fatura_fechada'] %}
+    {# Quem paga adiantado e justamente quem esta no controle — e estava levando
+       aviso de divida por isso, ate o dia do vencimento que ele mesmo cadastrou. #}
+    {% if stats['fatura_fechada'].get('paga') %}
+    <div class="auth-note" style="margin-top:10px; border-left:4px solid var(--success);">
+        <strong>Fatura paga.</strong> A que fechou em
+        {{ stats['fatura_fechada'].fechou_em|format_date }} já foi quitada — nada a pagar dela.
+    </div>
+    {% else %}
     <div class="auth-note" style="margin-top:10px;">
         <strong>A pagar: {{ stats['fatura_fechada'].valor|money }}</strong> — fatura que fechou em
         {{ stats['fatura_fechada'].fechou_em|format_date }}{% if stats['fatura_vence_dia'] %},
         vence dia {{ stats['fatura_vence_dia'] }}{% endif %}.
     </div>
+    {% endif %}
     {% endif %}
     {% endif %}
 
@@ -37,9 +49,24 @@
     </p>
     {% endif %}
 
+    {# Dizia "renda do mes" e dividia pela renda do ciclo em andamento. Pra quem
+       recebe perto da virada, no dia 6 isso e um troco: R$ 160 no cartao viravam
+       "243% da sua renda". Agora compara com o que a pessoa ganha por mes. #}
     {% if stats['credito_pct_renda'] %}
     <p class="metric-footnote" style="margin-top:6px;">
-        {{ stats['credito_pct_renda']|round(0)|int }}% da sua renda do mês já está no cartão{% if stats['credito_pct_renda'] >= 50 %} — cuidado pra ele não virar extensão da renda.{% endif %}
+        {{ stats['credito_pct_renda']|round(0)|int }}% da sua renda mensal
+        {%- if stats['renda_de_referencia'] %} (~{{ stats['renda_de_referencia']|money }}){% endif %}
+        já está no cartão{% if stats['credito_pct_renda'] >= 50 %} — cuidado pra ele não virar extensão da renda.{% endif %}
+    </p>
+    {% endif %}
+
+    {# Pagamento de fatura visto do lado da conta. Sem isto, quem pagou nao ve
+       sinal nenhum de que o app percebeu. #}
+    {% if stats['fatura_paga_no_ciclo'] > 0 and not (stats['fatura_fechada'] and stats['fatura_fechada'].get('paga')) %}
+    <p class="metric-footnote" style="margin-top:6px; color:var(--success);">
+        <i class="icone-texto" data-lucide="check"></i>
+        Você já pagou {{ stats['fatura_paga_no_ciclo']|money }} de fatura neste mês.
+        O valor acima são as compras novas, que entram na próxima.
     </p>
     {% endif %}
 

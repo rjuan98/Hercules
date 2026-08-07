@@ -5012,6 +5012,145 @@ check("quem nao e MEI nao entra no painel",
       novo_cliente("pf115@teste.com", nome="PF").get("/mei", follow_redirects=False).status_code == 302)
 
 
+
+secao("116. Cartao: 243% da renda, e a fatura que ele ja tinha pago")
+# Ele: "hoje e dia 6 e eu ja paguei a fatura, mas diz que 243% da minha renda
+# esta no cartao, mesmo estando em 160 reais".
+# 160/2.43 = 66. O denominador era a renda do ciclo EM ANDAMENTO, e o salario
+# dele cai no ultimo dia do mes: no dia 6 o ciclo tem so um troco. Terceira vez
+# que o mesmo defeito aparece — razao sobre um periodo que ninguem viveu ainda.
+
+import datetime as _dt116
+c116 = novo_cliente("cartao116@teste.com", nome="Cartao")
+_u116 = uid_de("cartao116@teste.com")
+_hoje116 = A.hoje_br()
+
+
+def _mov116(uid, tipo, valor, desc, quando, credito=0, **kw):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id, tipo, valor, descricao, data_transacao,
+                                              categoria, no_credito, interno, fonte)
+                      VALUES (?,?,?,?,?,?,?,?,?)""",
+                   (uid, tipo, valor, desc, quando.isoformat(), kw.get("categoria", "Outros"),
+                    credito, kw.get("interno", 0), kw.get("fonte", "manual")))
+
+
+# Salario caindo no ULTIMO dia do mes — o caso dele.
+_ult = _hoje116.replace(day=1) - _dt116.timedelta(days=1)
+_mov116(_u116, "entrada", 2600, "Salario", _ult)
+_mov116(_u116, "entrada", 66, "Reembolso", _hoje116.replace(day=1))
+_mov116(_u116, "saida", 160, "Compras", _hoje116.replace(day=1), credito=1)
+
+_st116 = A.calc_transaction_totals(_u116)
+check("a renda do ciclo em andamento e' mesmo um troco",
+      _st116["month_income"] < 200, _st116["month_income"])
+check("mas a referencia usa o que ele ganha por mes",
+      _st116["renda_de_referencia"] >= 2600, _st116["renda_de_referencia"])
+check("entao o cartao nao vira 243% da renda",
+      _st116["credito_pct_renda"] < 15, round(_st116["credito_pct_renda"], 1))
+
+# A referencia nao pode se mover ao longo do mes: e isso que fazia o numero
+# gritar no comeco e sumir no fim.
+check("a referencia nao depende do dia de hoje",
+      A.renda_de_referencia(_u116, 1, _hoje116.replace(day=1))
+      == A.renda_de_referencia(_u116, 1, _hoje116),
+      (A.renda_de_referencia(_u116, 1, _hoje116.replace(day=1)),
+       A.renda_de_referencia(_u116, 1, _hoje116)))
+
+# Ganhou mais neste ciclo? Entao o ciclo vale — a referencia nao pode segurar
+# pra baixo quem melhorou de vida.
+_mov116(_u116, "entrada", 9000, "Bico grande", _hoje116)
+check("ciclo atual maior que o historico vira a referencia",
+      A.renda_de_referencia(_u116, 1, _hoje116) >= 9000,
+      A.renda_de_referencia(_u116, 1, _hoje116))
+
+# Quem nunca lancou renda nao recebe porcentagem inventada.
+c116b = novo_cliente("cartao116b@teste.com", nome="Sem Renda")
+_u116b = uid_de("cartao116b@teste.com")
+_mov116(_u116b, "saida", 160, "Compras", _hoje116, credito=1)
+check("sem historico de renda, nao inventa porcentagem",
+      A.renda_de_referencia(_u116b, 1, _hoje116) is None,
+      A.renda_de_referencia(_u116b, 1, _hoje116))
+check("e a tela nao mostra a frase",
+      A.calc_transaction_totals(_u116b)["credito_pct_renda"] is None)
+
+# As marcacoes que a gente passou a semana acertando valem aqui tambem.
+c116c = novo_cliente("cartao116c@teste.com", nome="Marcacoes")
+_u116c = uid_de("cartao116c@teste.com")
+for _n in (1, 2, 3):
+    _mov116(_u116c, "entrada", 3000, "Salario", A.mes_atras(_hoje116, _n).replace(day=5))
+_base116 = A.renda_de_referencia(_u116c, 1, _hoje116)
+_mov116(_u116c, "entrada", 5000, "Troco entre contas", _hoje116, interno=1)
+check("transferencia entre contas proprias nao vira renda",
+      A.renda_de_referencia(_u116c, 1, _hoje116) == _base116)
+_mov116(_u116c, "entrada", 5000, "Correcao", _hoje116, fonte="ajuste")
+check("correcao de saldo tambem nao",
+      A.renda_de_referencia(_u116c, 1, _hoje116) == _base116)
+
+# ---- A fatura paga adiantado ----
+# Ele pagou dia 6 e a tela continuou dizendo "a pagar" ate o vencimento que ele
+# mesmo cadastrou. Quem se adianta e quem esta no controle.
+c116d = novo_cliente("cartao116d@teste.com", nome="Pagou Antes")
+_u116d = uid_de("cartao116d@teste.com")
+with get_db() as db:
+    db.execute("UPDATE usuarios SET cartao_fechamento=28, cartao_vencimento=20 WHERE id=?",
+               (_u116d,))
+for _n in (1, 2, 3):
+    _mov116(_u116d, "entrada", 2600, "Salario", A.mes_atras(_hoje116, _n).replace(day=28))
+_ant116 = (_hoje116.replace(day=1) - _dt116.timedelta(days=1)).replace(day=20)
+_mov116(_u116d, "saida", 430, "Compras do mes passado", _ant116, credito=1)
+
+_st = A.calc_transaction_totals(_u116d)
+check("a fatura que fechou aparece", _st["fatura_fechada"] is not None)
+check("e comeca como nao paga", not _st["fatura_fechada"].get("paga"))
+
+_mov116(_u116d, "saida", 430, "Pagamento fatura cartao", _hoje116)
+_st = A.calc_transaction_totals(_u116d)
+check("depois de pagar, a fatura fica marcada como paga",
+      _st["fatura_fechada"].get("paga") is True)
+check("e o valor pago aparece", _st["fatura_paga_no_ciclo"] == 430, _st["fatura_paga_no_ciclo"])
+
+_h116 = c116d.get("/").get_data(as_text=True)
+check("a tela para de dizer 'a pagar'", "A pagar:" not in _h116)
+check("e diz que esta paga", "Fatura paga" in _h116)
+
+# Fatura que fecha dia 28 e paga dia 29 cai no ciclo ANTERIOR. Procurar o
+# pagamento so a partir da virada do mes nao acharia, e a tela seguiria cobrando
+# quem ja tinha pagado — que e exatamente a queixa dele.
+c116g = novo_cliente("cartao116g@teste.com", nome="Pagou Na Virada")
+_u116g = uid_de("cartao116g@teste.com")
+with get_db() as db:
+    db.execute("UPDATE usuarios SET cartao_fechamento=28, cartao_vencimento=20 WHERE id=?", (_u116g,))
+_mov116(_u116g, "saida", 500, "Compras", _ant116, credito=1)
+_fechou = A.calc_transaction_totals(_u116g)["fatura_fechada"]["fechou_em"]
+_mov116(_u116g, "saida", 500, "Pagamento fatura cartao", _fechou + _dt116.timedelta(days=1))
+check("pagamento feito logo apos o fechamento e reconhecido",
+      A.calc_transaction_totals(_u116g)["fatura_fechada"].get("paga") is True)
+
+# A seccao inteira do cartao so aparecia se a fatura ABERTA tivesse valor. Quem
+# devia a que fechou e parou de comprar no ciclo novo nao via NADA: nem o valor
+# nem o vencimento. O aviso sumia justamente pra quem se controlou.
+c116f = novo_cliente("cartao116f@teste.com", nome="So Deve")
+_u116f = uid_de("cartao116f@teste.com")
+with get_db() as db:
+    db.execute("UPDATE usuarios SET cartao_fechamento=28, cartao_vencimento=20 WHERE id=?", (_u116f,))
+_mov116(_u116f, "saida", 1800, "Compras do mes passado", _ant116, credito=1)
+_st116f = A.calc_transaction_totals(_u116f)
+check("deve a fatura fechada e nao comprou nada no ciclo novo",
+      _st116f["fatura_credito_mes"] == 0 and _st116f["fatura_fechada"]["valor"] == 1800)
+_h116f = c116f.get("/").get_data(as_text=True)
+check("mesmo assim a tela avisa da divida", "A pagar:" in _h116f)
+check("com o dia do vencimento", "vence dia 20" in _h116f)
+
+# "Pagamento de aluguel" nao pode virar pagamento de fatura — a palavra sozinha
+# nao serve, e um gasto de verdade sumiria do aviso.
+c116e = novo_cliente("cartao116e@teste.com", nome="Aluguel")
+_u116e = uid_de("cartao116e@teste.com")
+_mov116(_u116e, "saida", 1200, "Pagamento de aluguel", _hoje116)
+check("pagar aluguel nao conta como pagar fatura",
+      A.calc_transaction_totals(_u116e)["fatura_paga_no_ciclo"] == 0)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

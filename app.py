@@ -1928,6 +1928,78 @@ def months_until(deadline: str | None) -> int | None:
 
 
 
+def renda_de_referencia(user_id: int, virada, hoje) -> float | None:
+    """Quanto a pessoa ganha por mês — não quanto já entrou neste ciclo.
+
+    Dividir pela renda do ciclo em andamento quebra pra todo mundo que recebe
+    perto da virada. No dia 6, com o salário caindo no último dia do mês, o ciclo
+    tem só um troco: R$ 160 no cartão viraram "243% da sua renda". O número
+    aparecia enorme justamente pra quem estava tranquilo.
+
+    A referência é a mediana dos ciclos JÁ FECHADOS, que não se move durante o
+    mês. Se o ciclo atual já passou disso, o salário caiu (ou veio mais) e ele
+    vale. Sem histórico nenhum, devolve None: melhor não dizer nada do que dizer
+    um número inventado.
+    """
+    with get_db() as db:
+        fechados = []
+        for n in range(1, 4):
+            ini, fim = month_bounds(mes_atras(hoje, n), virada)
+            total = db.execute(
+                """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
+                   WHERE user_id = ? AND tipo = 'entrada' AND no_credito = 0
+                     AND fonte != 'ajuste' AND interno = 0
+                     AND date(COALESCE(NULLIF(data_transacao, ''), created_at))
+                         BETWEEN date(?) AND date(?)""",
+                (user_id, ini.isoformat(), fim.isoformat()),
+            ).fetchone()["total"]
+            if total and float(total) > 0:
+                fechados.append(float(total))
+
+        ini, fim = month_bounds(hoje, virada)
+        agora = float(db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
+               WHERE user_id = ? AND tipo = 'entrada' AND no_credito = 0
+                 AND fonte != 'ajuste' AND interno = 0
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at))
+                     BETWEEN date(?) AND date(?)""",
+            (user_id, ini.isoformat(), fim.isoformat()),
+        ).fetchone()["total"] or 0)
+
+    if not fechados:
+        return agora if agora > 0 else None
+    fechados.sort()
+    mediana = fechados[len(fechados) // 2]
+    return max(mediana, agora)
+
+
+def mes_atras(d, n: int):
+    """A mesma data, n meses atrás. Serve pra caminhar pelos ciclos fechados."""
+    ano, mes = d.year, d.month - n
+    while mes < 1:
+        mes += 12
+        ano -= 1
+    return d.replace(year=ano, month=mes, day=1)
+
+
+def fatura_ja_paga(user_id: int, desde, ate) -> float:
+    """Quanto de fatura foi pago da conta no período.
+
+    Ele pagou a fatura no dia 6 e a tela continuou dizendo "a pagar". Quem se
+    adianta é justamente quem está no controle — e levava um aviso de dívida.
+    """
+    with get_db() as db:
+        linhas = db.execute(
+            """SELECT descricao, valor FROM transacoes
+               WHERE user_id = ? AND tipo = 'saida' AND no_credito = 0
+                 AND date(COALESCE(NULLIF(data_transacao, ''), created_at))
+                     BETWEEN date(?) AND date(?)""",
+            (user_id, desde.isoformat(), ate.isoformat()),
+        ).fetchall()
+    return sum(float(l["valor"] or 0) for l in linhas
+               if e_pagamento_de_fatura_na_conta(l["descricao"]))
+
+
 def calc_transaction_totals(user_id: int):
     today = hoje_br()
     virada = virada_do_usuario(user_id)
@@ -2110,7 +2182,22 @@ def calc_transaction_totals(user_id: int):
     cartao_orcamento = float(user_row["cartao_orcamento"] or 0) if (user_row and "cartao_orcamento" in user_row.keys()) else 0.0
     fatura_atual = float(fatura_credito_mes or 0)
     fatura_pct_orcamento = (fatura_atual / cartao_orcamento * 100) if cartao_orcamento > 0 else None
-    credito_pct_renda = (fatura_atual / float(month_income) * 100) if (month_income and float(month_income) > 0) else None
+    # A referência é o que a pessoa GANHA por mês, não o que já entrou neste
+    # ciclo: no dia 6, com salário caindo na virada, o segundo é um troco e a
+    # conta explodia pra 243%.
+    renda_ref = renda_de_referencia(user_id, virada, hoje_br())
+    credito_pct_renda = (fatura_atual / renda_ref * 100) if (renda_ref and renda_ref > 0) else None
+
+    # Pagou a fatura? Então parar de cobrar. Quem se adianta é quem está no
+    # controle, e estava levando aviso de dívida por isso.
+    # A janela comeca no FECHAMENTO da fatura, nao na virada do mes. Fatura que
+    # fecha dia 28 e paga dia 29 cai no ciclo anterior: procurar so a partir da
+    # virada nao acharia o pagamento, e a tela seguiria cobrando quem ja pagou.
+    desde_pgto = (fatura_fechada["fechou_em"] if fatura_fechada
+                  else month_start)
+    pago_no_ciclo = fatura_ja_paga(user_id, min(desde_pgto, month_start), hoje_br())
+    if fatura_fechada and pago_no_ciclo >= fatura_fechada["valor"] - 0.01:
+        fatura_fechada = dict(fatura_fechada, paga=True)
 
     stats = {
         "tem_lancamentos": tem_lancamentos,
@@ -2131,6 +2218,8 @@ def calc_transaction_totals(user_id: int):
         "cartao_orcamento": cartao_orcamento,
         "fatura_pct_orcamento": fatura_pct_orcamento,
         "credito_pct_renda": credito_pct_renda,
+        "renda_de_referencia": renda_ref,
+        "fatura_paga_no_ciclo": pago_no_ciclo,
         "monthly_by_category": monthly_by_category,
         "upcoming_commitments": upcoming_commitments,
         "overdue_commitments": overdue_commitments,
@@ -5701,7 +5790,7 @@ def _pluggy_erro_detalhe(e: Exception) -> str:
 # só puderam ser datadas porque carregavam uma frase que eu tinha apagado depois
 # — descobrir "isso é de antes ou de depois do conserto?" por arqueologia de
 # texto funciona uma vez e por sorte.
-VERSAO_APP = "56"
+VERSAO_APP = "57"
 
 
 def anotar_falha_pluggy(user_id, motivo: str, extra: str = "") -> str:
