@@ -868,6 +868,22 @@ for _quem, _tam in ((".olho-do-valor", "20px"), (".sidebar-tema", "19px")):
           ("%s svg { width: %s" % (_quem, _tam)) in _css)
 # A barra so' afina de verdade se os botoes redondos afinarem: sao eles que
 # definem a altura minima.
+# ---- O valor fugindo da caixa nas ultimas movimentacoes ----
+# `.linha-valor > .badge` protegia badge FILHO DIRETO. Quando o lapis de editar
+# entrou na tela inicial, o valor virou neto (embrulhado num div com o botao), a
+# regra deixou de casar EM SILENCIO e o numero saiu cortado: no aparelho dele
+# aparecia "− R$ 5,5(" com o lapis por cima. Medido: precisava de 123px e tinha 83.
+check("a linha de dinheiro protege a POSICAO, nao a classe",
+      ".linha-valor > :last-child" in _css)
+# Procura a REGRA, nao a mencao: o comentario que explica o conserto cita o
+# seletor antigo, e uma busca por substring crua daria falso positivo.
+check("e nao depende mais do badge ser filho direto",
+      ".linha-valor > .badge {" not in _css and ".linha-valor > .badge," not in _css)
+check("o numero nunca quebra no meio",
+      "white-space: nowrap" in _css.split(".linha-valor .badge")[1].split("}")[0])
+check("so o bloco de texto encolhe",
+      "min-width: 0" in _css.split(".linha-valor > :first-child")[1].split("}")[0])
+
 check("a barra de cima ficou mais fina", "padding: 10px 20px" in _css)
 check("no celular tambem", "padding: 8px 14px" in _css)
 check("e os botoes redondos encolhem junto, senao nao adianta",

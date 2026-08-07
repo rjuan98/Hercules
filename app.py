@@ -5859,7 +5859,7 @@ def _pluggy_erro_detalhe(e: Exception) -> str:
 # só puderam ser datadas porque carregavam uma frase que eu tinha apagado depois
 # — descobrir "isso é de antes ou de depois do conserto?" por arqueologia de
 # texto funciona uma vez e por sorte.
-VERSAO_APP = "60"
+VERSAO_APP = "61"
 
 
 def anotar_falha_pluggy(user_id, motivo: str, extra: str = "") -> str:

@@ -751,7 +751,21 @@ input[type="checkbox"]:focus-visible {
 /* Linha de dinheiro: o valor fica SEMPRE no mesmo canto. Com wrap, ele caía
    pra baixo quando a descrição era longa e a lista virava um zigue-zague. */
 .linha-valor { flex-wrap: nowrap; align-items: flex-start; }
-.linha-valor > .badge { flex: 0 0 auto; align-self: flex-start; }
+
+/* Protege o SEGUNDO bloco da linha, seja ele o que for. A regra antiga era
+   `.linha-valor > .badge`, que só pega badge filho direto — e no dia em que o
+   lápis de editar entrou na tela inicial, o valor virou neto (embrulhado num div
+   com o botão). A regra deixou de casar em silêncio, o embrulho encolheu e o
+   número saiu cortado da caixa: "− R$ 5,5(" com o lápis por cima. Mirar na
+   POSIÇÃO em vez da classe sobrevive ao próximo botão que puserem aqui. */
+.linha-valor > :last-child { flex: 0 0 auto; align-self: flex-start; }
+
+/* E o número nunca quebra no meio: "R$ 1.234,56" partido em duas linhas é
+   ilegível, e é o que sobra quando o espaço aperta de verdade. */
+.linha-valor .badge { white-space: nowrap; }
+
+/* Só o bloco de TEXTO encolhe. Sem isto, os dois disputam e o valor perde. */
+.linha-valor > :first-child { min-width: 0; flex: 1 1 auto; }
 .note-meta {
     display: flex;
     flex-wrap: wrap;

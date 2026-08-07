@@ -2,10 +2,12 @@
 
 Assistente financeiro para quem não gosta de planilha.
 
-A ideia é simples: você não deveria precisar anotar cada gasto pra saber quanto pode
-gastar. O Hércules puxa os lançamentos do seu banco pelo Open Finance, aprende o que é
-cada gasto, e responde as duas perguntas que importam — **quanto eu tenho** e **quanto dá
-pra gastar hoje**.
+A ideia é simples: o app responde as duas perguntas que importam — **quanto eu tenho** e
+**quanto dá pra gastar hoje** — sem exigir que você vire contador do próprio dinheiro.
+
+Os lançamentos entram do jeito que der: digitados, por foto do comprovante, pelo extrato
+em OFX ou PDF, ou colando o texto que você copiou do app do banco. Ele aprende o que é
+cada gasto e não pede a mesma coisa duas vezes.
 
 Feito em português do Brasil, para o Brasil: MEI, DAS, nota fiscal, DASN, prévia do IR.
 
@@ -32,7 +34,7 @@ você configurar as chaves.
 python testes.py
 ```
 
-São **676 verificações** contra um banco temporário e isolado — não encostam nos seus
+São **1.284 verificações** contra um banco temporário e isolado — não encostam nos seus
 dados. Cobrem as contas de dinheiro, isolamento entre usuários, fuso horário, o ciclo
 da fatura, entrada hostil em todo formulário, envio duplicado, exclusão em cascata e
 duas abas abertas na mesma conta.
@@ -54,8 +56,10 @@ pip-audit -r requirements.txt
 ## O que o app faz
 
 **O dinheiro do dia a dia**
-- Conexão com o banco via Open Finance (Pluggy) — os gastos entram sozinhos
-- Importar extrato em OFX, PDF ou texto colado, para quem não quer conectar
+- Lançar em segundos, ou trazer o extrato de uma vez: OFX, PDF ou texto colado do app
+  do banco — sem lançar nada duas vezes
+- Conexão automática com o banco via Open Finance (Pluggy): **construída e testada,
+  hoje desligada** — veja *Sobre o Open Finance* abaixo
 - Categorização automática que **aprende**: você ensina uma vez que "hops" é Bebidas e
   ele acerta pra sempre, inclusive nos lançamentos antigos
 - Cartão de crédito de verdade: fatura por ciclo de fechamento, parcelas sem contar três
@@ -82,6 +86,22 @@ pip-audit -r requirements.txt
 - Modo simples, para quem quer só o essencial na tela
 - Ocultar valores com um toque
 - PWA: instala na tela inicial e funciona como app
+
+---
+
+## Sobre o Open Finance
+
+O código está pronto: widget de conexão, sincronização, saldo real, cartão, parcelas,
+investimentos, renovação de consentimento. Chegou a funcionar de verdade — banco
+conectado, movimentação real entrando, saldo batendo com o app do banco.
+
+Está desligado (`OPEN_FINANCE_ABERTO = False` no `app.py`) por um motivo que não é
+técnico: acesso a dado bancário no Brasil é vendido por assinatura mensal em uma faixa
+de preço que um projeto de uma pessoa só não alcança. Enquanto isso, oferecer o botão
+seria prometer uma porta que não abre.
+
+Quem tiver as chaves e o acesso a produção liga numa linha. Até lá, o caminho é o extrato
+e o registro manual — que é o que o app faz bem, e de graça.
 
 ---
 
@@ -155,5 +175,9 @@ conhecidos estão escritos sem maquiagem em `/privacidade`, dentro do app.
 
 ## Status
 
-Em uso real e em teste com um grupo pequeno. Não é um produto acabado: é um app que
+Em uso real, em teste com um grupo pequeno. Não é um produto acabado: é um app que
 funciona, com as arestas anotadas.
+
+O que ainda não existe e faz falta: recuperação de senha por e-mail (quem entra com
+Google se resolve; quem usa senha e esquece, não), mais de um banco por pessoa, e aviso
+antes do consentimento do Open Finance expirar.
