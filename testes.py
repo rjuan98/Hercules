@@ -373,8 +373,14 @@ check("preferencias salvam (meta 300, teto 500)",
 secao("19. Primeiro acesso e estados vazios")
 c_novo = novo_cliente("novato@teste.com", nome="Novato")
 h = c_novo.get("/").get_data(as_text=True)
-check("primeiro acesso oferece conectar o banco", "Conectar meu banco" in h)
-check("nao repete o botao de conectar", h.count("Conectar meu banco") == 1, h.count("Conectar meu banco"))
+# A conexao automatica esta FECHADA (OPEN_FINANCE_ABERTO=False): o trial da
+# Pluggy expirou e a aplicacao nunca teve acesso a producao. Oferecer o botao
+# seria prometer uma porta que nao abre — a pessoa clica, espera e leva erro.
+check("com a conexao fechada, o primeiro acesso nao oferece banco",
+      "Conectar meu banco" not in h)
+check("e nao sobra promessa solta na tela", "Conectar banco" not in h)
+check("mas o app segue util: o convite e comecar a anotar",
+      "primeira nota" in h or "quanto voc\u00ea tem hoje" in h.lower() or "Sald" in h)
 check("nao diz 'No azul' com saldo zero", "No azul" not in h)
 check("nao mostra cards vazios de conta/meta", "Próximas contas" not in h)
 check("nao mostra 'Nada registrado ainda'", "Nada registrado ainda" not in h)
@@ -701,8 +707,11 @@ _an = A.app.test_client()
 r_aj = _an.get("/ajuda")
 h_aj = r_aj.get_data(as_text=True)
 check("ajuda abre SEM login (da pra mandar no WhatsApp)", r_aj.status_code == 200)
-check("tem o passo a passo do banco", "ajuda-passos" in h_aj)
-check("manda escolher O PROPRIO banco na lista", "seu banco na lista" in h_aj)
+check("tem passo a passo", "ajuda-passos" in h_aj)
+# A conexao automatica esta fora do ar. A ajuda ensina o que a pessoa PODE fazer
+# hoje — anotar, importar, ensinar categoria — em vez de um caminho fechado.
+check("ensina o caminho que existe: anotar", "Anote o que gastou" in h_aj)
+check("e o extrato, pra quem prefere de uma vez", "Importar" in h_aj)
 check("e nao pede cadastro em site nenhum antes",
       "meu.pluggy" not in h_aj and "Meu Pluggy" not in h_aj)
 check("lembra que e' so leitura", "só de leitura" in h_aj)
@@ -1285,13 +1294,16 @@ _h_aj2 = c_mae.get("/ajuda").get_data(as_text=True)
 # O diagnostico na conta dele mostrou 233 bancos aparecendo direto. O caminho
 # com cadastro extra nao existe mais, e ensinar ele era o que travava as
 # pessoas — criavam uma conta a toa e depois procuravam o nome errado na lista.
-for _passo in ("Conectar banco", "seu banco na lista", "Autorize na tela do seu banco",
-               "Sincronizar"):
+for _passo in ("Anote o que gastou", "extrato", "colar o texto", "Ensine uma vez"):
     check(f"ajuda cobre: {_passo[:30]}", _passo in _h_aj2)
-check("e nao ensina mais o caminho que nao precisa existir",
-      "meu.pluggy" not in _h_aj2)
-check("quem tentou pelo caminho antigo e liberado a esquecer",
-      "pode esquecer o que fez" in _h_aj2)
+check("nao ensina o caminho que nao existe mais", "meu.pluggy" not in _h_aj2)
+# Silencio sobre o banco faria a pessoa procurar um botao que sumiu. Dizer a
+# verdade custa um paragrafo e evita que ela ache que fez algo errado.
+check("mas explica por que o banco nao esta la", "fora do ar" in _h_aj2)
+check("sem culpar a pessoa nem enrolar", "pago" in _h_aj2 or "n\u00e3o alcan\u00e7a" in _h_aj2)
+# Este check garantia uma frase sobre o cadastro antigo do Meu Pluggy. Com o
+# passo a passo de banco fora do ar, a frase perdeu o contexto — ficaria falando
+# de um caminho que a pagina nem menciona mais.
 check("a ajuda abre sem login (da pra mandar antes no WhatsApp)",
       _an.get("/ajuda").status_code == 200)
 
@@ -1597,10 +1609,29 @@ check("e o convite diz que funciona sem configurar nada",
 check("a nota vem ANTES do banco na tela",
       _h_estreia.index("primeira nota") < _h_estreia.index("Conectar banco")
       if "Conectar banco" in _h_estreia else True)
-check("o banco continua disponivel (ela QUER conectar depois)",
-      "/pluggy/conectar" in _h_estreia or not A.pluggy_configured())
-check("mas assumido como extra", "isso é <strong>extra</strong>" in _h_estreia
-      or not A.pluggy_configured())
+# Enquanto fechada, nem o link aparece. Quando reabrir (OPEN_FINANCE_ABERTO=True
+# ou admin), o convite volta inteiro — e continua sendo apresentado como EXTRA,
+# nunca como pre-requisito pra usar o app.
+check("com a conexao fechada, nem o link do banco aparece",
+      "/pluggy/conectar" not in _h_estreia)
+
+_admin_antes_banco = A.ADMIN_EMAIL
+A.ADMIN_EMAIL = "chefebanco@teste.com"
+# Perfil MEI: o bloco 'e extra' vive no convite de estreia de quem guarda nota,
+# que e onde a primeira testadora travou. Com pf a tela e outra.
+_c_chefe = novo_cliente("chefebanco@teste.com", nome="Chefe Banco", perfil="mei")
+_h_chefe = _c_chefe.get("/").get_data(as_text=True)
+check("quem pode conectar continua recebendo o convite",
+      "/pluggy/conectar" in _h_chefe or not A.pluggy_configured())
+check("e continua sendo apresentado como extra, nao pre-requisito",
+      "isso é <strong>extra</strong>" in _h_chefe or not A.pluggy_configured())
+
+# Esconder o botao nao basta: quem souber o endereco chega la.
+_r_fechada = novo_cliente("semporta@teste.com", nome="Sem Porta").get(
+    "/pluggy/conectar", follow_redirects=False)
+check("a rota tambem recusa quem nao pode", _r_fechada.status_code == 302,
+      _r_fechada.status_code)
+A.ADMIN_EMAIL = _admin_antes_banco
 
 c_novo_pf = novo_cliente("estreia-pf@teste.com", nome="Bia", perfil="pf")
 _h_pf = c_novo_pf.get("/").get_data(as_text=True)

@@ -75,6 +75,7 @@
     </a>
 
     {% if pluggy_ativo and not pluggy_tem_banco %}
+    {% if mostrar_banco %}
     <div class="auth-note" style="margin-top:16px;">
         <i class="icone-texto" data-lucide="landmark"></i> <strong>Quer que eu veja seus gastos sozinho também?</strong> Dá pra conectar o banco —
         mas isso é <strong>extra</strong>, leva uns 10 minutos e passa por um cadastro fora daqui.
@@ -88,6 +89,7 @@
             </a>
         </div>
     </div>
+    {% endif %}
     {% endif %}
 
     <details class="form-advanced" style="margin-top:14px;">
@@ -122,7 +124,7 @@
         </div>
     </div>
 
-    {% if pluggy_ativo and not pluggy_tem_banco %}
+    {% if pluggy_ativo and mostrar_banco and not pluggy_tem_banco %}
     <a href="{{ url_for('pluggy_conectar') }}" class="button button-primary" style="width:100%;">
         <i data-lucide="link"></i> Conectar meu banco
     </a>
@@ -350,7 +352,7 @@
                 <span id="syncLabel">Sincronizar</span>
             </button>
         </form>
-        {% elif pluggy_ativo and not onboarding %}
+        {% elif pluggy_ativo and mostrar_banco and not onboarding %}
         {# no primeiro acesso o convite acima já tem esse botão — não repete #}
         <a href="{{ url_for('pluggy_conectar') }}" class="button button-primary"><i data-lucide="link"></i> Conectar banco</a>
         {% endif %}

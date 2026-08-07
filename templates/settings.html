@@ -162,11 +162,6 @@
         <a href="{{ url_for('conferir') }}" class="button button-outline">
             <i data-lucide="search-check"></i> Conferir meus números
         </a>
-        {% if pluggy_ativo %}
-        <a href="{{ url_for('pluggy_diagnostico') }}" class="button button-outline">
-            <i data-lucide="stethoscope"></i> Diagnóstico da conexão
-        </a>
-        {% endif %}
     </div>
 </section>
 
@@ -188,53 +183,35 @@
     </div>
 </section>
 
+{# Conexão automática com o banco.
+
+   Só aparece pra quem JÁ tem banco conectado ou pro admin. Enquanto
+   OPEN_FINANCE_ABERTO é False, oferecer "Conectar meu banco" seria prometer uma
+   porta que não abre — a aplicação não tem acesso a produção na Pluggy.
+
+   E o que sobrou aqui é escrito pra quem usa o app. Client ID, WSGI, Reload e
+   "Testar conexão" foram pro bloco de ferramentas, que só o admin vê: são coisas
+   de quem construiu isto, e falar de peça quebrando assusta sem ajudar. #}
+{% if pluggy_tem_banco or mostrar_banco %}
 <section class="page-card" style="margin-top:18px;">
-    <div class="topbar-copy" style="margin-bottom:14px;">
-        <h2 class="topbar-title" style="font-size:1.25rem;">Conectar banco (Open Finance) <i class="icone-texto" data-lucide="link"></i></h2>
-        <p class="topbar-subtitle">O jeito automático de verdade: com sua autorização, o banco entrega os gastos direto pro Herc — sem subir arquivo. Usa o Open Finance oficial via Pluggy.</p>
+    <div class="topbar-copy" style="margin-bottom:10px;">
+        <h2 class="topbar-title" style="font-size:1.25rem;">Seu banco <i class="icone-texto" data-lucide="link"></i></h2>
+        <p class="topbar-subtitle">Com sua autorização, o banco entrega os gastos direto pro Herc — sem subir arquivo.</p>
     </div>
 
-    {% if not pluggy_ativo %}
-    <div class="auth-note">
-        Ainda não está ligado neste servidor — faltam as chaves da aplicação (Client ID/Secret) no ambiente.
-    </div>
-    <p class="helper-text" style="margin-top:10px;">
-        O servidor está lendo:
-        Client ID <i class="icone-texto" data-lucide="{{ 'check' if pluggy_tem_id else 'x' }}"></i> ·
-        Client Secret <i class="icone-texto" data-lucide="{{ 'check' if pluggy_tem_secret else 'x' }}"></i>.
-        {% if not (pluggy_tem_id and pluggy_tem_secret) %}
-        Quem estiver com <i class="icone-texto" data-lucide="x"></i> não chegou nas variáveis de ambiente (confira a ordem no WSGI e dê Reload).
-        {% endif %}
-    </p>
-    <details class="form-advanced" style="margin-top:14px;">
-        <summary>Como ligar (uma vez)</summary>
-        <ol style="margin:12px 0 0; padding-left:20px; line-height:1.9;">
-            <li>No painel da Pluggy (dashboard.pluggy.ai), na sua aplicação, copie o <strong>Client ID</strong> e o <strong>Client Secret</strong>.</li>
-            <li>No PythonAnywhere, defina <code>PLUGGY_CLIENT_ID</code> e <code>PLUGGY_CLIENT_SECRET</code> nas variáveis de ambiente e recarregue.</li>
-            <li>Aí aparece aqui o botão <strong>"Conectar meu banco"</strong> — e o banco você conecta pelo próprio Herc.</li>
-        </ol>
-        <p class="helper-text" style="margin-top:10px;"><strong>Nunca cole o Client Secret no chat nem em lugar público.</strong></p>
-    </details>
-
-    {% elif pluggy_tem_banco %}
+    {% if pluggy_tem_banco %}
     <div class="auth-note" style="border-color:rgba(61,90,46,0.35); background:rgba(61,90,46,0.10);">
         <strong><i class="icone-texto" data-lucide="check"></i> Banco conectado.</strong> Puxe seus gastos quando quiser.
     </div>
     <p class="helper-text" style="margin-top:10px;">
-        <strong>Última leitura do banco:</strong>
         {% if user['saldo_banco'] is not none %}
-            conta {{ user['saldo_banco']|money }}
-            {% if user['saldo_investido'] %} · guardado (caixinhas/investimentos) {{ user['saldo_investido']|money }}{% endif %}
-            {% if user['last_sync_at'] %} · lido em {{ user['last_sync_at'].replace('T', ' ')[:16] }}{% endif %}
-            <br>
-            {% if user['ultima_coleta_banco'] %}
-            <strong>O banco coletou esses dados em {{ user['ultima_coleta_banco'].replace('T', ' ')[:16] }} (UTC).</strong>
-            Essa é a data que importa: o Herc só enxerga até onde o banco coletou.
-            {% endif %}
-            <br>É esse valor que aparece como seu saldo. Se não bate com o app do banco,
-            pode ser dinheiro em caixinha, que o banco informa separado.
+        A última vez que li o seu banco, a conta tinha {{ user['saldo_banco']|money }}
+        {%- if user['saldo_investido'] %}, e havia {{ user['saldo_investido']|money }} guardado
+        em caixinhas ou investimentos{% endif %}.
+        É esse valor que aparece como seu saldo. Se não bate com o app do banco, costuma
+        ser dinheiro em caixinha, que o banco informa separado.
         {% else %}
-            ainda não recebi o saldo. Toque em <strong>Sincronizar agora</strong>.
+        Ainda não recebi o saldo do banco. Toque em <strong>Sincronizar agora</strong>.
         {% endif %}
     </p>
     <div class="page-actions" style="justify-content:flex-start; margin-top:14px;">
@@ -242,38 +219,74 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="button button-primary"><i data-lucide="refresh-cw"></i> Sincronizar agora</button>
         </form>
+        {% if mostrar_banco %}
+        <a href="{{ url_for('pluggy_conectar') }}" class="button button-outline"><i data-lucide="repeat"></i> Reconectar</a>
+        {% endif %}
+    </div>
+
+    {% elif mostrar_banco %}
+    <div class="auth-note">
+        Falta conectar seu banco. O login é no próprio banco, e o Herc só consegue ler.
+    </div>
+    <div class="page-actions" style="justify-content:flex-start; margin-top:14px;">
+        <a href="{{ url_for('pluggy_conectar') }}" class="button button-primary"><i data-lucide="link"></i> Conectar meu banco</a>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
+{# Ferramentas de quem cuida do app. Não são segredo — são inúteis e assustadoras
+   pra quem só quer saber quanto pode gastar hoje. #}
+{% if eh_admin %}
+<section class="page-card" style="margin-top:18px;">
+    <div class="topbar-copy" style="margin-bottom:10px;">
+        <h2 class="topbar-title" style="font-size:1.1rem;">Ferramentas de quem cuida do app</h2>
+        <p class="topbar-subtitle">Só você vê isto.</p>
+    </div>
+    <p class="helper-text" style="margin:0 0 10px;">
+        Conexão automática pro público:
+        <strong>{{ 'ligada' if open_finance_aberto else 'desligada' }}</strong>.
+        {% if not open_finance_aberto %}
+        Enquanto estiver desligada, só você recebe o convite de conectar banco —
+        os outros não veem uma porta que não abre.
+        {% endif %}
+        <br>Chaves no servidor: Client ID
+        <i class="icone-texto" data-lucide="{{ 'check' if pluggy_tem_id else 'x' }}"></i> ·
+        Client Secret <i class="icone-texto" data-lucide="{{ 'check' if pluggy_tem_secret else 'x' }}"></i>.
+        {% if user['ultima_coleta_banco'] %}
+        <br>O banco coletou os dados em {{ user['ultima_coleta_banco'].replace('T', ' ')[:16] }} (UTC) —
+        é até aí que o Herc enxerga.
+        {% endif %}
+    </p>
+    <div class="page-actions" style="justify-content:flex-start;">
+        <a href="{{ url_for('conferir') }}" class="button button-outline">
+            <i data-lucide="search-check"></i> Conferir os números
+        </a>
+        {% if pluggy_ativo %}
+        <a href="{{ url_for('pluggy_diagnostico') }}" class="button button-outline">
+            <i data-lucide="stethoscope"></i> Diagnóstico da conexão
+        </a>
         <form method="POST" action="{{ url_for('pluggy_testar') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="button button-outline"><i data-lucide="plug"></i> Testar conexão</button>
         </form>
-        <a href="{{ url_for('pluggy_conectar') }}" class="button button-outline"><i data-lucide="repeat"></i> Reconectar</a>
+        {% endif %}
     </div>
+    {% if pluggy_tem_banco %}
     <details class="form-advanced" style="margin-top:12px;">
         <summary>Saldo ou histórico bagunçado?</summary>
         <p class="helper-text" style="margin:10px 0;">
-            Se você importou OFX/planilha antes, pode ter movimentação repetida. Isto apaga o histórico
-            antigo do Herc e deixa o <strong>banco como fonte única</strong> (suas regras e metas ficam).
-            Depois é só sincronizar.
+            Apaga o histórico antigo do Herc e deixa o <strong>banco como fonte única</strong>
+            (regras e metas ficam). Depois é só sincronizar.
         </p>
         <form method="POST" action="{{ url_for('pluggy_recomecar') }}" data-confirm="Apagar o histórico atual do Herc e recomeçar do banco? Suas regras e metas ficam; as movimentações antigas (inclusive de OFX/planilha) somem.">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="button button-danger">Recomeçar limpo com o banco</button>
         </form>
     </details>
-
-    {% else %}
-    <div class="auth-note">
-        Falta conectar seu banco. É rápido e seguro — o login é no próprio banco, pela Pluggy.
-    </div>
-    <div class="page-actions" style="justify-content:flex-start; margin-top:14px;">
-        <a href="{{ url_for('pluggy_conectar') }}" class="button button-primary"><i data-lucide="link"></i> Conectar meu banco</a>
-    </div>
-    <p class="helper-text" style="margin-top:10px;">
-        Você conecta uma vez; depois é só sincronizar.
-        <a href="{{ url_for('ajuda') }}" style="color:var(--primary-deep); font-weight:800;">Ver o passo a passo</a>
-    </p>
     {% endif %}
 </section>
+{% endif %}
 
 <section class="page-card" style="margin-top:18px;">
     <div class="topbar-copy" style="margin-bottom:10px;">

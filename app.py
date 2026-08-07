@@ -73,6 +73,22 @@ except ImportError:
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 # Open Finance via Pluggy: liga sozinho quando as chaves existirem no ambiente.
+# A conexão automática com o banco está DESLIGADA pro usuário comum.
+#
+# Não é falta de código: o fluxo foi construído, testado e chegou a funcionar de
+# verdade (banco conectado, movimentação real, saldo batendo) durante o trial da
+# Pluggy. O trial expirou e a aplicação nunca recebeu acesso a produção — que
+# exige due diligence e plano pago, numa faixa de preço que este projeto não
+# alcança hoje.
+#
+# Enquanto isso, oferecer o botão seria prometer uma porta que não abre: a
+# pessoa clica, espera e leva um erro que não sabe interpretar.
+#
+# Quem já tem banco conectado continua sincronizando, e o admin continua vendo
+# tudo (é ele quem vai testar no dia em que liberar). Pra religar pra todo mundo,
+# basta trocar esta linha por True.
+OPEN_FINANCE_ABERTO = False
+
 PLUGGY_API = "https://api.pluggy.ai"
 PLUGGY_CLIENT_ID = os.environ.get("PLUGGY_CLIENT_ID")
 PLUGGY_CLIENT_SECRET = os.environ.get("PLUGGY_CLIENT_SECRET")
@@ -862,6 +878,23 @@ def import_ofx_transactions(user_id: int, items: list[dict[str, Any]], forcar_cr
 def pluggy_configured() -> bool:
     """App nível: consegue falar com a Pluggy. O item do banco é por usuário."""
     return bool(PLUGGY_CLIENT_ID and PLUGGY_CLIENT_SECRET and http_requests)
+
+
+def pode_conectar_banco(user) -> bool:
+    """Quem ainda pode receber o convite pra conectar o banco.
+
+    Enquanto a conexão está fechada, só o admin — que é quem precisa testar no
+    dia em que a produção liberar. Quem JÁ conectou não perde nada: continua
+    sincronizando pelas funções normais.
+    """
+    return bool(OPEN_FINANCE_ABERTO or eh_admin(user))
+
+
+def ferramenta_de_dev(user) -> bool:
+    """"Testar conexão", "Diagnóstico", "Recomeçar limpo": coisa de quem
+    construiu o app, não de quem só quer saber quanto pode gastar hoje. Falam de
+    coisa quebrando e assustam sem ajudar."""
+    return bool(eh_admin(user))
 
 
 def pluggy_user_item_ids(user) -> list[str]:
@@ -3185,6 +3218,7 @@ def home():
         goal=goal,
         pluggy_ativo=pluggy_configured(),
         pluggy_tem_banco=bool(pluggy_user_item_ids(user)),
+        mostrar_banco=pode_conectar_banco(user),
         sobra_guardar=sobra_guardar,
         dividas_resumo=calc_dividas(user["id"]),
         parcelas=calc_parcelas_futuras(user["id"]),
@@ -4369,6 +4403,8 @@ def settings():
         pluggy_tem_id=bool(PLUGGY_CLIENT_ID),
         pluggy_tem_secret=bool(PLUGGY_CLIENT_SECRET),
         pluggy_tem_banco=bool(pluggy_user_item_ids(user)),
+        mostrar_banco=pode_conectar_banco(user),
+        open_finance_aberto=OPEN_FINANCE_ABERTO,
         webauthn_ok=webauthn_disponivel(),
         passkey_ativa=app_tem_bloqueio(user["id"]),
     )
@@ -5823,7 +5859,7 @@ def _pluggy_erro_detalhe(e: Exception) -> str:
 # só puderam ser datadas porque carregavam uma frase que eu tinha apagado depois
 # — descobrir "isso é de antes ou de depois do conserto?" por arqueologia de
 # texto funciona uma vez e por sorte.
-VERSAO_APP = "59"
+VERSAO_APP = "60"
 
 
 def anotar_falha_pluggy(user_id, motivo: str, extra: str = "") -> str:
@@ -5853,7 +5889,16 @@ def anotar_falha_pluggy(user_id, motivo: str, extra: str = "") -> str:
 @login_required
 def pluggy_conectar():
     """Abre o widget Pluggy Connect (amarrado à NOSSA aplicação) pra conectar o banco."""
+    # Esconder o botão não basta: quem souber o endereço chega aqui. Enquanto a
+    # conexão está fechada, quem não pode conectar volta com um recado honesto em
+    # vez de uma janela que erra.
     user = current_user()
+    if not pode_conectar_banco(user):
+        flash("A conexão automática com o banco está fora do ar por enquanto. "
+              "Dá pra anotar os gastos na mão ou importar o extrato — e eu aviso "
+              "quando ela voltar.")
+        return redirect(url_for("home"))
+
     if not pluggy_configured():
         flash("A conexão automática ainda não está ligada neste servidor.")
         return redirect(url_for("settings"))
