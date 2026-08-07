@@ -4871,6 +4871,147 @@ check("clicar no X guarda a recusa, pra nao voltar amanha",
 A.ADMIN_EMAIL = _admin_antes
 
 
+
+secao("115. Painel MEI: os numeros que enganavam")
+# Tres defeitos achados rodando cenario, nao lendo formula. Todos erravam pro
+# lado de "esta tranquilo", que e o pior lado pra errar quando desenquadramento
+# do MEI e retroativo.
+
+c115 = novo_cliente("mei115@teste.com", nome="MEI Teste", perfil="mei")
+_u115 = uid_de("mei115@teste.com")
+_ano = A.hoje_br().year
+_mes = A.hoje_br().month
+
+
+def _nota115(uid, valor, mes, ano=None):
+    with get_db() as db:
+        db.execute("""INSERT INTO notas (user_id, tipo, valor, data_emissao, data_upload,
+                                          categoria, status, cliente, descricao)
+                      VALUES (?, 'entrada', ?, ?, ?, 'Servicos', 'Autorizada', 'X', 'Venda')""",
+                   (uid, valor, "%d-%02d-10" % (ano or _ano, mes), "%d-%02d-10" % (ano or _ano, mes)))
+
+
+def _entrada115(uid, valor, mes, **kw):
+    with get_db() as db:
+        db.execute("""INSERT INTO transacoes (user_id, tipo, valor, descricao, data_transacao,
+                                              categoria, no_credito, interno, fonte)
+                      VALUES (?, 'entrada', ?, 'Venda', ?, ?, ?, ?, ?)""",
+                   (uid, valor, "%d-%02d-15" % (_ano, mes), kw.get("categoria", "Vendas"),
+                    kw.get("no_credito", 0), kw.get("interno", 0), kw.get("fonte", "manual")))
+
+
+# ---- 1. Limite proporcional no ano da abertura ----
+# Quem abriu em setembro tem direito a 4/12 do teto. Comparar com o teto cheio
+# dizia "37%, tranquilo" pra quem ja tinha estourado.
+def _com_abertura(quando):
+    with get_db() as db:
+        db.execute("UPDATE usuarios SET mei_abertura = ? WHERE id = ?", (quando, _u115))
+        return db.execute("SELECT * FROM usuarios WHERE id = ?", (_u115,)).fetchone()
+
+_lim, _meses = A.limite_mei_do_ano(_com_abertura("%d-09-15" % _ano), _ano)
+check("abriu em setembro: limite e 4/12 do teto",
+      round(_lim) == round(A.MEI_LIMITE_ANUAL / 12 * 4), round(_lim))
+check("e o painel sabe quantos meses cobre", _meses == 4, _meses)
+
+_lim, _meses = A.limite_mei_do_ano(_com_abertura("%d-01-05" % _ano), _ano)
+check("abriu em janeiro: teto cheio", _lim == A.MEI_LIMITE_ANUAL and _meses == 12)
+
+_lim, _ = A.limite_mei_do_ano(_com_abertura("%d-09-15" % (_ano - 1)), _ano)
+check("ano seguinte ao da abertura ja vale o teto cheio", _lim == A.MEI_LIMITE_ANUAL, _lim)
+
+_lim, _ = A.limite_mei_do_ano(_com_abertura(None), _ano)
+check("sem informar a abertura, o teto cheio (nao inventa)", _lim == A.MEI_LIMITE_ANUAL)
+check("data podre nao derruba a conta",
+      A.limite_mei_do_ano(_com_abertura("nao-e-data"), _ano)[0] == A.MEI_LIMITE_ANUAL)
+
+# ---- 2. Projecao sobre os meses que a pessoa VIVEU no app ----
+# Dividir pelo mes do calendario assume dado desde janeiro: quem lancou o
+# primeiro mes em agosto via R$ 5.000/mes virar projecao de R$ 7.500 no ano.
+_nota115(_u115, 5000, _mes)
+check("um mes lancado conta como um mes, nao como o mes do calendario",
+      A.meses_de_atividade(_u115, _ano, A.hoje_br()) == 1,
+      A.meses_de_atividade(_u115, _ano, A.hoje_br()))
+if _mes >= 3:
+    _nota115(_u115, 5000, _mes - 2)
+    check("do primeiro lancamento ate hoje",
+          A.meses_de_atividade(_u115, _ano, A.hoje_br()) == 3,
+          A.meses_de_atividade(_u115, _ano, A.hoje_br()))
+check("nunca divide por zero", A.meses_de_atividade(_u115, _ano + 5, A.hoje_br()) >= 1)
+
+# ---- 3. O dinheiro que entrou sem nota ----
+# O MEI so e obrigado a emitir nota pra cliente PJ. Quem vende pra pessoa fisica
+# sumia do painel: um caso real deu R$ 48.000 recebidos contra R$ 800 em notas.
+c115b = novo_cliente("mei115b@teste.com", nome="Sem Nota", perfil="mei")
+_u115b = uid_de("mei115b@teste.com")
+_entrada115(_u115b, 6000, _mes)
+check("entrada sem nota aparece", A.faturamento_sem_nota(_u115b, _ano) == 6000,
+      A.faturamento_sem_nota(_u115b, _ano))
+
+# E as marcacoes que ja existem no resto do app tem que valer aqui tambem, senao
+# o numero novo nasce com os mesmos erros que a gente passou a semana corrigindo.
+_entrada115(_u115b, 999, _mes, interno=1)
+check("dinheiro passeando entre contas proprias nao e faturamento",
+      A.faturamento_sem_nota(_u115b, _ano) == 6000, A.faturamento_sem_nota(_u115b, _ano))
+_entrada115(_u115b, 888, _mes, fonte="ajuste")
+check("correcao de saldo tambem nao",
+      A.faturamento_sem_nota(_u115b, _ano) == 6000, A.faturamento_sem_nota(_u115b, _ano))
+_entrada115(_u115b, 777, _mes, categoria="Reserva")
+check("nem aporte de reserva",
+      A.faturamento_sem_nota(_u115b, _ano) == 6000, A.faturamento_sem_nota(_u115b, _ano))
+
+# O que TEM nota nao pode ser contado duas vezes.
+with get_db() as db:
+    _nid = db.execute("""INSERT INTO notas (user_id, tipo, valor, data_emissao, data_upload,
+                                             categoria, status, cliente, descricao)
+                         VALUES (?, 'entrada', 1500, ?, ?, 'Servicos', 'Autorizada', 'X', 'Com nota')""",
+                      (_u115b, "%d-%02d-10" % (_ano, _mes), "%d-%02d-10" % (_ano, _mes))).lastrowid
+    db.execute("""INSERT INTO transacoes (user_id, tipo, valor, descricao, data_transacao,
+                                          categoria, no_credito, interno, fonte, nota_id)
+                  VALUES (?, 'entrada', 1500, 'Com nota', ?, 'Vendas', 0, 0, 'manual', ?)""",
+               (_u115b, "%d-%02d-15" % (_ano, _mes), _nid))
+check("entrada que JA tem nota nao entra no 'sem nota'",
+      A.faturamento_sem_nota(_u115b, _ano) == 6000, A.faturamento_sem_nota(_u115b, _ano))
+check("e continua contando na receita com nota",
+      A.calc_mei_faturamento(_u115b, _ano) == 1500, A.calc_mei_faturamento(_u115b, _ano))
+
+# ---- A tela ----
+_h115 = c115b.get("/mei").get_data(as_text=True)
+check("o painel abre", "Faturamento em" in _h115)
+check("e conta o buraco em vez de esconder", "sem nota este ano" in _h115)
+check("dizendo quanto daria somando", "6.000" in _h115 or "7.500" in _h115)
+check("com um mes so, nao projeta o ano", "cedo pra projetar" in _h115)
+check("o dossie continua sendo so de nota (nao corrompe o do contador)",
+      "vai no documento do contador" in _h115)
+
+# A data de abertura entra pela tela.
+_mes_passado = max(1, _mes - 1)
+_data115 = "%d-%02d-15" % (_ano, _mes_passado)
+_r115 = c115b.post("/mei/abertura", data={"csrf_token": "t", "abertura": _data115},
+                   follow_redirects=True)
+check("da pra informar quando abriu o MEI", _r115.status_code == 200)
+with get_db() as db:
+    _salvo = db.execute("SELECT mei_abertura FROM usuarios WHERE id=?", (_u115b,)).fetchone()[0]
+check("e fica guardado", _salvo == _data115, _salvo)
+# Ancora num trecho que nao quebra linha no HTML: "limite e proporcional" esta
+# partido entre duas linhas do template e nunca casaria por substring.
+check("o painel passa a mostrar o limite proporcional",
+      "dos 12 meses" in c115b.get("/mei").get_data(as_text=True))
+
+for _lixo in ("31/02/2020", "banana", "1500-01-01", "%d-01-01" % (_ano + 3)):
+    c115b.post("/mei/abertura", data={"csrf_token": "t", "abertura": _lixo}, follow_redirects=True)
+    with get_db() as db:
+        _ainda = db.execute("SELECT mei_abertura FROM usuarios WHERE id=?", (_u115b,)).fetchone()[0]
+    check("data impossivel (%s) nao entra" % _lixo, _ainda == _data115, _ainda)
+
+c115b.post("/mei/abertura", data={"csrf_token": "t", "abertura": ""}, follow_redirects=True)
+with get_db() as db:
+    check("e da pra apagar",
+          db.execute("SELECT mei_abertura FROM usuarios WHERE id=?", (_u115b,)).fetchone()[0] is None)
+
+check("quem nao e MEI nao entra no painel",
+      novo_cliente("pf115@teste.com", nome="PF").get("/mei", follow_redirects=False).status_code == 302)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:

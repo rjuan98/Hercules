@@ -377,6 +377,10 @@ def init_db():
     # Quando a assinatura foi cancelada. O acesso continua até o fim do período
     # já pago: cancelar não é punição.
     _add_column_if_missing(conn, "usuarios", "plano_cancelado_em", "TEXT")
+    # Quando o CNPJ MEI foi aberto. No ano da abertura o limite de
+    # faturamento é proporcional aos meses de atividade, e sem esta data o
+    # app dizia "tranquilo" pra quem já tinha estourado.
+    _add_column_if_missing(conn, "usuarios", "mei_abertura", "TEXT")
     _add_column_if_missing(conn, "categorias", "limite_mensal", "REAL NOT NULL DEFAULT 0.0")
     _add_column_if_missing(conn, "categorias", "created_at", "TIMESTAMP")
     # Cópias antigas do banco tinham categoria_id e nenhum timestamp nas regras

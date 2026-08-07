@@ -1851,6 +1851,15 @@ def dentro_do_arrependimento(user) -> bool:
     return (hoje_br() - inicio).days <= DIAS_ARREPENDIMENTO
 
 
+def data_valida(texto):
+    """Vira date, ou None se nao der. Campo de data no banco pode vir vazio,
+    nulo ou com lixo de importacao — quem chama nao pode explodir por isso."""
+    try:
+        return date.fromisoformat(str(texto)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
 def data_absurda(texto: str) -> bool:
     """Ano fora do que uma conta pode ter. O navegador aceita o que a pessoa
     digitar, e ano de seis dígitos vira "um número gigantesco" na tela."""
@@ -2318,6 +2327,68 @@ def calc_mei_faturamento(user_id: int, year: int) -> float:
             (user_id, str(year)),
         ).fetchone()
     return float(row["total"] or 0)
+
+
+def limite_mei_do_ano(user, year: int) -> tuple[float, int]:
+    """O teto de faturamento daquele ano, e quantos meses ele cobre.
+
+    No ano em que o CNPJ é aberto o limite é PROPORCIONAL aos meses de atividade
+    — quem abriu em setembro tem direito a 4/12 do teto, não ao teto inteiro.
+    Comparar com o teto cheio fazia o painel dizer "tranquilo" pra quem já tinha
+    estourado, e desenquadramento é retroativo: o erro custa dinheiro de verdade.
+    """
+    abertura = None
+    if user is not None and "mei_abertura" in user.keys():
+        abertura = data_valida(user["mei_abertura"])
+    if not abertura or abertura.year != year:
+        return MEI_LIMITE_ANUAL, 12
+    # O mês da abertura conta inteiro, mesmo que o CNPJ tenha saído no dia 30.
+    meses = 12 - abertura.month + 1
+    return MEI_LIMITE_ANUAL / 12 * meses, meses
+
+
+def faturamento_sem_nota(user_id: int, year: int) -> float:
+    """Dinheiro que entrou na conta e NÃO tem nota atrás.
+
+    O MEI só é obrigado a emitir nota pra cliente PJ. Quem vende pra pessoa
+    física — a maioria — quase não emite, e some do painel: um caso real deu
+    R$ 48.000 recebidos contra R$ 800 em notas, e a tela dizia 1% do limite.
+
+    Isto NÃO entra no dossiê do contador, que continua sendo feito só de nota.
+    Serve pra mostrar o buraco em vez de escondê-lo.
+    """
+    with get_db() as db:
+        row = db.execute(
+            """SELECT COALESCE(SUM(valor), 0) AS total FROM transacoes
+               WHERE user_id = ? AND tipo = 'entrada'
+                 AND nota_id IS NULL
+                 AND no_credito = 0 AND interno = 0 AND fonte != 'ajuste'
+                 AND categoria IS NOT 'Reserva'
+                 AND strftime('%Y', COALESCE(NULLIF(data_transacao, ''), created_at)) = ?""",
+            (user_id, str(year)),
+        ).fetchone()
+    return float(row["total"] or 0)
+
+
+def meses_de_atividade(user_id: int, year: int, ate: date) -> int:
+    """Quantos meses a projeção pode dividir — os que a pessoa VIVEU no app.
+
+    Dividir pelo mês do calendário assume que existe dado desde janeiro. Quem
+    começou a usar em agosto tinha o faturamento de um mês dividido por oito:
+    R$ 5.000/mês virava projeção de R$ 7.500 no ano em vez de R$ 60.000. É o
+    mesmo defeito do "R$ 129 por dia" — média sobre um tempo que não se viveu.
+    """
+    if ate.year != year:
+        return 12
+    with get_db() as db:
+        primeiro = db.execute(
+            """SELECT MIN(COALESCE(data_emissao, data_upload)) AS d FROM notas
+               WHERE user_id = ? AND tipo = 'entrada'
+                 AND strftime('%Y', COALESCE(data_emissao, data_upload)) = ?""",
+            (user_id, str(year)),
+        ).fetchone()["d"]
+    inicio = data_valida(primeiro)
+    return max(1, ate.month - (inicio.month if inicio else ate.month) + 1)
 
 
 def mei_das_status(user_id: int, year: int) -> dict[str, Any]:
@@ -3721,25 +3792,71 @@ def painel_mei():
     today = hoje_br()
     faturamento_atual = calc_mei_faturamento(user["id"], today.year)
     faturamento_anterior = calc_mei_faturamento(user["id"], today.year - 1)
-    pct = min(100.0, (faturamento_atual / MEI_LIMITE_ANUAL) * 100.0) if MEI_LIMITE_ANUAL else 0.0
-    projecao = (faturamento_atual / today.month) * 12 if today.month else faturamento_atual
+
+    # No ano da abertura o teto é proporcional aos meses de atividade. Comparar
+    # com o teto cheio dizia "tranquilo" pra quem já tinha estourado.
+    limite, meses_do_limite = limite_mei_do_ano(user, today.year)
+    pct = min(100.0, (faturamento_atual / limite) * 100.0) if limite else 0.0
+
+    # Dividir pelo mês do calendário assume dado desde janeiro. Quem começou em
+    # agosto tinha um mês dividido por oito — projeção 8x menor que a realidade.
+    meses = meses_de_atividade(user["id"], today.year, today)
+    projecao = (faturamento_atual / meses) * meses_do_limite if meses else faturamento_atual
+
+    # O que entrou na conta sem nota atrás. Não entra no dossiê do contador; está
+    # aqui pra o buraco aparecer em vez de ficar escondido atrás de um "1%".
+    sem_nota = faturamento_sem_nota(user["id"], today.year)
+
     das = mei_das_status(user["id"], today.year)
     das_valor = float(user["das_valor"] or 0) if "das_valor" in user.keys() else 0.0
+    abertura = user["mei_abertura"] if "mei_abertura" in user.keys() else None
 
     return render_template(
         "mei.html",
         user=user,
         faturamento_atual=faturamento_atual,
         faturamento_anterior=faturamento_anterior,
-        limite=MEI_LIMITE_ANUAL,
+        limite=limite,
+        limite_cheio=MEI_LIMITE_ANUAL,
+        limite_proporcional=(meses_do_limite < 12),
+        meses_do_limite=meses_do_limite,
         pct=pct,
         projecao=projecao,
+        meses_com_dado=meses,
+        pouco_dado=(meses < 3),
+        sem_nota=sem_nota,
         das=das,
         das_valor=das_valor,
+        abertura=abertura,
         ano_atual=today.year,
         ano_anterior=today.year - 1,
         is_january=(today.month == 1),
     )
+
+
+@app.route("/mei/abertura", methods=["POST"])
+@login_required
+def salvar_abertura_mei():
+    """Quando o CNPJ foi aberto — só isso muda o teto do primeiro ano."""
+    user = current_user()
+    bruto = (request.form.get("abertura") or "").strip()
+    if not bruto:
+        with get_db() as db:
+            db.execute("UPDATE usuarios SET mei_abertura = NULL WHERE id = ?", (user["id"],))
+        flash("Tirei a data de abertura. Voltei a usar o limite cheio do ano.")
+        return redirect(url_for("painel_mei"))
+
+    quando = data_valida(bruto)
+    if not quando or data_absurda(bruto) or quando > hoje_br():
+        flash("Não entendi essa data de abertura. Ela está no seu CCMEI.")
+        return redirect(url_for("painel_mei"))
+
+    with get_db() as db:
+        db.execute("UPDATE usuarios SET mei_abertura = ? WHERE id = ?",
+                   (quando.isoformat(), user["id"]))
+    flash("Anotado. No ano da abertura o seu limite é proporcional, e agora o "
+          "termômetro usa o número certo.")
+    return redirect(url_for("painel_mei"))
 
 
 @app.route("/mei/das/ativar", methods=["POST"])

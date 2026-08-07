@@ -19,7 +19,7 @@
 <section class="page-card" style="margin-bottom:18px;">
     <div class="topbar-copy" style="margin-bottom:14px;">
         <h2 class="topbar-title" style="font-size:1.25rem;">Faturamento em {{ ano_atual }}</h2>
-        <p class="topbar-subtitle">Somado das notas de entrada emitidas este ano.</p>
+        <p class="topbar-subtitle">Somado das notas de entrada emitidas este ano — é esse número que vai no documento do contador.</p>
     </div>
 
     <div class="note-header">
@@ -30,9 +30,30 @@
         <div class="progress-fill {% if pct >= 100 %}fill-danger{% elif pct >= 80 %}fill-warn{% endif %}" style="width: {{ pct }}%;"></div>
     </div>
 
+    {# Com um ou dois meses de dado, multiplicar por 12 é chute com cara de
+       número. Melhor dizer que ainda não dá do que dar um valor errado. #}
+    {% if pouco_dado %}
     <p class="helper-text" style="margin-top:12px;">
-        Nesse ritmo, você fecha o ano em torno de <strong style="color:var(--primary-deep);">{{ projecao|money }}</strong>.
+        Ainda é cedo pra projetar o ano: tenho {{ meses_com_dado }}
+        {{ 'mês' if meses_com_dado == 1 else 'meses' }} de nota lançada.
+        Com uns três meses eu já consigo estimar o fechamento.
     </p>
+    {% else %}
+    <p class="helper-text" style="margin-top:12px;">
+        Nesse ritmo, você fecha o ano em torno de
+        <strong style="color:var(--primary-deep);">{{ projecao|money }}</strong>
+        <span class="helper-text">(pela média dos {{ meses_com_dado }} meses lançados).</span>
+    </p>
+    {% endif %}
+
+    {% if limite_proporcional %}
+    <p class="helper-text" style="margin-top:8px;">
+        Você abriu o MEI durante {{ ano_atual }}, então neste ano o seu limite é
+        proporcional: <strong>{{ limite|money }}</strong>, que são
+        {{ meses_do_limite }} dos 12 meses. A partir de janeiro vale o teto cheio
+        de {{ limite_cheio|money }}.
+    </p>
+    {% endif %}
 
     {% if pct >= 100 %}
     <p class="helper-text" style="margin-top:8px; color:var(--danger);">
@@ -43,7 +64,49 @@
         Você está perto do limite — se ultrapassar {{ limite|money }} no ano, pode ser desenquadrado do MEI.
     </p>
     {% endif %}
+
+    {# O MEI só é obrigado a emitir nota pra cliente PJ. Quem vende pra pessoa
+       física quase não emite, e sumia deste painel: um caso real deu R$ 48.000
+       recebidos contra R$ 800 em notas, e a tela dizia "1% do limite". Aqui o
+       buraco aparece, com a pergunta que só a pessoa sabe responder. #}
+    {% if sem_nota > 0 %}
+    <div class="auth-note" style="margin-top:14px; border-left:4px solid var(--warning);">
+        <p class="note-title" style="margin:0 0 6px;">
+            Entraram {{ sem_nota|money }} sem nota este ano
+        </p>
+        <p class="helper-text" style="margin:0;">
+            O termômetro acima conta só o que tem nota, porque é isso que vai no
+            documento do contador. <strong>Se essa entrada for venda sua</strong>, seu
+            faturamento real é maior e você está mais perto do limite do que a barra
+            mostra — some as duas e dá {{ (faturamento_atual + sem_nota)|money }}.
+            Se for salário, presente ou transferência sua, pode ignorar.
+        </p>
+    </div>
+    {% endif %}
 </section>
+
+{# ---- Quando abriu o MEI ---- #}
+{% if not abertura %}
+<section class="page-card" style="margin-bottom:18px;">
+    <div class="topbar-copy" style="margin-bottom:12px;">
+        <h2 class="topbar-title" style="font-size:1.1rem;">Quando você abriu o MEI?</h2>
+        <p class="topbar-subtitle">
+            No ano da abertura o limite é proporcional aos meses de atividade — quem
+            abriu em setembro tem direito a 4/12 do teto, não ao teto inteiro. Sem
+            essa data eu uso o limite cheio, e posso te dizer "tranquilo" quando não está.
+        </p>
+    </div>
+    <form method="post" action="{{ url_for('salvar_abertura_mei') }}"
+          style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+        <input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
+        <div style="flex:1; min-width:180px;">
+            <label class="form-label" for="abertura">Data de abertura (está no seu CCMEI)</label>
+            <input class="form-input" type="date" id="abertura" name="abertura">
+        </div>
+        <button class="button button-primary" type="submit">Salvar</button>
+    </form>
+</section>
+{% endif %}
 
 {# ---- DAS-MEI ---- #}
 <section class="page-card" style="margin-bottom:18px;">
