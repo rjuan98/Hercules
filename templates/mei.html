@@ -27,7 +27,7 @@
         <span class="badge {% if pct >= 100 %}badge-danger{% elif pct >= 80 %}badge-warn{% endif %}">{{ pct|round(0)|int }}%</span>
     </div>
     <div class="progress-track" style="margin-top:10px;">
-        <div class="progress-fill {% if pct >= 100 %}fill-danger{% elif pct >= 80 %}fill-warn{% endif %}" style="width: {{ pct }}%;"></div>
+        <div class="progress-fill {% if pct >= 100 %}fill-danger{% elif pct >= 80 %}fill-warn{% endif %}" style="width: {{ [pct, 100]|min }}%;"></div>
     </div>
 
     {# Com um ou dois meses de dado, multiplicar por 12 é chute com cara de

@@ -2196,8 +2196,15 @@ def calc_transaction_totals(user_id: int):
     desde_pgto = (fatura_fechada["fechou_em"] if fatura_fechada
                   else month_start)
     pago_no_ciclo = fatura_ja_paga(user_id, min(desde_pgto, month_start), hoje_br())
-    if fatura_fechada and pago_no_ciclo >= fatura_fechada["valor"] - 0.01:
+
+    # O pagamento quita primeiro o que já venceu; o que sobra abate o que está
+    # por vencer. É a ordem que o banco usa, e sem ela quem adianta a fatura
+    # aberta continuava vendo o valor cheio como se devesse tudo.
+    devido_fechado = float(fatura_fechada["valor"]) if fatura_fechada else 0.0
+    if fatura_fechada and pago_no_ciclo >= devido_fechado - 0.01:
         fatura_fechada = dict(fatura_fechada, paga=True)
+    adiantado = max(0.0, pago_no_ciclo - devido_fechado)
+    fatura_a_pagar = max(0.0, fatura_atual - adiantado)
 
     stats = {
         "tem_lancamentos": tem_lancamentos,
@@ -2220,6 +2227,10 @@ def calc_transaction_totals(user_id: int):
         "credito_pct_renda": credito_pct_renda,
         "renda_de_referencia": renda_ref,
         "fatura_paga_no_ciclo": pago_no_ciclo,
+        # Quanto do pagamento sobrou depois de quitar a fatura que venceu, e
+        # quanto da aberta ainda falta pagar depois desse abatimento.
+        "fatura_adiantada": adiantado,
+        "fatura_a_pagar": fatura_a_pagar,
         "monthly_by_category": monthly_by_category,
         "upcoming_commitments": upcoming_commitments,
         "overdue_commitments": overdue_commitments,
@@ -3885,7 +3896,9 @@ def painel_mei():
     # No ano da abertura o teto é proporcional aos meses de atividade. Comparar
     # com o teto cheio dizia "tranquilo" pra quem já tinha estourado.
     limite, meses_do_limite = limite_mei_do_ano(user, today.year)
-    pct = min(100.0, (faturamento_atual / limite) * 100.0) if limite else 0.0
+    # Sem cap: quem estourou em 150% precisa LER 150%. Quem capía era a barra,
+    # que vaza da caixa — e isso o template faz sozinho.
+    pct = (faturamento_atual / limite * 100.0) if limite else 0.0
 
     # Dividir pelo mês do calendário assume dado desde janeiro. Quem começou em
     # agosto tinha um mês dividido por oito — projeção 8x menor que a realidade.
@@ -4148,7 +4161,11 @@ def dossie_mei():
             por_mes[dia] = por_mes.get(dia, 0.0) + float(n["valor"] or 0)
 
     das = mei_das_status(user["id"], int(year))
-    limite_pct = (receita / MEI_LIMITE_ANUAL * 100) if MEI_LIMITE_ANUAL else 0
+    # O mesmo limite que a tela usa. O dossiê comparava com o teto cheio
+    # enquanto o painel passou a usar o proporcional: quem abriu em setembro leria
+    # "37%" no arquivo do contador e "111%" no app, sobre o mesmo ano.
+    limite_do_ano, _meses_limite = limite_mei_do_ano(user, int(year))
+    limite_pct = (receita / limite_do_ano * 100) if limite_do_ano else 0
 
     def _brl(v):
         return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -4166,7 +4183,8 @@ def dossie_mei():
             f"  Comércio / indústria ............. {_brl(receita_comercio)}",
             f"  Serviços ......................... {_brl(receita_servico)}",
             "",
-            f"  Limite do MEI .................... {_brl(MEI_LIMITE_ANUAL)}",
+            f"  Limite do MEI .................... {_brl(limite_do_ano)}"
+            + ("  (proporcional aos meses de atividade)" if _meses_limite < 12 else ""),
             f"  Usado ............................ {limite_pct:.1f}%",
             "",
             "MÊS A MÊS",
@@ -5790,7 +5808,7 @@ def _pluggy_erro_detalhe(e: Exception) -> str:
 # só puderam ser datadas porque carregavam uma frase que eu tinha apagado depois
 # — descobrir "isso é de antes ou de depois do conserto?" por arqueologia de
 # texto funciona uma vez e por sorte.
-VERSAO_APP = "57"
+VERSAO_APP = "58"
 
 
 def anotar_falha_pluggy(user_id, motivo: str, extra: str = "") -> str:

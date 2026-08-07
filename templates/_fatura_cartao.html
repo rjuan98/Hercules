@@ -62,7 +62,21 @@
 
     {# Pagamento de fatura visto do lado da conta. Sem isto, quem pagou nao ve
        sinal nenhum de que o app percebeu. #}
-    {% if stats['fatura_paga_no_ciclo'] > 0 and not (stats['fatura_fechada'] and stats['fatura_fechada'].get('paga')) %}
+    {# Este aviso ficava escondido quando a fatura fechada estava paga — ou seja,
+       sumia justamente pra quem pagou tudo. Agora aparece sempre que houve
+       pagamento, e diz o que sobrou. #}
+    {% if stats['fatura_adiantada'] > 0 %}
+    <p class="metric-footnote" style="margin-top:6px; color:var(--success);">
+        <i class="icone-texto" data-lucide="check"></i>
+        {% if stats['fatura_a_pagar'] <= 0.01 %}
+        Você adiantou {{ stats['fatura_adiantada']|money }} e cobriu esta fatura inteira —
+        não falta nada. As compras acima já estão pagas.
+        {% else %}
+        Você adiantou {{ stats['fatura_adiantada']|money }} desta fatura.
+        Falta {{ stats['fatura_a_pagar']|money }}.
+        {% endif %}
+    </p>
+    {% elif stats['fatura_paga_no_ciclo'] > 0 and not (stats['fatura_fechada'] and stats['fatura_fechada'].get('paga')) %}
     <p class="metric-footnote" style="margin-top:6px; color:var(--success);">
         <i class="icone-texto" data-lucide="check"></i>
         Você já pagou {{ stats['fatura_paga_no_ciclo']|money }} de fatura neste mês.

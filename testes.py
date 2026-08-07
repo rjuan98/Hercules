@@ -5151,6 +5151,91 @@ check("pagar aluguel nao conta como pagar fatura",
       A.calc_transaction_totals(_u116e)["fatura_paga_no_ciclo"] == 0)
 
 
+
+secao("117. Fatura adiantada, e o numero que nao pode ser capado")
+# Ele mandou print: "ainda aparece como fatura aberta mesmo eu ja tendo pago".
+# Meu proprio conserto do dia anterior escondia o aviso de pagamento exatamente
+# quando a fatura fechada estava quitada — sumia pra quem pagou tudo.
+
+c117 = novo_cliente("cartao117@teste.com", nome="Adiantou")
+_u117 = uid_de("cartao117@teste.com")
+with get_db() as db:
+    db.execute("UPDATE usuarios SET cartao_fechamento=20, cartao_vencimento=20 WHERE id=?", (_u117,))
+for _n in (1, 2, 3):
+    _mov116(_u117, "entrada", 2945, "Salario", A.mes_atras(_hoje116, _n).replace(day=28))
+_ant117 = (_hoje116.replace(day=1) - _dt116.timedelta(days=1)).replace(day=10)
+_mov116(_u117, "saida", 400, "Compras do ciclo passado", _ant117, credito=1)
+_mov116(_u117, "saida", 160.50, "Compras novas", _hoje116.replace(day=2), credito=1)
+
+
+def _pagar117(uid, quanto):
+    with get_db() as db:
+        db.execute("DELETE FROM transacoes WHERE user_id=? AND descricao LIKE '%fatura%'", (uid,))
+        db.execute("""INSERT INTO transacoes (user_id, tipo, valor, descricao, data_transacao,
+                                              categoria, no_credito, interno, fonte)
+                      VALUES (?, 'saida', ?, 'Pagamento fatura cartao', ?, 'Outros', 0, 0, 'manual')""",
+                   (uid, quanto, _hoje116.isoformat()))
+    return A.calc_transaction_totals(uid)
+
+
+# Pagou so a que venceu: a aberta continua inteira a pagar.
+_st = _pagar117(_u117, 400)
+check("pagando so a fechada, ela fica quitada", _st["fatura_fechada"].get("paga") is True)
+check("e nada e adiantado da aberta", _st["fatura_adiantada"] == 0, _st["fatura_adiantada"])
+check("a aberta continua a pagar por inteiro",
+      round(_st["fatura_a_pagar"], 2) == 160.50, _st["fatura_a_pagar"])
+
+# Pagou alem: o que sobra abate a aberta, que e a ordem que o banco usa.
+_st = _pagar117(_u117, 560.50)
+check("o que sobra da fechada vira adiantamento da aberta",
+      round(_st["fatura_adiantada"], 2) == 160.50, _st["fatura_adiantada"])
+check("e ai nao falta nada", _st["fatura_a_pagar"] <= 0.01, _st["fatura_a_pagar"])
+check("mas o valor das compras nao muda (elas aconteceram)",
+      round(_st["fatura_credito_mes"], 2) == 160.50, _st["fatura_credito_mes"])
+
+_h117 = c117.get("/").get_data(as_text=True)
+check("a tela diz que cobriu a fatura inteira", "cobriu esta fatura inteira" in _h117)
+
+# Adiantamento parcial: tem que dizer quanto falta, nao fingir que quitou.
+_st = _pagar117(_u117, 500)
+check("adiantamento parcial abate so o que pagou",
+      round(_st["fatura_adiantada"], 2) == 100.00, _st["fatura_adiantada"])
+check("e o resto continua devendo",
+      round(_st["fatura_a_pagar"], 2) == 60.50, _st["fatura_a_pagar"])
+check("a tela diz quanto falta", "Falta" in c117.get("/").get_data(as_text=True))
+
+# Nunca negativo: pagar demais nao pode virar fatura negativa.
+_st = _pagar117(_u117, 99999)
+check("pagar muito alem nao gera valor negativo",
+      _st["fatura_a_pagar"] == 0, _st["fatura_a_pagar"])
+
+# ---- O numero da porcentagem nao pode ser capado ----
+# A barra para em 100 porque senao vaza da caixa. O NUMERO capado esconde a
+# gravidade: quem estourou o limite do MEI em 150% lia "100%".
+c117b = novo_cliente("mei117@teste.com", nome="Estourou", perfil="mei")
+_u117b = uid_de("mei117@teste.com")
+with get_db() as db:
+    db.execute("""INSERT INTO notas (user_id, tipo, valor, data_emissao, data_upload,
+                                      categoria, status, cliente, descricao)
+                  VALUES (?, 'entrada', ?, ?, ?, 'Servicos', 'Autorizada', 'X', 'Venda')""",
+               (_u117b, A.MEI_LIMITE_ANUAL * 1.5,
+                "%d-01-10" % _ano, "%d-01-10" % _ano))
+_h117b = c117b.get("/mei").get_data(as_text=True)
+check("quem estourou em 150% le 150, nao 100", "150%" in _h117b, None)
+check("mas a barra para em 100 (senao vaza da caixa)",
+      "width: 100" in _h117b or "width: 100.0" in _h117b)
+
+# ---- O dossie tem que concordar com a tela ----
+# O dossie comparava com o limite CHEIO enquanto a tela passou a usar o
+# proporcional: quem abriu em setembro leria "37%" no arquivo do contador e
+# "111%" no app, sobre o mesmo ano.
+_dossie_usa = _io_layout.open("app.py", encoding="utf-8").read()
+check("o dossie usa a mesma funcao de limite que a tela",
+      "limite_do_ano, _meses_limite = limite_mei_do_ano(user, int(year))" in _dossie_usa)
+check("e nao o teto cheio direto",
+      "receita / MEI_LIMITE_ANUAL" not in _dossie_usa)
+
+
 print("\n" + "=" * 62)
 print(f"PASSOU: {len(OK)}   FALHOU: {len(FALHAS)}")
 if FALHAS:
